@@ -1,0 +1,129 @@
+# ARXML 清单与排错
+
+返回 [README.md](README.md)。清单实现见 [../lib/file_list.py](../lib/file_list.py)。
+
+## 两种输入模式
+
+### EB 生成模式
+
+未指定 `--file-list` 且 config 中没有 `arxmlFileList` 字段时，读取必填的 `tresosPreferenceFiles`，使用与 [../../../scripts/gen_ab_project.py](../../../scripts/gen_ab_project.py) 相同的 EB 工具调用方式：
+
+```text
+PrefSystemImporter --file-list --base-path <tresos工程目录>
+    <preference1.xdm> <preference2.xdm> ... <输出目录>/<variant>.lst
+    --env TRESOS_OUTPUT_BASE_DIR=<构建输出基目录>
+```
+
+上述为换行展示的单条命令。XDM 及其中的 EB 路径表达式由 `PrefSystemImporter` 处理，本工具不再自行解析 XDM 的 `FileName`。
+
+- XDM 路径从配置解析为具体文件，默认假设其布局为 `<tresos工程>/.prefs/<文件>.xdm`。
+- `--base-path` 取**第一个** XDM 所在目录的上一级。配置中的 XDM 应属于同一个 tresos 工程；当前不验证多个文件是否来自同一工程。
+- 默认 `TRESOS_OUTPUT_BASE_DIR` 是 `projectRoot/build/<variant>.<buildType>`，不是带 `/tresos` 的下一级目录。这是沿用当前构建脚本的适配约定，不是 EB/AUTOSAR 的通用目录标准。
+- 可配置 `tresosOutputBaseDir` 适配其他布局，但还需注意下面的路径补齐逻辑。
+- 工具只调用 `--file-list`，不执行 `--ab-project`，不创建 Autosar Builder 工程，也不生成缺失的 SWCD。
+- EB 非零退出会中止本次流程；找不到命令也会报错，不自动安装或搜索其他安装目录。
+
+### 复用清单模式
+
+指定 `--file-list` 或在 config 中写了 `arxmlFileList` 后不启动 EB。清单须已存在，读取过程不覆盖、不复制该清单，也不保证在本次 `output/` 下额外出现 lst。config 中的 `arxmlFileList` 必须是非空路径字符串；空值、类型错误或文件不存在直接失败，不回退 XDM。
+
+此模式完全忽略 XDM、EB 命令及构建目录相关配置，`tresosPreferenceFiles` 可有可无，即使保留了无效值也不会检查。lst 相对路径仅从 `projectRoot` 解析。要使用 XDM，必须删除 `arxmlFileList` 字段而不是留空；详见 [configuration.md](configuration.md)。Python 转换库仍是必需依赖。
+
+## lst 格式及路径规则
+
+```text
+# 每行一个文件路径，也可以是 glob。
+app/common/swc/Lamp.arxml
+build/zcud_m7.Debug/tresos/**/swcd/*.arxml
+```
+
+1. 使用 UTF-8 文本，去除每行首尾空白，跳过空行及以 `#` 开头的行。路径有空格无需加引号；不支持行尾注释、嵌套 `@其他清单` 或在行中展开 `${variant}`。
+2. 规范化目录分隔符；仅 EB 模式下，条目包含构建基目录的末级名称时，若下一层不是 `tresos`，就在其后补一层 `tresos`。例如 `build/zcud_m7.Debug/bswm/swcd/a.arxml` 会补成 `build/zcud_m7.Debug/tresos/bswm/swcd/a.arxml`。复用清单不做此补齐，须直接提供真实路径。
+3. 绝对路径直接使用。EB 模式的相对路径分别尝试 `projectRoot` 和从 XDM 推导出的 tresos 工程目录，**如果两处都存在，会都收集，不是只取第一处。** 复用清单的相对路径只基于 `projectRoot`。
+4. 支持 `*`、`?`、字符集合和递归 `**` 等 glob。只保留存在且扩展名为 `.arxml`（不区分大小写）的文件；单写目录不会递归扫描，需写 glob。
+5. 具体文件不存在时记录 `WARNING` 并跳过；glob 无匹配直接跳过。过滤后没有任何 ARXML 会报错。
+6. 解析到实际绝对路径后去重。同一物理路径只加载一次，但内容相同的不同文件不会按内容去重。
+
+原始 EB lst 仅在整次成功后发布到输出目录；展开 glob、补齐目录、去重和排除只用于内存中的加载集合，**不会把规范化后的集合写回 lst**。因此 lst 行数与实际加载文件数可能不同。lst 兼容 UTF-8 BOM 和两种目录分隔符，POSIX 不接受 Windows 盘符/UNC 绝对路径。
+
+## 排除规则
+
+排除发生在加载 ARXML 模型前，不在 EB 原始 lst 生成阶段。
+
+| 规则 | 行为 |
+| --- | --- |
+| 即将生成的同名 ARXML | 自动排除任意目录下 `<outputPrefix>System.arxml`，文件名匹配不区分大小写，避免旧产物重新进入输入模型 |
+| 标定目录 | 内置正则排除 `dem/swcd_calibration/`、`dcm/swcd_calibration/` 下文件；这是本工具继承的过滤策略，不应理解为 EB 永远不会列出这些文件 |
+| `excludeArxmlPatterns` | 追加用户正则，不能取消内置排除 |
+
+正则以 `re.IGNORECASE` 编译，对规范化后的绝对路径调用 `match`，不是 glob。需要匹配中间路径时通常以 `.*` 开头，例如以下 JSON 可额外排除文件名为 `EcuExtract.arxml` 的输入：
+
+```json
+{
+    "excludeArxmlPatterns": [
+        ".*[\\\\/]EcuExtract\\.arxml$"
+    ]
+}
+```
+
+默认不会按旧排除清单自动排除 `EcuExtract.arxml`。是否排除应根据输入模型设计决定，不能仅因文件名称就认定它不需要。
+
+## 模型与生成边界
+
+本次路径集合只调用一次 `ArxmlModel.load`。模型用于解析 General、组件、prototype 和通道；随后本地白表读取器读取数据，本地生成器在同一个模型上解析并缓存组件、端口、信号等引用。所有引用解析完成后才调用 `document.new()`，再用 armodel 创建输出文档并写出 ARXML，不重新加载输入文件。因此不会将输入的全部包和元素原样导出，也不会从绿表生成缺失的 SWC 类型。
+
+本地生成器支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、Composition 类型；其他类型明确报错。引用组件不新增实例，必须在目标 Composition 中存在且类型一致。新增 Atomic 组件缺少内部行为或实现时整次失败，不发布缺失实现映射的产物。嵌套 Composition 不生成实现映射。自有逻辑不是整套 pya4a 功能的拷贝，例如不提供 Rhapsody XML 导出。
+
+底层 `AUTOSAR` 使用全局单例，不支持在同一进程中并行保有多个独立的转换模型。不同配置/变体应串行运行或使用独立进程，并避免写入相同产物路径。
+
+## 日志与退出码
+
+- 同时输出到控制台和日志文件；日志等级取 `--log-level`、`logLevel`、默认 `WARNING` 中优先级最高者。日志目录通过 `--log-dir` 指定，默认工具 `log/`，与产物目录分开。
+- `INFO` 可查看选中的绿表数量、加载数量、各表追加数量和产物位置。
+- ARXML parser 的 WARNING/ERROR 保留原严重级别；任何 ERROR 立即阻断，包括底层库报告的不支持元素。WARNING 仍为提示，不自动升级为错误。
+- 日志文件名包含微秒和进程号，降低冲突概率；不支持并发发布到同一产物目录。
+
+| 情况 | 退出行为 |
+| --- | --- |
+| 全部转换、写出和发布成功，无 ERROR | 返回 `0` |
+| 任意 ERROR，或配置、文件、模型、转换、写入异常 | 记录失败原因并返回 `1`，不发布本次 Excel/ARXML/lst；旧产物不变 |
+| 命令行格式错误 | argparse 通常返回 `2` |
+| Python 转换依赖缺失或导入不可用 | 日志初始化后检查，在控制台及日志文件记录库名、实际异常和解释器，返回 `1` |
+
+## 常见情况
+
+| 日志/现象 | 含义与检查方向 |
+| --- | --- |
+| `Python dependencies are missing or unusable` / `Cannot load conversion dependencies` | 使用日志中指定的解释器检查或修复库和传递依赖；完整列表见 [README.md](README.md) |
+| `PrefSystemImporter was not found in PATH` | 进入有 EB 工具的构建环境，或用已有 lst；不能以普通终端的 PATH 推断 CMB 环境 |
+| `tresos preference file does not exist` | 仅 EB 模式会检查；确认路径相对配置目录。已指定 lst 时不应出现此项检查 |
+| `No ARXML files were resolved` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
+| `No green tables were selected` | 检查 glob、变体及相对配置目录的文件位置 |
+| `Cannot find the SW component type of green table(s)` | 绿表文件名未能匹配组件查询表；补齐输入类型/引用或修正文件名，任务退出 |
+| 纯组件模型没有 CAN/LIN | 允许；只在存在总线映射行时验证相应通道 |
+| `System ... was not found` 或缺少 `RootSwCompositionPrototype` | 自动推导根原型失败；检查所选 System 的短名和定义，必要时显式填写根原型路径 |
+| `unresolved component` / `Ambiguous component` | 外部组件未知或短名不唯一；补齐输入或配置 `componentAliases` |
+| `channel ... is not defined` | I 列不是相应 CAN/LIN 物理通道名，整次失败 |
+| `interface mismatch` | 装配连接两端接口不同；默认失败，可显式选择 `interfaceMismatch=skip` 或配置可验证的 `map` |
+| `Cannot infer interface mapping` | 无法确定完整的一一元素映射；在 config 中显式配置 `interfaceMappings` |
+| `final data type mismatch` | 最终位宽、编码/符号性或数组/结构形状不一致；提示两端元素、引用类型及解析结果，不做强制转换 |
+| `Cannot resolve interface data types` | 缺少类型定义、基础位宽/编码、组件级应用类型映射，或遇到歧义、循环、未支持的类型；补齐或修正定义后重试 |
+| `Signal direction mismatch` / `No valid signal direction` | 选定通道和目标 ECU 的 I-SIGNAL-PORT 方向不符或缺失；不参考其他 ECU 的方向 |
+| `must be R-PORT-PROTOTYPE` / `must be P-PORT-PROTOTYPE` | 普通装配要求 P 到 R；总线 INPUT 使用 R，OUTPUT 使用 P |
+| `group members cannot be mapped directly` / `cannot be mapped as an individual signal` | 信号属于组或本身是组对象，不能作为普通信号直接映射 |
+| `column I or J is empty` / `column B is empty` | 必要字段不完整，按提示位置修正绿表 |
+| `<sheet> row <n>: ...` | 无效端口、信号或 DataElement 等引用导致整次失败 |
+| `no implementation` | 新增组件缺少 SWC-IMPLEMENTATION；补齐输入后重试 |
+| `Reference prototype does not exist` / `outside target composition` | Reference 必须真实存在于目标 Composition，不能把其他组合的实例直接移到目标下 |
+| `Unsupported TransformationDescription <SOMEIP-TRANSFORMATION-DESCRIPTION>` | 当前 armodel 对该输入元素报 ERROR；需使用已确认兼容的解析库/输入，工具不会隐藏或降级该错误 |
+| `conflicting connector name` / `conflicting outer port` / `ambiguous component alias` | 白表数据存在不同对象共用名称的冲突；任务在清空模型及写出 ARXML 前中止 |
+| Excel `PermissionError` | 检查同名产物是否被 Excel 等程序占用 |
+| 白表有连接，最终 ARXML 没有 | 检查本地生成器日志及端口、接口、信号、DataElement 引用；白表不是最终有效性证明 |
+
+## 交付前检查
+
+1. 确认本次选中变体、绿表数量、实际 ARXML 加载数符合预期，缺失文件未被误当成可忽略项。
+2. 任何 ERROR 都由工具阻断，不需要独立脚本扫描；仍应关注 WARNING 和预期模块/连接数量。
+3. 在白表核对 General、Components 的 `Add/Reference`、装配方向和信号方向，再核对最终 ARXML。
+4. 仅在退出码为 0 时发布产物。失败保留之前成功产物，不应把目录中旧文件误认为本次成功输出。转换使用临时目录，发布阶段普通 I/O 异常回滚；不承诺断电、强制终止或回滚存储故障下的跨文件事务原子性。
+5. 通过工程自己的导入、引用解析和验证流程确认集成结果，再由外部复制命令分发。工具不提供完整的 AUTOSAR XSD/语义校验替代品。

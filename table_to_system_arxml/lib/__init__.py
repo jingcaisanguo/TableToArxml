@@ -1,0 +1,1 @@
+"""Internal helpers for the table-to-system-ARXML conversion tool."""

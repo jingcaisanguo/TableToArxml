@@ -1,0 +1,1115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00048.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>ECUExtractZCUP</SHORT-NAME>
+      <AR-PACKAGES>
+        <AR-PACKAGE>
+          <SHORT-NAME>VehicleProject</SHORT-NAME>
+          <ELEMENTS>
+            <SYSTEM>
+              <SHORT-NAME>SDB326300</SHORT-NAME>
+              <CATEGORY>ECU_EXTRACT</CATEGORY>
+              <FIBEX-ELEMENTS>
+                <FIBEX-ELEMENT-REF-CONDITIONAL>
+                  <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE">/EcuInstances/ZCUP5</FIBEX-ELEMENT-REF>
+                </FIBEX-ELEMENT-REF-CONDITIONAL>
+              </FIBEX-ELEMENTS>
+              <MAPPINGS>
+                <SYSTEM-MAPPING>
+                  <SHORT-NAME>SystemMapping_CemSystemImpl</SHORT-NAME>
+                  <SW-IMPL-MAPPINGS>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsAS_ExteriorLightIf_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPEL_P/Impl_AS_ExteriorLightIf</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsAS_ExteriorLightIfCore1_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPELC1_P/Impl_AS_ExteriorLightIfCore1</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIfCore1</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsAS_InteriorLightIf_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPIL_P/Impl_AS_InteriorLightIf</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsCDD_LoBeam_ZCUP_Safe_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPLB_ZCUP/Impl_CDD_LoBeam_ZCUP_Safe</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_LoBeam_ZCUP_Safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsCDD_OM_ZCUP_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPOM_P/Impl_CDD_OM_ZCUP</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsCDD_PosnLamp_ZCUP_Safe_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPPL_ZCUP/Impl_CDD_PosnLamp_ZCUP_Safe</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_PosnLamp_ZCUP_Safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsCDD_RCM_Safe_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPRCM/Impl_CDD_RCM_Safe</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_RCM_Safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsCDD_TurnLight_ZCUP_safe_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPTL_ZCUP/Impl_CDD_TurnLight_ZCUP_safe</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_TurnLight_ZCUP_safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsIoHwAb_SmartDiag_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/impl_IoHwAb_SmartDiag</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsSWC_DrvierInformation_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPDI/Impl_SWC_DrvierInformation</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_DrvierInformation</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                    <SWC-TO-IMPL-MAPPING>
+                      <SHORT-NAME>itsSWC_PasSaf_ZCUP_ImplMapping</SHORT-NAME>
+                      <COMPONENT-IMPLEMENTATION-REF DEST="SWC-IMPLEMENTATION">/ARPPS_P/Impl_SWC_PasSaf_ZCUP</COMPONENT-IMPLEMENTATION-REF>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_PasSaf_ZCUP</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                    </SWC-TO-IMPL-MAPPING>
+                  </SW-IMPL-MAPPINGS>
+                  <SW-MAPPINGS>
+                    <SWC-TO-ECU-MAPPING>
+                      <SHORT-NAME>SwcToEcuMapping</SHORT-NAME>
+                      <COMPONENT-IREFS>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIfCore1</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_LoBeam_ZCUP_Safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_PosnLamp_ZCUP_Safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_RCM_Safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_TurnLight_ZCUP_safe</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_DrvierInformation</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                        <COMPONENT-IREF>
+                          <CONTEXT-COMPOSITION-REF DEST="ROOT-SW-COMPOSITION-PROTOTYPE">/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition</CONTEXT-COMPOSITION-REF>
+                          <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/TopLevelComposition/ZCUP5</CONTEXT-COMPONENT-REF>
+                          <TARGET-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_PasSaf_ZCUP</TARGET-COMPONENT-REF>
+                        </COMPONENT-IREF>
+                      </COMPONENT-IREFS>
+                      <ECU-INSTANCE-REF DEST="ECU-INSTANCE">/EcuInstances/ZCUP5</ECU-INSTANCE-REF>
+                    </SWC-TO-ECU-MAPPING>
+                  </SW-MAPPINGS>
+                </SYSTEM-MAPPING>
+              </MAPPINGS>
+              <ROOT-SOFTWARE-COMPOSITIONS>
+                <ROOT-SW-COMPOSITION-PROTOTYPE>
+                  <SHORT-NAME>TopLevelComposition</SHORT-NAME>
+                  <SOFTWARE-COMPOSITION-TREF DEST="COMPOSITION-SW-COMPONENT-TYPE">/SwComponentType/TopLevelComposition</SOFTWARE-COMPOSITION-TREF>
+                </ROOT-SW-COMPOSITION-PROTOTYPE>
+              </ROOT-SOFTWARE-COMPOSITIONS>
+              <SYSTEM-VERSION>13.54.06;2026/08/12, System.Ver: 0</SYSTEM-VERSION>
+            </SYSTEM>
+          </ELEMENTS>
+        </AR-PACKAGE>
+      </AR-PACKAGES>
+    </AR-PACKAGE>
+    <AR-PACKAGE>
+      <SHORT-NAME>SwComponentType</SHORT-NAME>
+      <ELEMENTS>
+        <COMPOSITION-SW-COMPONENT-TYPE>
+          <SHORT-NAME>ZCUP5</SHORT-NAME>
+          <COMPONENTS>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsAS_ExteriorLightIf</SHORT-NAME>
+              <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/ARPEL_P/AS_ExteriorLightIf</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsAS_ExteriorLightIfCore1</SHORT-NAME>
+              <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/ARPELC1_P/AS_ExteriorLightIfCore1_ZCUP</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsAS_InteriorLightIf</SHORT-NAME>
+              <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/ARPIL_P/AS_InteriorLightIf</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsCDD_LoBeam_ZCUP_Safe</SHORT-NAME>
+              <TYPE-TREF DEST="COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE">/ARPLB_ZCUP/CDD_LoBeam_ZCUP_Safe</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsCDD_OM_ZCUP</SHORT-NAME>
+              <TYPE-TREF DEST="COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE">/ARPOM_P/CDD_OM_ZCUP</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsCDD_PosnLamp_ZCUP_Safe</SHORT-NAME>
+              <TYPE-TREF DEST="COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE">/ARPPL_ZCUP/CDD_PosnLamp_ZCUP_Safe</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsCDD_RCM_Safe</SHORT-NAME>
+              <TYPE-TREF DEST="COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE">/ARPRCM/CDD_RCM_Safe</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsCDD_TurnLight_ZCUP_safe</SHORT-NAME>
+              <TYPE-TREF DEST="COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE">/ARPTL_ZCUP/CDD_TurnLight_ZCUP_safe</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsIoHwAb_SmartDiag</SHORT-NAME>
+              <TYPE-TREF DEST="ECU-ABSTRACTION-SW-COMPONENT-TYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsSWC_DrvierInformation</SHORT-NAME>
+              <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/ARPDI/SWC_DrvierInformation</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+            <SW-COMPONENT-PROTOTYPE>
+              <SHORT-NAME>itsSWC_PasSaf_ZCUP</SHORT-NAME>
+              <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/ARPPS_P/SWC_PasSaf_ZCUP</TYPE-TREF>
+            </SW-COMPONENT-PROTOTYPE>
+          </COMPONENTS>
+          <CONNECTORS>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsAS_ExteriorLightIf_DOH_REAR_SWIPING_ENABLE_CrossCore_itsAS_ExteriorLightIfCore1_DOH_REAR_SWIPING_ENABLE_CrossCore</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_REAR_SWIPING_ENABLE_CrossCore</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIfCore1</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPELC1_P/AS_ExteriorLightIfCore1_ZCUP/DOH_REAR_SWIPING_ENABLE_CrossCore</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsAS_ExteriorLightIf_ExtTle9166OutControl_itsMirrorWrapper_ExtTle9166OutControl</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/ExtTle9166OutControl</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsMirrorWrapper</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/MirrorWrapper/ContiPackage/SWC/MirrorWrapper/ExtTle9166OutControl</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsCDD_OM_ZCUP_OM_PWM_Fog_Light_Rear_itsAS_ExteriorLightIf_OM_PWM_Fog_Light_Rear</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/ARPOM_P/CDD_OM_ZCUP/OM_PWM_Fog_Light_Rear</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/OM_PWM_Fog_Light_Rear</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsCDD_OM_ZCUP_OM_PWM_LicensePlate_Light_itsAS_ExteriorLightIf_OM_PWM_LicensePlate_Light</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/ARPOM_P/CDD_OM_ZCUP/OM_PWM_LicensePlate_Light</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/OM_PWM_LicensePlate_Light</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsCDD_OM_ZCUP_OM_PWM_Reverse_Light_itsAS_ExteriorLightIf_OM_PWM_Reverse_Light</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/ARPOM_P/CDD_OM_ZCUP/OM_PWM_Reverse_Light</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/OM_PWM_Reverse_Light</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsHWDiagSpider_PP_HWDiagSpider_IOFaultState_Channel1_itsAS_ExteriorLightIf_SwipingDirectionIndicatorEnabler_IOFaultState</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsHWDiagSpider</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/SwComponentTypes/HWDiagSpider/PP_HWDiagSpider_IOFaultState_Channel1</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/SwipingDirectionIndicatorEnabler_IOFaultState</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_AnalogIn_AI_RVMirrorTempSensor_itsSWC_DrvierInformation_AI_RVMirrorTempSensor</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_AnalogIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_AnalogIn/SwComponentTypes/IoHwAb_AnalogIn/AI_RVMirrorTempSensor</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_DrvierInformation</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPDI/SWC_DrvierInformation/AI_RVMirrorTempSensor</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_AnalogIn_AI_SEAT_OCCUPTANT_FR_itsSWC_PasSaf_ZCUP_AI_SEAT_OCCUPTANT_FR</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_AnalogIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_AnalogIn/SwComponentTypes/IoHwAb_AnalogIn/AI_SEAT_OCCUPTANT_FR</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_PasSaf_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPPS_P/SWC_PasSaf_ZCUP/AI_SEAT_OCCUPTANT_FR</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_AnalogIn_AI_SEAT_OCCUPTANT_MID_itsSWC_PasSaf_ZCUP_AI_SEAT_OCCUPTANT_MID</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_AnalogIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_AnalogIn/SwComponentTypes/IoHwAb_AnalogIn/AI_SEAT_OCCUPTANT_MID</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_PasSaf_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPPS_P/SWC_PasSaf_ZCUP/AI_SEAT_OCCUPTANT_MID</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_AnalogIn_AI_SEAT_OCCUPTANT_RR_itsSWC_PasSaf_ZCUP_AI_SEAT_OCCUPTANT_RR</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_AnalogIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_AnalogIn/SwComponentTypes/IoHwAb_AnalogIn/AI_SEAT_OCCUPTANT_RR</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_PasSaf_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPPS_P/SWC_PasSaf_ZCUP/AI_SEAT_OCCUPTANT_RR</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_AnalogIn_AI_TCAN2451_VCC2_itsSWC_DrvierInformation_AI_TCAN2451_VCC2</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_AnalogIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_AnalogIn/SwComponentTypes/IoHwAb_AnalogIn/AI_TCAN2451_VCC2</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_DrvierInformation</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPDI/SWC_DrvierInformation/AI_TCAN2451_VCC2</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_AnalogIn_AI_UB_EXT3_itsSWC_PasSaf_ZCUP_AI_UB_EXT3</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_AnalogIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_AnalogIn/SwComponentTypes/IoHwAb_AnalogIn/AI_UB_EXT3</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_PasSaf_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPPS_P/SWC_PasSaf_ZCUP/AI_UB_EXT3</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_AnalogIn_AI_UB_EXT5_itsSWC_PasSaf_ZCUP_AI_UB_EXT5</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_AnalogIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_AnalogIn/SwComponentTypes/IoHwAb_AnalogIn/AI_UB_EXT5</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_PasSaf_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPPS_P/SWC_PasSaf_ZCUP/AI_UB_EXT5</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_DigIn_DIH_RL_TurnLight_Body_Diag_itsAS_ExteriorLightIf_DIH_RL_TurnLight_Body_Diag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_DigIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_DigIn/SwComponentTypes/IoHwAb_DigIn/DIH_RL_TurnLight_Body_Diag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DIH_RL_TurnLight_Body_Diag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_DigIn_DIH_RL_TurnLight_Tailgate_Diag_itsAS_ExteriorLightIf_DIH_RL_TurnLight_Tailgate_Diag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_DigIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_DigIn/SwComponentTypes/IoHwAb_DigIn/DIH_RL_TurnLight_Tailgate_Diag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DIH_RL_TurnLight_Tailgate_Diag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_DigIn_DIH_RR_TurnLight_Body_Diag_itsAS_ExteriorLightIf_DIH_RR_TurnLight_Body_Diag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_DigIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_DigIn/SwComponentTypes/IoHwAb_DigIn/DIH_RR_TurnLight_Body_Diag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DIH_RR_TurnLight_Body_Diag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_DigIn_DIH_RR_TurnLight_Tailgate_Diag_itsAS_ExteriorLightIf_DIH_RR_TurnLight_Tailgate_Diag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_DigIn</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_DigIn/SwComponentTypes/IoHwAb_DigIn/DIH_RR_TurnLight_Tailgate_Diag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DIH_RR_TurnLight_Tailgate_Diag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_AD_DYNAMIC_IND_itsAS_ExteriorLightIf_DOH_PWM_AD_DYNAMIC_IND</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_AD_DYNAMIC_IND</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_AD_DYNAMIC_IND</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_AD_IND_FR_itsAS_ExteriorLightIf_DOH_PWM_AD_IND_FR</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_AD_IND_FR</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_AD_IND_FR</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_AD_IND_RR_itsAS_ExteriorLightIf_DOH_PWM_AD_IND_RR</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_AD_IND_RR</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_AD_IND_RR</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE_itsAS_ExteriorLightIf_DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_CAMERA_HEATING_DEFORSTING_F_itsSWC_DrvierInformation_DOH_PWM_CAMERA_HEATING_DEFORSTING_F</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_CAMERA_HEATING_DEFORSTING_F</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_DrvierInformation</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPDI/SWC_DrvierInformation/DOH_PWM_CAMERA_HEATING_DEFORSTING_F</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_FRONT_CAMERA_WINDOW_HEATING_itsSWC_DrvierInformation_DOH_PWM_FRONT_CAMERA_WINDOW_HEATING</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_FRONT_CAMERA_WINDOW_HEATING</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_DrvierInformation</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPDI/SWC_DrvierInformation/DOH_PWM_FRONT_CAMERA_WINDOW_HEATING</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_Fog_Light_Rear_itsCDD_OM_ZCUP_PWM_Fog_Light_Rear</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_Fog_Light_Rear</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPOM_P/CDD_OM_ZCUP/PWM_Fog_Light_Rear</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY_itsCDD_TurnLight_ZCUP_safe_DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_TurnLight_ZCUP_safe</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPTL_ZCUP/CDD_TurnLight_ZCUP_safe/DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_LicensePlate_Light_itsCDD_OM_ZCUP_PWM_LicensePlate_Light</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_LicensePlate_Light</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPOM_P/CDD_OM_ZCUP/PWM_LicensePlate_Light</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_PASS_SIDE_AD_IND_itsAS_ExteriorLightIf_DOH_PWM_PASS_SIDE_AD_IND</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_PASS_SIDE_AD_IND</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_PASS_SIDE_AD_IND</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_POSITION_LIGHT_RR_itsCDD_PosnLamp_ZCUP_Safe_DOH_PWM_Position_Light_RR</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_POSITION_LIGHT_RR</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_PosnLamp_ZCUP_Safe</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPPL_ZCUP/CDD_PosnLamp_ZCUP_Safe/DOH_PWM_Position_Light_RR</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY_itsCDD_TurnLight_ZCUP_safe_DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_TurnLight_ZCUP_safe</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPTL_ZCUP/CDD_TurnLight_ZCUP_safe/DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_Reverse_Light_itsCDD_OM_ZCUP_PWM_Reverse_Light</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_Reverse_Light</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_OM_ZCUP</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPOM_P/CDD_OM_ZCUP/PWM_Reverse_Light</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_Turn_Light_RL_itsCDD_TurnLight_ZCUP_safe_DOH_PWM_Turn_Light_RL</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_Turn_Light_RL</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_TurnLight_ZCUP_safe</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPTL_ZCUP/CDD_TurnLight_ZCUP_safe/DOH_PWM_Turn_Light_RL</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_PwmOut_DOH_PWM_Turn_Light_RR_itsCDD_TurnLight_ZCUP_safe_DOH_PWM_Turn_Light_RR</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_PwmOut</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_PwmOut/SwComponentTypes/IoHwAb_PwmOut/DOH_PWM_Turn_Light_RR</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsCDD_TurnLight_ZCUP_safe</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPTL_ZCUP/CDD_TurnLight_ZCUP_safe/DOH_PWM_Turn_Light_RR</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_AD_IND_FR_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_AD_IND_FR_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_AD_IND_FR_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_AD_IND_FR_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_AD_IND_RR_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_AD_IND_RR_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_AD_IND_RR_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_AD_IND_RR_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_AD_LIGHT_DYNAMIC_ENABLE_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_FRONT_CAMERA_WINDOW_HEATING_SmartDiag_itsSWC_DrvierInformation_AI_HSD_DIAG03</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_FRONT_CAMERA_WINDOW_HEATING_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsSWC_DrvierInformation</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPDI/SWC_DrvierInformation/AI_HSD_DIAG03</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_Fog_Light_Rear_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_Fog_Light_Rear_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_Fog_Light_Rear_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_Fog_Light_Rear_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_LEFT_SIDE_INDICATION_SUPPLY_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_LicensePlate_Light_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_LicensePlate_Light_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_LicensePlate_Light_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_LicensePlate_Light_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_PASS_SIDE_AD_IND_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_PASS_SIDE_AD_IND_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_PASS_SIDE_AD_IND_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_PASS_SIDE_AD_IND_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_POSITION_LIGHT_RR_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_POSITION_LIGHT_RR_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_POSITION_LIGHT_RR_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_POSITION_LIGHT_RR_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_RIGHT_SIDE_INDICATION_SUPPLY_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_Reverse_Light_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_Reverse_Light_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_Reverse_Light_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_Reverse_Light_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_Turn_Light_RL_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_Turn_Light_RL_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_Turn_Light_RL_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_Turn_Light_RL_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_SmartDiag_DOH_PWM_Turn_Light_RR_SmartDiag_itsAS_ExteriorLightIf_DOH_PWM_Turn_Light_RR_SmartDiag</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_SmartDiag</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_SmartDiag/SwComponentTypes/IoHwAb_SmartDiag/DOH_PWM_Turn_Light_RR_SmartDiag</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/DOH_PWM_Turn_Light_RR_SmartDiag</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsIoHwAb_Tle75xxx_DOH_REAR_SWIPING_ENABLE_itsAS_ExteriorLightIfCore1_DOH_REAR_SWIPING_ENABLE</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsIoHwAb_Tle75xxx</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/AUTOSAR_IoHwAb_Tle75xxx/SwComponentTypes/IoHwAb_Tle75xxx/DOH_REAR_SWIPING_ENABLE</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIfCore1</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPELC1_P/AS_ExteriorLightIfCore1_ZCUP/DOH_REAR_SWIPING_ENABLE</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <ASSEMBLY-SW-CONNECTOR>
+              <SHORT-NAME>ac_itsMirrorWrapper_ExtTle9166OutCheck_itsAS_ExteriorLightIf_ExtTle9166OutCheck</SHORT-NAME>
+              <PROVIDER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsMirrorWrapper</CONTEXT-COMPONENT-REF>
+                <TARGET-P-PORT-REF DEST="P-PORT-PROTOTYPE">/MirrorWrapper/ContiPackage/SWC/MirrorWrapper/ExtTle9166OutCheck</TARGET-P-PORT-REF>
+              </PROVIDER-IREF>
+              <REQUESTER-IREF>
+                <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_ExteriorLightIf</CONTEXT-COMPONENT-REF>
+                <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPEL_P/AS_ExteriorLightIf/ExtTle9166OutCheck</TARGET-R-PORT-REF>
+              </REQUESTER-IREF>
+            </ASSEMBLY-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag10_itsAS_InteriorLightIfALM1Diag10</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag10</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag10</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag11_itsAS_InteriorLightIfALM1Diag11</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag11</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag11</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag12_itsAS_InteriorLightIfALM1Diag12</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag12</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag12</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag13_itsAS_InteriorLightIfALM1Diag13</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag13</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag13</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag14_itsAS_InteriorLightIfALM1Diag14</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag14</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag14</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag15_itsAS_InteriorLightIfALM1Diag15</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag15</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag15</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag16_itsAS_InteriorLightIfALM1Diag16</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag16</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag16</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag1_itsAS_InteriorLightIfALM1Diag1</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag1</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag1</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag2_itsAS_InteriorLightIfALM1Diag2</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag2</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag2</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag3_itsAS_InteriorLightIfALM1Diag3</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag3</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag3</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag4_itsAS_InteriorLightIfALM1Diag4</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag4</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag4</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag5_itsAS_InteriorLightIfALM1Diag5</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag5</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag5</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag6_itsAS_InteriorLightIfALM1Diag6</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag6</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag6</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag7_itsAS_InteriorLightIfALM1Diag7</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag7</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag7</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag8_itsAS_InteriorLightIfALM1Diag8</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag8</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag8</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM1Diag9_itsAS_InteriorLightIfALM1Diag9</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM1Diag9</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM1Diag9</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag10_itsAS_InteriorLightIfALM2Diag10</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag10</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag10</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag11_itsAS_InteriorLightIfALM2Diag11</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag11</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag11</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag12_itsAS_InteriorLightIfALM2Diag12</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag12</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag12</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag13_itsAS_InteriorLightIfALM2Diag13</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag13</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag13</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag14_itsAS_InteriorLightIfALM2Diag14</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag14</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag14</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag15_itsAS_InteriorLightIfALM2Diag15</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag15</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag15</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag16_itsAS_InteriorLightIfALM2Diag16</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag16</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag16</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag1_itsAS_InteriorLightIfALM2Diag1</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag1</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag1</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag2_itsAS_InteriorLightIfALM2Diag2</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag2</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag2</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag3_itsAS_InteriorLightIfALM2Diag3</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag3</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag3</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag4_itsAS_InteriorLightIfALM2Diag4</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag4</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag4</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag5_itsAS_InteriorLightIfALM2Diag5</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag5</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag5</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag6_itsAS_InteriorLightIfALM2Diag6</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag6</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag6</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag7_itsAS_InteriorLightIfALM2Diag7</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag7</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag7</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag8_itsAS_InteriorLightIfALM2Diag8</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag8</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag8</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+            <DELEGATION-SW-CONNECTOR>
+              <SHORT-NAME>dc_ALM2Diag9_itsAS_InteriorLightIfALM2Diag9</SHORT-NAME>
+              <INNER-PORT-IREF>
+                <R-PORT-IN-COMPOSITION-INSTANCE-REF>
+                  <CONTEXT-COMPONENT-REF DEST="SW-COMPONENT-PROTOTYPE">/SwComponentType/ZCUP5/itsAS_InteriorLightIf</CONTEXT-COMPONENT-REF>
+                  <TARGET-R-PORT-REF DEST="R-PORT-PROTOTYPE">/ARPIL_P/AS_InteriorLightIf/ALM2Diag9</TARGET-R-PORT-REF>
+                </R-PORT-IN-COMPOSITION-INSTANCE-REF>
+              </INNER-PORT-IREF>
+              <OUTER-PORT-REF DEST="R-PORT-PROTOTYPE">/SwComponentType/ZCUP5/ALM2Diag9</OUTER-PORT-REF>
+            </DELEGATION-SW-CONNECTOR>
+          </CONNECTORS>
+        </COMPOSITION-SW-COMPONENT-TYPE>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>

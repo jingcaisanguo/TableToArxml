@@ -1,0 +1,27 @@
+{
+    "project": "ZCUP_4.0",
+    "defaultVariant": "ZCUP_26R3",
+    "buildType": "Debug",
+    "projectRoot": "../../..",
+    "logLevel": "INFO",
+
+    "outputPrefix": "TestMc",
+    "interfaceMismatch": "error",
+
+    "greenTables": [
+        "file/${variant}/MC/*.xlsx"
+    ],
+
+    "componentAliases": {
+        "Conti_SWC_FDLib": {"type": "/ContiPackage/Conti_SWC_FDLib", "prototype": "Conti_SWC_FDLib"}
+    },
+
+    "arxmlFileList": "../autosar_builder/output/${variant}.lst",
+
+    "general": {
+        "Composition": "/SwComponentType/ZCUP5",
+        "System": "/ECUExtractZCUP/VehicleProject/SDB326300",
+        "EcuInstance": "/EcuInstances/ZCUP5",
+        "RootSwCompositionPrototype": "/ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition"
+    }
+}
