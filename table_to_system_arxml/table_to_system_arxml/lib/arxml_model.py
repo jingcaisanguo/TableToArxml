@@ -14,14 +14,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
-from armodel import EcuInstance, System
+from armodel import CompositionSwComponentType, EcuInstance, System
 from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSAR
 from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.ARPackage import (
     ARPackage,
 )
 from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Components import SwComponentType
-# 该类定义在包的 __init__ 中，静态分析无法识别。
-from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Composition import CompositionSwComponentType  # type: ignore
 from armodel.models.M2.AUTOSARTemplates.SystemTemplate.DataMapping import (
     SenderReceiverToSignalMapping,
 )
@@ -125,8 +123,10 @@ class ArxmlModel:
 
         diagnostics: list[str] = []
         parser = _new_parser(diagnostics)
+        paths = list(paths)
         loaded: list[Path] = []
-        for path in paths:
+        for index, path in enumerate(paths, start=1):
+            logging.info("Parsing ARXML %d/%d: %s", index, len(paths), path)
             parser.load(str(path), document)
             loaded.append(path)
         return cls(document, loaded, diagnostics)
@@ -134,6 +134,7 @@ class ArxmlModel:
     def add(self, path: Path) -> None:
         """追加加载一个 ARXML（如本次刚生成的结果），供后续配置引用。"""
 
+        logging.info("Parsing ARXML: %s", path)
         _new_parser(self.diagnostics).load(str(path), self._document)
         self.paths.append(path)
         self.invalidate()

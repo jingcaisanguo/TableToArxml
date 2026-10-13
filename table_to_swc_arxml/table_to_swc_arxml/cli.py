@@ -84,6 +84,7 @@ CONFIG_OPTIONS = {
     "arxmlFileList": "list_file",
     "workbook": "workbook",
     "strictList": "strict_list",
+    "excludeArxml": "exclude_arxml",
     "logDir": "log_dir",
     "logLevel": "log_level",
     "backend": "backend",
@@ -479,6 +480,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--exclude-arxml",
+        action="append",
+        help="Exclude a filename or projectRoot-relative ARXML path; repeat for multiple entries; overrides config.excludeArxml",
+    )
+    parser.add_argument(
         "--log-dir",
         type=Path,
         help="Log directory: absolute or relative to projectRoot; required via CLI or config; no default",
@@ -595,6 +601,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(f"backend must be one of: {', '.join(sorted(BACKENDS))}")
     if args.strict_list is None:
         args.strict_list = False
+    if args.exclude_arxml is None:
+        args.exclude_arxml = []
+    if not isinstance(args.exclude_arxml, list) or any(
+        not isinstance(value, str) or not value.strip() for value in args.exclude_arxml
+    ):
+        parser.error("excludeArxml must be a list of non-empty strings")
     if args.in_place is None:
         args.in_place = False
     if args.dry_run is None:
@@ -1610,7 +1622,8 @@ def read_data_accesses(
 
 
 def read_arxml_list(
-    list_file: Path, project_dir: Path, strict: bool = False
+    list_file: Path, project_dir: Path, strict: bool = False,
+    exclude_arxml: Sequence[str] = (),
 ) -> list[Path]:
     """读取 ARXML 清单，并把每条记录转为存在的绝对路径。
 
@@ -1618,6 +1631,14 @@ def read_arxml_list(
     默认对非法或缺失的条目记录 WARNING 并跳过，不中断其余条目的处理；
     传入 ``strict=True``（``--strict-list``）时遇到第一个问题立即抛出异常。
     """
+    excluded_names: set[str] = set()
+    excluded_paths: set[Path] = set()
+    for value in exclude_arxml:
+        excluded = Path(value.strip().strip('"').replace("\\", "/"))
+        if excluded.name == str(excluded):
+            excluded_names.add(excluded.name.casefold())
+        else:
+            excluded_paths.add((project_dir / excluded).resolve())
     files: list[Path] = []
     for line_number, line in enumerate(
         list_file.read_text(encoding="utf-8-sig").splitlines(), start=1
@@ -1629,6 +1650,9 @@ def read_arxml_list(
         absolute_path = (
             path if path.is_absolute() else project_dir / path
         ).resolve()
+        if absolute_path.name.casefold() in excluded_names or absolute_path in excluded_paths:
+            LOGGER.info("Exclude ARXML file: %s", absolute_path)
+            continue
         if absolute_path.suffix.casefold() != ".arxml":
             message = f"Non-ARXML record at {list_file}:{line_number}"
             if strict:
@@ -2662,6 +2686,7 @@ def apply_client_server_artifacts(
                 temporary.write(source)
                 temporary_path = Path(temporary.name)
             try:
+                LOGGER.info("Re-parsing ARXML for validation: %s", component_file)
                 backend.load(temporary_path)
             finally:
                 temporary_path.unlink(missing_ok=True)
@@ -2764,7 +2789,9 @@ class SourceStore:
         """按缓存内容加载文档；未修改的文件直接从磁盘加载。"""
 
         if path not in self._buffers:
+            LOGGER.info("Parsing ARXML: %s", path)
             return backend.load(path)
+        LOGGER.info("Parsing ARXML (with pending changes): %s", path)
         temporary_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".arxml", delete=False) as temporary:
@@ -3337,6 +3364,7 @@ def build_changes(
             source = insert_ports(source, component_path, fragments)
         for (runnable_path, container), fragments in fragments_by_runnable.items():
             source = insert_accesses(source, runnable_path, container, fragments)
+        LOGGER.info("Re-parsing ARXML for validation: %s", source_file)
         validate_document(backend, source, checked_ports, checked_accesses)
         store.write(source_file, source)
         changes.append(
@@ -3498,7 +3526,7 @@ def run(argv: Sequence[str] | None = None) -> int:
     interfaces = read_sr_interfaces(workbook_path, project_dir)
     cs_interfaces = read_cs_interfaces(workbook_path, project_dir)
     access_specs = read_data_accesses(workbook_path, components)
-    arxml_files = read_arxml_list(list_file, project_dir, args.strict_list)
+    arxml_files = read_arxml_list(list_file, project_dir, args.strict_list, args.exclude_arxml)
     LOGGER.info("Loaded %d ARXML file(s) from list", len(arxml_files))
     store = SourceStore()
     LOGGER.info("Applying type and interface definitions")

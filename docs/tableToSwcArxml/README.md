@@ -27,7 +27,7 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 ```
 
 - wheel 只包含 Python 代码，不含模板、配置或日志，这些由使用工具的项目提供。
-- 依赖固定为 `armodel==1.9.2`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。`armodel` 1.9.8 缺少 `ARBoolean` 等导出，无法使用。
+- 依赖为 `armodel>=1.8.7`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，不能使用，应先安装兼容版本再安装本工具。
 - 与 `table-to-system-arxml` 共用同一 `armodel` 版本，两个工具可装在同一环境。
 - 发布新版本前修改 `table_to_swc_arxml/pyproject.toml` 中的 `version`。
 
