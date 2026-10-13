@@ -1,0 +1,18 @@
+# Python 虚拟环境与缓存
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 工具运行产物
+log/
+output/
+
+# 本地构建的 wheel，发布版本放在 init_app_env/whl
+table_to_*/*.whl
+
+# Excel 打开时生成的锁文件
+~$*

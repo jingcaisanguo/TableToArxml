@@ -1,0 +1,22 @@
+{
+    "project": "MC_COMMAND_TEST",
+    "defaultVariant": "McTest",
+    "projectRoot": "../..",
+    "logLevel": "INFO",
+    "outputDir": "output/McTest",
+    "logDir": "log/McTest",
+
+    "outputPrefix": "Mc",
+    "interfaceMismatch": "error",
+
+    "whiteTable": "WhiteTable/McWhiteTable.xlsx",
+
+    "arxmlFileList": "../common/arxml.lst",
+
+    "general": {
+        "Composition": "/ARDesign/SystemDesign/TopLevelComposition",
+        "System": "/ARDesign/SystemDesign/ZCUPrototypeSystem",
+        "EcuInstance": "/ARDesign/TopologyDesign/FLZCU",
+        "RootSwCompositionPrototype": "/ARDesign/SystemDesign/ZCUPrototypeSystem/ZCUPrototypeComposition"
+    }
+}

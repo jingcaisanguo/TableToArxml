@@ -1,0 +1,10 @@
+{
+  "projectRoot": "../..",
+  "arxmlFileList": "../common/arxml.lst",
+  "workbook": "SwcTestPorts.xlsx",
+  "logDir": "log/SwcTest",
+  "outputDir": "output/SwcTest",
+  "strictList": false,
+  "logLevel": "INFO",
+  "backend": "armodel"
+}

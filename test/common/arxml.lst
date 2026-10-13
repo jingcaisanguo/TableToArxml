@@ -1,0 +1,5 @@
+test/common/arxml/System.arxml
+test/common/arxml/BcmArxml/LIT.arxml
+test/common/arxml/BcmArxml/TUR.arxml
+test/common/arxml/McArxml/AUXL.arxml
+test/common/arxml/McArxml/Horn.arxml

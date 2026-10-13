@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "table-to-system-arxml"
+version = "0.1.0"
+description = "Convert Excel tables to AUTOSAR Composition and System ARXML"
+requires-python = ">=3.9"
+dynamic = ["dependencies"]
+
+[project.scripts]
+table-to-system-arxml = "table_to_system_arxml.cli:main"
+
+[tool.setuptools]
+packages = ["table_to_system_arxml", "table_to_system_arxml.lib"]
+include-package-data = false
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
