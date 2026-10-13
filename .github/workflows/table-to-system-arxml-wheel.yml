@@ -1,0 +1,108 @@
+name: Build table-to-system-arxml wheel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'table_to_system_arxml/**'
+      - '.github/workflows/table-to-system-arxml-wheel.yml'
+    tags:
+      - 'table-to-system-arxml-v*'
+  pull_request:
+    paths:
+      - 'table_to_system_arxml/**'
+      - '.github/workflows/table-to-system-arxml-wheel.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Build wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir ./table_to_system_arxml ./table_to_system_arxml
+      - name: Install wheel
+        run: |
+          python -m pip install table_to_system_arxml/*.whl
+          python -m pip check
+      - name: Check installed command outside checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          table-to-system-arxml --help
+          python -m table_to_system_arxml --help
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from unittest.mock import patch
+          from table_to_system_arxml import cli
+          from table_to_system_arxml.lib import arxml_model, arxml_generator, green_to_white, white_table_reader
+          cli._check_python_dependencies()
+          with TemporaryDirectory() as temporary:
+              config = Path(temporary) / "config.json"
+              config.write_text(json.dumps({"defaultVariant": "test", "outputPrefix": "Test", "greenTables": ["unused.xlsx"]}), encoding="utf-8")
+              with patch.object(cli, "_setup_logging") as setup:
+                  try:
+                      cli.run(config)
+                  except ValueError as error:
+                      assert "logDir" in str(error)
+                  else:
+                      raise AssertionError("Missing directories must fail")
+                  setup.assert_not_called()
+          with patch.object(cli, "run", return_value=[]) as run, patch("sys.argv", ["table-to-system-arxml"]):
+              assert cli.main() == 0
+              assert run.call_args.kwargs["config_paths"] == [Path.cwd() / "config.json"]
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: table-to-system-arxml-wheel
+          path: table_to_system_arxml/*.whl
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/table-to-system-arxml-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: table-to-system-arxml-wheel
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Verify tag matches wheel version
+        run: |
+          python -m pip install packaging
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from packaging.utils import parse_wheel_filename
+          from packaging.version import Version
+          expected = Version(os.environ["GITHUB_REF_NAME"].removeprefix("table-to-system-arxml-v"))
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1
+          assert parse_wheel_filename(wheels[0].name)[1] == expected
+          PY
+      - name: Publish wheel to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.whl --clobber
+          else
+            gh release create "$TAG" dist/*.whl --verify-tag --title "$TAG" --generate-notes
+          fi

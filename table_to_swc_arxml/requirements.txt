@@ -1,0 +1,2 @@
+armodel==1.9.2
+openpyxl>=3.1.2

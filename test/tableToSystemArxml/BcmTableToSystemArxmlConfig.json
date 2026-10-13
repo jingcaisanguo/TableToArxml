@@ -1,0 +1,24 @@
+{
+    "project": "BCM_COMMAND_TEST",
+    "defaultVariant": "BcmTest",
+    "projectRoot": "../..",
+    "logLevel": "INFO",
+    "outputDir": "output/BcmTest",
+    "logDir": "log/BcmTest",
+
+    "outputPrefix": "Bcm",
+    "interfaceMismatch": "error",
+
+    "greenTables": [
+        "GreenTable/Bcm/*.xlsx"
+    ],
+
+    "arxmlFileList": "../common/arxml.lst",
+
+    "general": {
+        "Composition": "/ARDesign/SystemDesign/TopLevelComposition",
+        "System": "/ARDesign/SystemDesign/ZCUPrototypeSystem",
+        "EcuInstance": "/ARDesign/TopologyDesign/FLZCU",
+        "RootSwCompositionPrototype": "/ARDesign/SystemDesign/ZCUPrototypeSystem/ZCUPrototypeComposition"
+    }
+}
