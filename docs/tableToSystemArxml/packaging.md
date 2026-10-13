@@ -70,7 +70,8 @@ table-to-system-arxml @ <Release 中 table_to_system_arxml-0.1.0-py3-none-any.wh
 GitHub Enterprise 使用对应实例域名；下载方式和 Actions 可用版本以实例策略为准。
 
 安装会自动安装 Python 依赖，不需要另外执行 `pip install -r requirements.txt`。
-`armodel` 固定为 `1.9.2`：独立安装验证发现 `1.9.8` 缺少工具依赖的 `ISignalPort` 导出，不能直接使用。
+`armodel` 要求 `>=1.8.7`：实测 1.8.7 和 1.9.2 可用；1.9.4、1.9.7、1.9.8 缺少工具依赖的 `ISignalPort` 导出，不能使用。
+从索引安装时 pip 会选最新版，应先安装兼容版本（如 `init_app_env` 提供的 1.9.2）再安装本工具。
 wheel 本身跨平台，但依赖需要适合目标平台的发行包；离线使用需提前下载依赖。
 EB 模式仍需工程提供 `PrefSystemImporter` 和对应运行环境，wheel 不包含这些外部工具。
 

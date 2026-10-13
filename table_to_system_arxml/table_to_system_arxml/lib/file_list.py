@@ -109,6 +109,7 @@ def read_file_list(
     tresos_project: Path,
     build_dir_name: str,
     exclude_patterns: Iterable[str] = DEFAULT_EXCLUDE_PATTERNS,
+    exclude_arxml: Iterable[str] = (),
 ) -> list[Path]:
     """读取清单文件并展开成去重后的 ARXML 文件列表。
 
@@ -120,6 +121,14 @@ def read_file_list(
         raise FileNotFoundError(f"ARXML file list does not exist: {list_file}")
 
     excludes = [re.compile(pattern, flags=re.IGNORECASE) for pattern in exclude_patterns]
+    excluded_names: set[str] = set()
+    excluded_paths: set[Path] = set()
+    for value in exclude_arxml:
+        excluded = Path(value.strip().strip('"').replace("\\", "/"))
+        if excluded.name == str(excluded):
+            excluded_names.add(excluded.name.casefold())
+        else:
+            excluded_paths.add((project_root / excluded).resolve())
     resolved: list[Path] = []
     seen: set[Path] = set()
 
@@ -129,6 +138,10 @@ def read_file_list(
             if not entry or entry.startswith("#"):
                 continue
             entry = _normalize_entry(entry, build_dir_name)
+            entry_path = Path(entry)
+            if entry_path.name.casefold() in excluded_names or (project_root / entry_path).resolve() in excluded_paths:
+                logging.info("Exclude ARXML file: %s", entry)
+                continue
 
             if os.path.isabs(entry):
                 patterns = [entry]
@@ -149,6 +162,9 @@ def read_file_list(
 
             for match in sorted(matches, key=lambda item: str(item).casefold()):
                 candidate = match.resolve()
+                if candidate.name.casefold() in excluded_names or candidate in excluded_paths:
+                    logging.info("Exclude ARXML file: %s", candidate)
+                    continue
                 if candidate.suffix.casefold() != ".arxml" or not candidate.is_file():
                     continue
                 if any(exclude.match(str(candidate)) for exclude in excludes):

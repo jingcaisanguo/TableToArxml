@@ -20,6 +20,7 @@
 | `logDir` | `--log-dir` | 目录 | **必填** | 日志目录，不存在时自动创建 |
 | `logLevel` | `--log-level` | 字符串 | `INFO` | `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
 | `strictList` | `--strict-list` | 布尔 | `false` | 清单中有无效条目时直接失败，而不是警告后跳过 |
+| `excludeArxml` | `--exclude-arxml` | 字符串数组 | `[]` | 排除文件名或相对 `projectRoot` 的路径；命令行可重复，覆盖配置列表 |
 | `backend` | `--backend` | 字符串 | `armodel` | ARXML 解析后端，目前只有 `armodel` |
 | `dryRun` | `--dry-run` | 布尔 | `false` | 只校验，不写文件 |
 | `inPlace` | `--in-place` | 布尔 | `false` | 直接覆盖源 ARXML |
@@ -31,6 +32,13 @@
 - 日志文件名为 `table_to_swc_arxml_<时间含微秒>_<进程号>.log`，每次运行新建，启动时打印完整路径。
 
 ## 路径规则
+
+排除示例：`"excludeArxml": ["Unused.arxml", "test/common/arxml/BcmArxml/TUR.arxml"]`。
+命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml test/common/arxml/BcmArxml/TUR.arxml`。
+只写文件名会排除所有同名文件（文件名不区分大小写）；带目录则精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
+排除发生在文件存在性检查之前，日志记录 `Exclude ARXML file`，不修改 lst。
+全部排除时报错退出；被排除文件里的组件和接口无法通过清单查找。
+此选项不禁止工作簿通过 `Target ARXML` 显式指定该文件作为生成目标。
 
 | 位置 | 相对路径基准 | 支持 `${variant}` 和 `*` |
 | --- | --- | --- |

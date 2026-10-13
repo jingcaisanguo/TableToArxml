@@ -37,33 +37,40 @@
 
 ## 顶层参数
 
-| 参数                      | 类型               | 必填与默认行为                                                                                               |
-| ------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `project`               | 字符串             | 可选说明标签；当前代码不读取，不参与路径或命名                                                               |
-| `defaultVariant`        | 字符串             | 与`--variant` 至少提供一个非空值；命令行优先                                                               |
-| `buildType`             | 字符串             | EB 模式可选，缺省或空值取`Debug`；复用 lst 时忽略                                                          |
-| `projectRoot`           | 路径字符串         | 可选，缺省或空值取`../../..`；`--project-root` 优先                                                      |
-| `logLevel`              | 字符串             | 可选，代码默认`WARNING`，示例配置为 `INFO`；`--log-level` 优先                                         |
-| `outputDir` | 路径字符串 | 与 `--output-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录 |
-| `logDir` | 路径字符串 | 与 `--log-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录；不能与产物目录相同 |
-| `outputPrefix`          | 字符串             | 必填非空值，例如`Bcm`；应仅填写名称前缀，不含目录、扩展名或 `System` 后缀                                |
-| `greenTables`           | 字符串或字符串数组 | 与 `whiteTable` 二选一且不能同时存在；写则为绿表模式。具体`.xlsx` 文件或 glob，最终必须找到至少一个绿表 |
-| `whiteTable` | 路径字符串 | 与 `greenTables` 二选一且不能同时存在；写则为白表模式，直接由该白表生成并只发布 ARXML。基于配置目录，支持 `${variant}`；`--white-table` 可强制白表模式 |
-| `tresosPreferenceFiles` | 字符串或字符串数组 | 仅 EB 模式必填；指向具体 XDM 文件，不展开 glob；有 `arxmlFileList` 时可省略，即使保留也完全忽略 |
-| `arxmlFileList` | 路径字符串 | 写了该字段就选择清单模式，必须是非空字符串且文件存在；空值、类型错误或文件不存在直接报错，不回退 EB；使用 XDM 时须删除该字段 |
-| `tresosOutputBaseDir`   | 路径字符串         | EB 模式可选，显式值基于配置目录；未填时按`projectRoot/build/${variant}.${buildType}` 计算；复用 lst 时忽略 |
-| `excludeArxmlPatterns`  | 字符串或字符串数组 | 可选，追加 ARXML 排除正则；不替换内置排除规则                                                                |
-| `general`               | 对象               | 必填，成员说明见下表                                                                                         |
-| `componentAliases` | 对象 | 可选，绿表文件名/组件别名到组件类型完整路径或目标 Composition 内 prototype 完整路径的映射 |
-| `prototypePrefix` | 字符串 | 可选，默认 `its`；用于没有已有目标实例的组件，允许空字符串 |
-| `e2eWrapperComponent` | 字符串 | 可选，默认 `E2EWrapper`；该名称按普通组件处理，空字符串禁用特殊分支 |
-| `signalPathTemplate` | 字符串 | 可选，默认 `/${channel}/Signal/${signal}`；必须是绝对 AUTOSAR 路径并含 `${signal}`，只支持 `${channel}`、`${signal}` |
-| `arRelease` | 字符串 | 可选，默认 `R19-11`；必须是当前 armodel 支持的 release，否则失败且不发布产物 |
-| `interfaceMismatch` | 字符串 | 仅支持 JSON 配置；缺省为 `error`，可选 `error`、`skip`、`map`；不提供命令行覆盖 |
-| `interfaceMappings` | 对象数组 | 可选，在 `map` 模式下为不同名称的数据元素显式配对，格式见下文 |
-| `generateSystem` | 布尔 | 可选，默认 `true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 在已加载 ARXML 中存在时，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
+| 参数                      | 类型               | 必填与默认行为                                                                                                                                                                                                                                                                                                      |
+| ------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project`               | 字符串             | 可选说明标签；当前代码不读取，不参与路径或命名                                                                                                                                                                                                                                                                      |
+| `defaultVariant`        | 字符串             | 与`--variant` 至少提供一个非空值；命令行优先                                                                                                                                                                                                                                                                      |
+| `buildType`             | 字符串             | EB 模式可选，缺省或空值取`Debug`；复用 lst 时忽略                                                                                                                                                                                                                                                                 |
+| `projectRoot`           | 路径字符串         | 可选，缺省或空值取`../../..`；`--project-root` 优先                                                                                                                                                                                                                                                             |
+| `logLevel`              | 字符串             | 可选，代码默认`WARNING`，示例配置为 `INFO`；`--log-level` 优先                                                                                                                                                                                                                                                |
+| `outputDir`             | 路径字符串         | 与`--output-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录                                                                                                                                                                                                                         |
+| `logDir`                | 路径字符串         | 与`--log-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录；不能与产物目录相同                                                                                                                                                                                                        |
+| `outputPrefix`          | 字符串             | 必填非空值，例如`Bcm`；应仅填写名称前缀，不含目录、扩展名或 `System` 后缀                                                                                                                                                                                                                                       |
+| `greenTables`           | 字符串或字符串数组 | 与`whiteTable` 二选一且不能同时存在；写则为绿表模式。具体`.xlsx` 文件或 glob，最终必须找到至少一个绿表                                                                                                                                                                                                          |
+| `whiteTable`            | 路径字符串         | 与`greenTables` 二选一且不能同时存在；写则为白表模式，直接由该白表生成并只发布 ARXML。基于配置目录，支持 `${variant}`；`--white-table` 可强制白表模式                                                                                                                                                         |
+| `tresosPreferenceFiles` | 字符串或字符串数组 | 仅 EB 模式必填；指向具体 XDM 文件，不展开 glob；有`arxmlFileList` 时可省略，即使保留也完全忽略                                                                                                                                                                                                                    |
+| `arxmlFileList`         | 路径字符串         | 写了该字段就选择清单模式，必须是非空字符串且文件存在；空值、类型错误或文件不存在直接报错，不回退 EB；使用 XDM 时须删除该字段                                                                                                                                                                                        |
+| `tresosOutputBaseDir`   | 路径字符串         | EB 模式可选，显式值基于配置目录；未填时按`projectRoot/build/${variant}.${buildType}` 计算；复用 lst 时忽略                                                                                                                                                                                                        |
+| `excludeArxmlPatterns`  | 字符串或字符串数组 | 可选，追加 ARXML 排除正则；不替换内置排除规则                                                                                                                                                                                                                                                                       |
+| `excludeArxml` | 字符串数组 | 可选，默认 `[]`；排除文件名或相对 `projectRoot` 的路径；`--exclude-arxml` 可重复，提供时覆盖配置列表 |
+| `general`               | 对象               | 必填，成员说明见下表                                                                                                                                                                                                                                                                                                |
+| `componentAliases`      | 对象               | 可选，绿表文件名/组件别名到组件类型完整路径或目标 Composition 内 prototype 完整路径的映射                                                                                                                                                                                                                           |
+| `prototypePrefix`       | 字符串             | 可选，默认`its`；用于没有已有目标实例的组件，允许空字符串                                                                                                                                                                                                                                                         |
+| `e2eWrapperComponent`   | 字符串             | 可选，默认`E2EWrapper`；该名称按普通组件处理，空字符串禁用特殊分支                                                                                                                                                                                                                                                |
+| `signalPathTemplate`    | 字符串             | 可选，默认`/${channel}/Signal/${signal}`；必须是绝对 AUTOSAR 路径并含 `${signal}`，只支持 `${channel}`、`${signal}`                                                                                                                                                                                         |
+| `arRelease`             | 字符串             | 可选，默认`R19-11`；必须是当前 armodel 支持的 release，否则失败且不发布产物                                                                                                                                                                                                                                       |
+| `interfaceMismatch`     | 字符串             | 仅支持 JSON 配置；缺省为`error`，可选 `error`、`skip`、`map`；不提供命令行覆盖                                                                                                                                                                                                                              |
+| `interfaceMappings`     | 对象数组           | 可选，在`map` 模式下为不同名称的数据元素显式配对，格式见下文                                                                                                                                                                                                                                                      |
+| `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 在已加载 ARXML 中存在时，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
 
 字符串数组参数也可写单个字符串；空字符串条目会被忽略。当前实现没有完整的配置 schema 校验，拼错字段不一定立即报错，不应依赖未知字段生效。
+
+排除示例：`"excludeArxml": ["Unused.arxml", "test/common/arxml/BcmArxml/TUR.arxml"]`。
+命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml test/common/arxml/BcmArxml/TUR.arxml`。
+文件名匹配所有同名文件（不区分大小写）；带目录的值精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
+该规则与 `excludeArxmlPatterns`、内置排除规则叠加，日志记录 `Exclude ARXML file`，不修改 lst。
+全部排除时报错退出；被排除模型中的组件、接口等不能参与生成。多配置运行时命令行列表对所有配置生效，配置列表只对各自清单生效，最终仍合并各清单的保留文件。
 
 旧字段 `name`、`xdm`、`arxml`、`output`、`generatedComponents` 已不用于当前流程；不提供自动迁移。产物名称统一由 `outputPrefix` 推导，要创建的组件由绿表文件名确定。
 
@@ -72,7 +79,7 @@
 | 项目                        | 相对路径基准                                                | 可替换内容                                 |
 | --------------------------- | ----------------------------------------------------------- | ------------------------------------------ |
 | `projectRoot`             | 当前配置文件所在目录                                        | 不展开占位符                               |
-| `outputDir`、`logDir` | 当前配置文件所在目录 | 不展开占位符 |
+| `outputDir`、`logDir`   | 当前配置文件所在目录                                        | 不展开占位符                               |
 | `greenTables`             | 当前配置文件所在目录                                        | `${variant}`，支持 `*`、`**` 等 glob |
 | `tresosPreferenceFiles`   | 当前配置文件所在目录                                        | `${variant}`                             |
 | `arxmlFileList`           | 当前配置文件所在目录                                        | `${variant}`                             |
@@ -100,13 +107,13 @@
 
 ## General 与 AUTOSAR
 
-| 参数                           | 规则     | 语义                                                                                        |
-| ------------------------------ | -------- | ------------------------------------------------------------------------------------------- |
-| `Composition`                | 必填     | 目标`COMPOSITION-SW-COMPONENT-TYPE` 完整路径；包含包路径和类型短名                        |
+| 参数                           | 规则     | 语义                                                                                                    |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------- |
+| `Composition`                | 必填     | 目标`COMPOSITION-SW-COMPONENT-TYPE` 完整路径；包含包路径和类型短名                                    |
 | `System`                     | 可选     | 目标`SYSTEM` 的短名或完整路径；未填时取根组合逐层包含 `Composition` 的唯一 System，0 个或多个时报错 |
-| `EcuInstance`                | 可选     | `ECU-INSTANCE` 完整引用路径；未填时取该 System FIBEX-ELEMENTS 中唯一的 ECU-INSTANCE，否则报错   |
-| `RootSwCompositionPrototype` | 条件可选 | 显式填写完整引用路径；未填时从输入模型中配置的 System 读取其根组合原型                      |
-| `systemMapping`              | 可选     | 映射命名值；未填或空值时取`<outputPrefix>SystemImpl`，例如 `BcmSystemImpl` |
+| `EcuInstance`                | 可选     | `ECU-INSTANCE` 完整引用路径；未填时取该 System FIBEX-ELEMENTS 中唯一的 ECU-INSTANCE，否则报错         |
+| `RootSwCompositionPrototype` | 条件可选 | 显式填写完整引用路径；未填时从输入模型中配置的 System 读取其根组合原型                                  |
+| `systemMapping`              | 可选     | 映射命名值；未填或空值时取`<outputPrefix>SystemImpl`，例如 `BcmSystemImpl`                          |
 
 只有能唯一确定时才自动推导，存在歧义时必须显式配置；目标 Composition 属于工程设计选择，始终必填。
 
@@ -149,11 +156,11 @@ AUTOSAR 允许不同包下存在相同 SHORT-NAME 的组件类型，它们是独
 
 普通装配连接必须为 P-port 到 R-port。所有使用的端口必须引用已加载的 PortInterface，缺失接口、未知端口或错误端口方向始终报错，不能通过以下参数绕过。
 
-| config 中的 `interfaceMismatch` | 两端 interface 完整引用不一致时 |
-| --- | --- |
-| `error` | 默认；报错，整次失败，不发布任何本次产物 |
-| `skip` | 记录 WARNING，包含白表位置及两端端口/接口路径，不生成这条装配连接，其他有效记录继续 |
-| `map` | 创建接口映射并在装配连接上写入 `MAPPING-REF`；无法确定有效映射时仍报错 |
+| config 中的`interfaceMismatch` | 两端 interface 完整引用不一致时                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `error`                        | 默认；报错，整次失败，不发布任何本次产物                                            |
+| `skip`                         | 记录 WARNING，包含白表位置及两端端口/接口路径，不生成这条装配连接，其他有效记录继续 |
+| `map`                          | 创建接口映射并在装配连接上写入`MAPPING-REF`；无法确定有效映射时仍报错             |
 
 `skip` 是用户显式选择的过滤行为，不是忽略 ERROR；它只处理接口不一致，不能跳过信号方向、信号组或其他错误。白表保留原始连接请求，因此 skip 模式下白表连接数可大于最终 ARXML 连接数。
 

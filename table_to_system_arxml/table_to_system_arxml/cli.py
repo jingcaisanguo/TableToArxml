@@ -136,8 +136,8 @@ def _check_python_dependencies() -> None:
     if not failures:
         version_type = importlib.import_module("packaging.version").Version
         installed_version = version("armodel")
-        if version_type(installed_version) < version_type("1.9.2"):
-            failures.append(f"armodel>=1.9.2 is required; installed: {installed_version}")
+        if version_type(installed_version) < version_type("1.8.7"):
+            failures.append(f"armodel>=1.8.7 is required; installed: {installed_version}")
     if failures:
         raise RuntimeError(
             f"Python dependencies are missing or unusable (interpreter: {sys.executable}). "
@@ -272,6 +272,7 @@ def _collect_arxml_paths(
     list_file: Path,
     reuse_existing_list: bool,
     generated_lists: dict[tuple, Path],
+    exclude_arxml: list[str] | None = None,
 ) -> list[Path]:
     """用 EB 导入器生成清单，再读出本次需要加载的 ARXML。
 
@@ -282,10 +283,11 @@ def _collect_arxml_paths(
     exclude_patterns: list[str] = list(DEFAULT_EXCLUDE_PATTERNS)
     exclude_patterns.extend(rf".*[\\/]{re.escape(name)}$" for name in generated_arxml_names)
     exclude_patterns.extend(_string_list(config, "excludeArxmlPatterns", required=False))
+    excluded = exclude_arxml if exclude_arxml is not None else _string_list(config, "excludeArxml", required=False)
 
     if reuse_existing_list:
         logging.info("Reusing the configured ARXML file list: %s; skipping XDM and EB importer", list_file)
-        return read_file_list(list_file, project_root, project_root, "", exclude_patterns)
+        return read_file_list(list_file, project_root, project_root, "", exclude_patterns, excluded)
 
     build_type = _norm(config.get("buildType")) or DEFAULT_BUILD_TYPE
     configured_output = _norm(config.get("tresosOutputBaseDir"))
@@ -314,6 +316,7 @@ def _collect_arxml_paths(
         tresos_project_dir(preference_files),
         tresos_output_path.name,
         exclude_patterns,
+        excluded,
     )
 
 
@@ -438,6 +441,7 @@ def run(
     file_list: str | None = None,
     log_dir: str | None = None,
     white_table: str | None = None,
+    exclude_arxml: list[str] | None = None,
 ) -> list[tuple[Path, Path]]:
     """完整流程，按配置顺序返回每个配置的 ``(白表路径, Composition ARXML 路径)``。
 
@@ -510,7 +514,7 @@ def run(
                 job.config, job.variant, job.config_dir, staging / list_name, file_list)
             for path in _collect_arxml_paths(
                     job.config, job.variant, job.config_dir, job.project_root,
-                    generated_names, list_file, reuse_existing_list, generated_lists):
+                    generated_names, list_file, reuse_existing_list, generated_lists, exclude_arxml):
                 key = os.path.normcase(str(path))
                 if key not in seen:
                     seen.add(key)
@@ -595,6 +599,11 @@ def build_argument_parser(default_config: Path | None = None) -> argparse.Argume
              "Overrides config field 'arxmlFileList'",
     )
     parser.add_argument(
+        "--exclude-arxml",
+        action="append",
+        help="Exclude a filename or projectRoot-relative ARXML path; repeat for multiple entries; overrides config.excludeArxml",
+    )
+    parser.add_argument(
         "--white-table",
         help="Use this white table as input (white mode) regardless of config 'greenTables'/'whiteTable'",
     )
@@ -616,6 +625,7 @@ def main(default_config: Path | None = None) -> int:
             file_list=args.arxml_file_list,
             log_dir=args.log_dir,
             white_table=args.white_table,
+            exclude_arxml=args.exclude_arxml,
         )
     except Exception as exc:
         logging.error("%s failed; no new artifacts published: %s", TOOL_NAME, exc)
