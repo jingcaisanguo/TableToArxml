@@ -20,18 +20,28 @@ python -m build --wheel --outdir ./table_to_system_arxml ./table_to_system_arxml
 
 ## GitHub 自动构建与发布
 
-仓库根目录的 `.github/workflows/table-to-system-arxml-wheel.yml` 在工具代码变更、Pull Request 或手动触发时构建并检查 wheel。
+仓库根目录的 `.github/workflows/table-to-system-arxml-wheel.yml` 在工具代码变更、Pull Request 或手动触发时构建并检查 wheel，不发布。
 可在 Actions 的构建结果中下载 `table-to-system-arxml-wheel` artifact；artifact 是 ZIP，需要解压后安装其中的 wheel。
-如果将工具目录作为单独仓库上传，需要相应调整 workflow 中的构建路径、路径过滤及工作流文件位置。
 
-推送与包版本一致的标签时，工作流会将 wheel 上传到 GitHub Release。例如在提交代码后执行：
+发布由 `.github/workflows/release-wheels.yml` 负责，按标签前缀只发布对应的一个工具：
+
+| 标签 | 发布内容 |
+| --- | --- |
+| `tableToSystemArxml/<版本>` | `table_to_system_arxml-<版本>-py3-none-any.whl` |
+| `tableToSwcArxml/<版本>` | `table_to_swc_arxml-<版本>-py3-none-any.whl` |
+
+工作流构建该工具的 wheel，校验标签中的版本与工具 `pyproject.toml` 的 `version` 一致，
+安装并执行 `pip check` 和 `--help`，全部通过后上传到与标签同名的 GitHub Release；任一步失败则不发布。
+先修改 `version` 并合入 `main`，再打标签：
 
 ```powershell
-git tag table-to-system-arxml-v0.1.0
-git push origin table-to-system-arxml-v0.1.0
+git checkout main
+git pull
+git tag tableToSystemArxml/0.1.0
+git push origin tableToSystemArxml/0.1.0
 ```
 
-标签版本与 wheel 不一致会拒绝发布。仓库需启用 GitHub Actions，并允许工作流写入 Release。
+对已有 Release 重新推送同名标签会覆盖其中同名 wheel。仓库需启用 GitHub Actions，并允许工作流写入 Release。
 也可以在 GitHub 网页上手动创建 Release 并上传本地构建的 wheel，不要求上传到 PyPI。
 
 ## 其他项目安装与调用
@@ -44,16 +54,16 @@ table-to-system-arxml --help
 table-to-system-arxml --config ./config/system-arxml.json --output-dir ./generated --log-dir ./logs
 ```
 
-公开仓库也可直接按固定版本的 Release URL 安装，替换 `OWNER` 和 `REPO`：
+公开仓库也可直接按固定版本的 Release 地址安装，链接从 Release 页面的 wheel 附件复制，形如：
 
 ```powershell
-python -m pip install "https://github.com/OWNER/REPO/releases/download/table-to-system-arxml-v0.1.0/table_to_system_arxml-0.1.0-py3-none-any.whl"
+python -m pip install "<Release 中 table_to_system_arxml-0.1.0-py3-none-any.whl 的下载链接>"
 ```
 
 在其他项目的 `requirements.txt` 中可固定同一版本：
 
 ```text
-table-to-system-arxml @ https://github.com/OWNER/REPO/releases/download/table-to-system-arxml-v0.1.0/table_to_system_arxml-0.1.0-py3-none-any.whl
+table-to-system-arxml @ <Release 中 table_to_system_arxml-0.1.0-py3-none-any.whl 的下载链接>
 ```
 
 私有仓库先通过已认证的 GitHub 客户端或 CI 下载 wheel，再使用本地路径安装。不要将令牌写入 URL、配置或版本库。
