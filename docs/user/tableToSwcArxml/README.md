@@ -248,7 +248,7 @@ table-to-swc-arxml --config ./config/swc.json
 ## 日志与退出码
 
 日志写入 `logDir` 下的 `table_to_swc_arxml_<时间含微秒>_<进程号>.log`，同时输出到控制台：
-普通信息到 stdout，`WARNING`、`ERROR` 到 stderr。结束时输出汇总，例如：
+普通信息到 stdout，`WARNING`、`ERROR` 到 stderr。控制台与日志文件格式相同，每行为 `<时间戳> <等级>: <消息>`。结束时输出汇总，例如：
 
 ```text
 Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped; 0 enumeration(s) to create, 0 skipped;

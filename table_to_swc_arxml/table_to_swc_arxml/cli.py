@@ -68,15 +68,18 @@ def setup_logging(log_dir: Path, level_name: str) -> ErrorCounter:
 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{TOOL_NAME}_{datetime.now():%Y%m%d_%H%M%S_%f}_{os.getpid()}.log"
+    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    file_handler.setFormatter(formatter)
     LOGGER.addHandler(file_handler)
 
     stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(formatter)
     stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
     LOGGER.addHandler(stdout_handler)
 
     stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(formatter)
     stderr_handler.setLevel(logging.WARNING)
     LOGGER.addHandler(stderr_handler)
 

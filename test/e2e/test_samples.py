@@ -101,7 +101,7 @@ TWINS = """<?xml version="1.0" encoding="UTF-8"?>
           <IS-SERVICE>false</IS-SERVICE>
           <DATA-ELEMENTS>
             <VARIABLE-DATA-PROTOTYPE>
-              <SHORT-NAME>de</SHORT-NAME>
+              <SHORT-NAME>If</SHORT-NAME>
               <TYPE-TREF DEST="IMPLEMENTATION-DATA-TYPE">/Pkg/uint8</TYPE-TREF>
             </VARIABLE-DATA-PROTOTYPE>
           </DATA-ELEMENTS>
@@ -132,7 +132,10 @@ def short_names(element: ET.Element, path: str) -> list[str]:
 
 
 def test_swc_same_named_runnables_in_one_file(tmp_path):
-    """两个组件的 runnable 同名时，访问点和服务器调用点只能写入工作簿指定的组件。"""
+    """两个组件的 runnable 同名时，访问点和服务器调用点只能写入工作簿指定的组件。
+
+    数据元素与接口同名，同时覆盖同一文件内 SHORT-NAME 重复时不应误报多个定义。
+    """
 
     source = tmp_path / "twins.arxml"
     source.write_text(TWINS, encoding="utf-8")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "table-to-arxml"
-version = "0.2.0"
+version = "0.2.1"
 description = "Excel to AUTOSAR ARXML tools: table-to-system-arxml and table-to-swc-arxml"
 requires-python = ">=3.9"
 dynamic = ["dependencies"]

@@ -31,7 +31,7 @@ MC 白表声明 `itsAUXL`、`itsHorn` 两个 `Add` 实例，测试以下两条�
 以下命令都从**仓库根目录**执行；命令行相对路径按当前工作目录解析，JSON 中的路径按配置文件所在目录解析。
 
 ```powershell
-python -m pip install ./dist/table_to_arxml-0.2.0-py3-none-any.whl
+python -m pip install ./dist/table_to_arxml-0.2.1-py3-none-any.whl
 ```
 
 ## BCM 绿表

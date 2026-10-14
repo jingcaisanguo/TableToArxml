@@ -72,8 +72,9 @@ class SourceStore:
                 text = self.read(arxml_file).decode("utf-8-sig")
             except UnicodeDecodeError:
                 continue
-            for match in SHORT_NAME_PATTERN.finditer(text):
-                index[match.group(1)].append(arxml_file)
+            # 同一文件里重复出现的简称只记一次，否则同一个定义会被误报为多个定义。
+            for short_name in {match.group(1) for match in SHORT_NAME_PATTERN.finditer(text)}:
+                index[short_name].append(arxml_file)
         self._short_name_index = dict(index)
         self._short_name_index_key = key
         return self._short_name_index

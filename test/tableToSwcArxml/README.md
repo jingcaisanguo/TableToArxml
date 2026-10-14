@@ -22,7 +22,7 @@ LIT 与 Horn 的端口方向互补，可用于后续测试 BCM 与 MC 组件连�
 在仓库根目录安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../docs/dev/release.md)）后执行。命令行相对路径按当前目录解析，配置中的 `projectRoot`（`../..`）指向仓库根目录：
 
 ```powershell
-python -m pip install ./dist/table_to_arxml-0.2.0-py3-none-any.whl
+python -m pip install ./dist/table_to_arxml-0.2.1-py3-none-any.whl
 table-to-swc-arxml --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 

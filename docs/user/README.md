@@ -18,7 +18,7 @@
 需要 Python 3.9 或更新版本，建议安装到项目自己的虚拟环境。从 GitHub Release 下载 `table_to_arxml-<版本>-py3-none-any.whl` 后执行：
 
 ```powershell
-python -m pip install ./table_to_arxml-0.2.0-py3-none-any.whl
+python -m pip install ./table_to_arxml-0.2.1-py3-none-any.whl
 table-to-system-arxml --help
 table-to-swc-arxml --help
 ```
@@ -26,7 +26,7 @@ table-to-swc-arxml --help
 也可以直接用 Release 中 wheel 附件的下载链接安装，或在项目的 `requirements.txt` 中固定版本：
 
 ```text
-table-to-arxml @ <Release 中 table_to_arxml-0.2.0-py3-none-any.whl 的下载链接>
+table-to-arxml @ <Release 中 table_to_arxml-0.2.1-py3-none-any.whl 的下载链接>
 ```
 
 - 安装时自动安装依赖：`armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`。实测 armodel 1.8.7 和 1.9.2 可用；从索引安装时 pip 会在该范围内选最新版，范围外的版本在工具启动时报错。

@@ -20,7 +20,7 @@ python -m build --wheel --outdir dist .
 
 ## 发布
 
-发布由 [release.yml](../../.github/workflows/release.yml) 完成，**标签名就是版本号**，格式为 `x.y.z`（三段纯数字），例如 `0.2.0`：
+发布由 [release.yml](../../.github/workflows/release.yml) 完成，**标签名就是版本号**，格式为 `x.y.z`（三段纯数字），例如 `0.2.1`：
 
 1. 修改 `pyproject.toml` 的 `version`，经 PR 合入 `main`。
 2. 在 `main` 的对应提交上打标签并推送（或在 GitHub 网页创建同名标签）：
@@ -28,8 +28,8 @@ python -m build --wheel --outdir dist .
    ```powershell
    git checkout main
    git pull
-   git tag 0.2.0
-   git push origin 0.2.0
+   git tag 0.2.1
+   git push origin 0.2.1
    ```
 
 3. 工作流依次执行，任一步失败都不发布：
