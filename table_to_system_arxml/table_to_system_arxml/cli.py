@@ -40,12 +40,8 @@ from .lib.file_list import (
 
 
 # Workaround: avoid slow registry probing on some Windows setups when importing openpyxl.
-if os.name == "nt":
-    try:
-        if hasattr(mimetypes, "_winreg"):
-            setattr(mimetypes, "_winreg", None)
-    except Exception:
-        pass
+if os.name == "nt" and hasattr(mimetypes, "_winreg"):
+    mimetypes._winreg = None  # type: ignore[attr-defined]
 
 
 TOOL_NAME = "table_to_system_arxml"
@@ -56,6 +52,16 @@ DEFAULT_BUILD_TYPE = "Debug"
 # CMB 约定的 tresos 生成目录，EB 导入器把它作为 TRESOS_OUTPUT_BASE_DIR。
 DEFAULT_TRESOS_OUTPUT_BASE_DIR = "build/${variant}.${buildType}"
 LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+# 与 requirements.txt 保持一致；1.9.4 起缺少本工具依赖的导出。
+ARMODEL_REQUIREMENT = ">=1.8.7,<1.9.4"
+CONFIG_KEYS = frozenset({
+    "project", "defaultVariant", "buildType", "projectRoot", "logLevel", "outputDir", "logDir",
+    "outputPrefix", "greenTables", "whiteTable", "tresosPreferenceFiles", "arxmlFileList",
+    "tresosOutputBaseDir", "excludeArxmlPatterns", "excludeArxml", "general", "componentAliases",
+    "prototypePrefix", "e2eWrapperComponent", "signalPathTemplate", "arRelease", "interfaceMismatch",
+    "interfaceMappings", "generateSystem",
+})
+GENERAL_CONFIG_KEYS = frozenset({"Composition", "System", "EcuInstance", "RootSwCompositionPrototype", "systemMapping"})
 
 
 def _is_armodel_record(record: logging.LogRecord) -> bool:
@@ -134,10 +140,10 @@ def _check_python_dependencies() -> None:
         except Exception as exc:
             failures.append(f"{module_name}: {type(exc).__name__}: {exc}")
     if not failures:
-        version_type = importlib.import_module("packaging.version").Version
+        specifier = importlib.import_module("packaging.specifiers").SpecifierSet(ARMODEL_REQUIREMENT)
         installed_version = version("armodel")
-        if version_type(installed_version) < version_type("1.8.7"):
-            failures.append(f"armodel>=1.8.7 is required; installed: {installed_version}")
+        if installed_version not in specifier:
+            failures.append(f"armodel{ARMODEL_REQUIREMENT} is required; installed: {installed_version}")
     if failures:
         raise RuntimeError(
             f"Python dependencies are missing or unusable (interpreter: {sys.executable}). "
@@ -154,6 +160,11 @@ def _load_config(config_path: Path) -> dict:
         config = json.load(handle)
     if not isinstance(config, dict):
         raise ValueError(f"Config must be a JSON object: {config_path}")
+    unknown = sorted(set(config) - CONFIG_KEYS)
+    if unknown:
+        raise ValueError(
+            f"Unknown config option(s) in {config_path}: {', '.join(unknown)}; "
+            f"supported: {', '.join(sorted(CONFIG_KEYS))}")
     return config
 
 
@@ -361,6 +372,11 @@ def _prepare_job(
     # 产物命名全部由 config.outputPrefix 推导，例如 Bcm -> BcmWhiteTable.xlsx / BcmGreenTables.xlsx / BcmSystem.arxml。
     output_prefix = _filename_part(_required(config, "outputPrefix", "outputPrefix"), "outputPrefix")
     general = _section(config, "general")
+    unknown_general = sorted(set(general) - GENERAL_CONFIG_KEYS)
+    if unknown_general:
+        raise ValueError(
+            f"Unknown config.general option(s) in {config_path}: {', '.join(unknown_general)}; "
+            f"supported: {', '.join(sorted(GENERAL_CONFIG_KEYS))}")
 
     input_white_table: Path | None = None
     if white_table:
@@ -463,7 +479,7 @@ def run(
         raise ValueError(f"config.outputPrefix must be unique across configs: {', '.join(duplicated)}")
 
     resolved_log_level = (
-        _norm(log_level) or _norm(jobs[0].config.get("logLevel")) or "WARNING").upper()
+        _norm(log_level) or _norm(jobs[0].config.get("logLevel")) or "INFO").upper()
     if resolved_log_level not in LOG_LEVELS:
         raise ValueError(f"Invalid log level: {resolved_log_level}")
     resolved_log_dir = _resolve_run_directory(jobs, log_dir, "logDir", "--log-dir")
@@ -591,7 +607,7 @@ def build_argument_parser(default_config: Path | None = None) -> argparse.Argume
         "--log-level",
         type=str.upper,
         choices=LOG_LEVELS,
-        help="Override config field 'logLevel', case-insensitive (default: WARNING)",
+        help="Override config field 'logLevel', case-insensitive (default: INFO)",
     )
     parser.add_argument(
         "--arxml-file-list",

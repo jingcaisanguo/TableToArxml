@@ -1,7 +1,7 @@
 """ARXML 模型访问层，集中封装 armodel 的全部用法。
 
-:class:`ArxmlModel` 把一组 ARXML 合并成一个模型，提供组件、连线、信号映射、
-CAN/LIN 通道与端口查询，并向外暴露底层 AUTOSAR 文档供 composition 生成复用。
+:class:`ArxmlModel` 把一组 ARXML 合并成一个模型，提供组件、System、
+CAN/LIN 通道与信号查询，并向外暴露底层 AUTOSAR 文档供 composition 生成复用。
 
 更换解析库时只需替换本模块的实现，业务脚本无需改动。
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -20,9 +19,6 @@ from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.
     ARPackage,
 )
 from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Components import SwComponentType
-from armodel.models.M2.AUTOSARTemplates.SystemTemplate.DataMapping import (
-    SenderReceiverToSignalMapping,
-)
 from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreCommunication import (
     ISignal, ISignalGroup, SystemSignal, SystemSignalGroup,
 )
@@ -51,19 +47,6 @@ def _value(reference) -> str:
         return ""
     value = reference.getValue()
     return "" if value is None else str(value).strip()
-
-
-def _last_segment(path_value: str) -> str:
-    parts = [part for part in path_value.split("/") if part]
-    return parts[-1] if parts else ""
-
-
-@dataclass(frozen=True)
-class ComponentPorts:
-    """一个组件类型上定义的端口简称集合。"""
-
-    r_ports: set[str] = field(default_factory=set)
-    p_ports: set[str] = field(default_factory=set)
 
 
 class _DiagnosticHandler(logging.Handler):
@@ -180,26 +163,6 @@ class ArxmlModel:
                     prototypes[name] = type_path
         return prototypes
 
-    def assembly_connectors(self) -> set[tuple[str, str, str, str]]:
-        """返回 ``(provider, P-port, requester, R-port)`` 四元组集合。"""
-
-        connectors: set[tuple[str, str, str, str]] = set()
-        for composition in self._elements_of(CompositionSwComponentType):
-            for connector in composition.getAssemblySwConnectors():
-                provider = connector.getProviderIRef()
-                requester = connector.getRequesterIRef()
-                if provider is None or requester is None:
-                    continue
-                entry = (
-                    _last_segment(_value(provider.getContextComponentRef())),
-                    _last_segment(_value(provider.getTargetPPortRef())),
-                    _last_segment(_value(requester.getContextComponentRef())),
-                    _last_segment(_value(requester.getTargetRPortRef())),
-                )
-                if all(entry):
-                    connectors.add(entry)
-        return connectors
-
     def composition_types(self) -> set[str]:
         """返回全部 Composition 类型的完整路径。"""
 
@@ -269,64 +232,6 @@ class ArxmlModel:
         """返回 System 的 FIBEX-ELEMENTS 中引用的 ECU-INSTANCE 路径。"""
 
         return [_value(ref) for ref in system.getFibexElementRefs() if ref.getDest() == "ECU-INSTANCE"]
-
-    def component_ports(self) -> dict[str, ComponentPorts]:
-        """返回 ``组件类型完整路径 -> 端口集合``。"""
-
-        result: dict[str, ComponentPorts] = {}
-        for component in self._elements_of(SwComponentType):
-            if isinstance(component, CompositionSwComponentType):
-                continue
-            name = component.getFullName()
-            if not name:
-                continue
-            ports = result.setdefault(name, ComponentPorts(set(), set()))
-            ports.r_ports.update(
-                port.getShortName() for port in component.getRPortPrototypes()
-                if port.getShortName())
-            ports.p_ports.update(
-                port.getShortName() for port in component.getPPortPrototypes()
-                if port.getShortName())
-        return result
-
-    # -- 信号映射 -----------------------------------------------------------
-
-    def signal_mappings(self) -> set[tuple[str, str, str, str, str]]:
-        """返回 ``(方向, 组件, port, 通道, 信号)`` 五元组集合。
-
-        只保留带 CONTEXT-COMPONENT-REF 的 mapping；顶层 composition 的 mapping
-        没有具体组件上下文，无法参与绿表逐行比对。
-        """
-
-        mappings: set[tuple[str, str, str, str, str]] = set()
-        for system in self._document.getSystems():
-            for mapping_set in system.getMappings():
-                for mapping in mapping_set.getDataMappings():
-                    if not isinstance(mapping, SenderReceiverToSignalMapping):
-                        continue
-                    iref = mapping.getDataElementIRef()
-                    if iref is None:
-                        continue
-                    component_refs = [
-                        _last_segment(_value(ref))
-                        for ref in iref.getContextComponentRefs()
-                    ]
-                    if not component_refs:
-                        continue
-                    signal_path = _value(mapping.getSystemSignalRef())
-                    signal_parts = [part for part in signal_path.split("/") if part]
-                    if len(signal_parts) < 3:
-                        continue
-                    entry = (
-                        _value(mapping.getCommunicationDirection()).upper(),
-                        component_refs[-1],
-                        _last_segment(_value(iref.getContextPortRef())),
-                        signal_parts[0],
-                        signal_parts[-1],
-                    )
-                    if all(entry):
-                        mappings.add(entry)
-        return mappings
 
     # -- CAN/LIN ------------------------------------------------------------
 

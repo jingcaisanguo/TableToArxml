@@ -22,12 +22,12 @@
 
 ```bash
 python -m pip wheel --no-deps --wheel-dir ./table_to_swc_arxml ./table_to_swc_arxml
-python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.1.0-py3-none-any.whl
+python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.2.0-py3-none-any.whl
 table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 
 - wheel 只包含 Python 代码，不含模板、配置或日志，这些由使用工具的项目提供。
-- 依赖为 `armodel>=1.8.7`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，不能使用，应先安装兼容版本再安装本工具。
+- 依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，安装了范围外的版本时工具启动即报版本错误。
 - 与 `table-to-system-arxml` 共用同一 `armodel` 版本，两个工具可装在同一环境。
 - 发布新版本前修改 `table_to_swc_arxml/pyproject.toml` 中的 `version`。
 
@@ -66,6 +66,7 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 | `inPlace`、`outputDir`、`dryRun` 最多选一个；布尔项为 `true`/`false` | 参数错误，退出码 `2` |
 | 工程目录存在，工作簿和清单文件存在 | `ERROR`，退出码 `1` |
 | 清单条目扩展名为 `.arxml` 且文件存在 | 默认 `WARNING` 后跳过该条目；`strictList=true` 时直接失败 |
+| 清单中同一文件重复出现 | 只保留第一次，`INFO` 记录 |
 | 清单中至少有一个可用文件 | `ERROR`，退出码 `1` |
 
 ### 工作簿检查
@@ -75,6 +76,7 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 | 检查项 | 不满足时 |
 | --- | --- |
 | 9 个工作表都存在（可以只有表头） | `ERROR`，该表按空表处理 |
+| 整本工作簿至少有一条有效记录（端口、类型、接口、访问点任一种） | `ERROR`，退出码 `1` |
 | 表头无未知列、无重复列、必填列齐全（列名不区分大小写，旧列名可识别） | `ERROR`，跳过整张表 |
 | 单元格为文本、数字或布尔值 | `ERROR`，跳过该行 |
 | 必填单元格非空 | `ERROR`，跳过该行 |

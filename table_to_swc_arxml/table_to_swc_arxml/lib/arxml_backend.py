@@ -17,8 +17,27 @@ import re
 import threading
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol, Sequence, cast
+
+# 与 requirements.txt 保持一致；1.9.4 起缺少本模块依赖的导出，先给出明确的版本错误。
+ARMODEL_REQUIREMENT = ">=1.8.7,<1.9.4"
+ARMODEL_MIN_VERSION = (1, 8, 7)
+ARMODEL_MAX_VERSION = (1, 9, 4)
+
+
+def check_armodel_version() -> None:
+    try:
+        installed = version("armodel")
+    except PackageNotFoundError as error:
+        raise ImportError(f"armodel{ARMODEL_REQUIREMENT} is required but not installed") from error
+    numbers = tuple(int(part) for part in re.findall(r"\d+", installed)[:3])
+    if not ARMODEL_MIN_VERSION <= numbers < ARMODEL_MAX_VERSION:
+        raise ImportError(f"armodel{ARMODEL_REQUIREMENT} is required; installed: {installed}")
+
+
+check_armodel_version()
 
 from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSAR
 from armodel.models.M2.AUTOSARTemplates.CommonStructure.ImplementationDataTypes import (
@@ -372,10 +391,6 @@ class ArxmlDocument(Protocol):
         is_service: bool = False,
     ) -> str:
         """创建 Client-Server 接口并返回其 XML 片段。"""
-        ...
-
-    def compu_method_scales(self, compu_method_path: str) -> list[tuple[str, str]]:
-        """返回 TEXTTABLE 计算方法的 ``(值, 文本)`` 列表；不存在时返回空列表。"""
         ...
 
     def add_compu_method(
@@ -1079,32 +1094,6 @@ class ArmodelDocument:
                 )
                 argument.setDirection(ARLiteral().setValue(direction))
         return self._serialize(ARXMLWriter().writeClientServerInterface, interface)
-
-    def compu_method_scales(self, compu_method_path: str) -> list[tuple[str, str]]:
-        compu_method = self._document.find(compu_method_path)
-        if not isinstance(compu_method, CompuMethod):
-            return []
-        compu = compu_method.getCompuInternalToPhys()
-        content = None if compu is None else compu.getCompuContent()
-        if not isinstance(content, CompuScales):
-            return []
-
-        scales: list[tuple[str, str]] = []
-        for scale in content.getCompuScales():
-            contents = scale.getCompuScaleContents()
-            if not isinstance(contents, CompuScaleConstantContents):
-                continue
-            content_type = contents.compuConst.compuConstContentType
-            if not isinstance(content_type, CompuConstTextContent):
-                continue
-            limit = scale.getLowerLimit()
-            scales.append(
-                (
-                    "" if limit is None else str(limit.getValue() or ""),
-                    str(content_type.getVt() or ""),
-                )
-            )
-        return scales
 
     def add_compu_method(
         self,

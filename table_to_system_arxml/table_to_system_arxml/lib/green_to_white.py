@@ -332,16 +332,6 @@ def _parse_green_workbook(workbook, green_path: Path, app_name: str) -> GreenWor
     return GreenWorkbookInfo(app_name=app_name, input_rows=input_rows, output_rows=output_rows)
 
 
-def _load_existing_components(ws) -> set[str]:
-    """读取白表 Components 页中已存在的组件名，用于快速去重。"""
-
-    return {
-        norm(row[1])
-        for row in ws.iter_rows(min_row=2, values_only=True)
-        if row and len(row) > 1 and norm(row[1])
-    }
-
-
 def _load_existing_component_rows(ws) -> set[tuple[str, str, str, str]]:
     """读取白表 Components 页中已存在的完整记录键。"""
 
@@ -374,7 +364,6 @@ def _load_existing_signal_rows(ws) -> set[tuple[str, str, str, str, str]]:
 
 def _append_component(
     ws,
-    existing_components: set[str],
     existing_rows: set[tuple[str, str, str, str]],
     prototype: str,
     component_name: str,
@@ -389,7 +378,6 @@ def _append_component(
     if any(row[0] == prototype for row in existing_rows):
         raise ValueError(f"Conflicting component prototype '{prototype}'")
     ws.append([prototype, component_name, component_type, action])
-    existing_components.add(component_name)
     existing_rows.add(row_key)
     return True
 
@@ -480,7 +468,6 @@ def process_green_table(
     assembly_ws = workbook[WHITE_TABLE_SHEETS["assembly"]]
     signal_ws = workbook[WHITE_TABLE_SHEETS["signal"]]
 
-    existing_components = _load_existing_components(components_ws)
     existing_component_rows = _load_existing_component_rows(components_ws)
     existing_assembly_rows = _load_existing_assembly_rows(assembly_ws)
     existing_signal_rows = _load_existing_signal_rows(signal_ws)
@@ -497,7 +484,6 @@ def process_green_table(
 
     if _append_component(
         components_ws,
-        existing_components,
         existing_component_rows,
         app_prototype,
         app_component_name,
@@ -510,20 +496,17 @@ def process_green_table(
         component_info = component_type_map.get(component_name)
         if not component_info:
             raise ValueError(f"Green table '{info.app_name}': unresolved component '{component_name}'")
-        if component_info:
-            component_prototype, component_type = component_info
-            resolved_component_name = component_prototype
-            action = "Add" if component_info in app_definitions else "Reference"
-            if _append_component(
-                components_ws,
-                existing_components,
-                existing_component_rows,
-                component_prototype,
-                resolved_component_name,
-                component_type,
-                action,
-            ):
-                counters["components"] += 1
+        component_prototype, component_type = component_info
+        action = "Add" if component_info in app_definitions else "Reference"
+        if _append_component(
+            components_ws,
+            existing_component_rows,
+            component_prototype,
+            component_prototype,
+            component_type,
+            action,
+        ):
+            counters["components"] += 1
 
     for row in info.input_rows:
         module_name = row.source_module.upper()

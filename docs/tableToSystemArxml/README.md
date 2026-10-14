@@ -19,7 +19,7 @@
 ```text
 table_to_system_arxml/
     table_to_system_arxml.py     薄启动入口，可直接运行
-    table_to_system_arxml-0.1.0-py3-none-any.whl
+    table_to_system_arxml-<版本>-py3-none-any.whl  本地构建产物，不提交
     pyproject.toml              wheel 构建配置
     requirements.txt            Python 依赖
     table_to_system_arxml/       可安装的 Python 包
@@ -35,7 +35,7 @@ table_to_system_arxml/
 
 ## 环境与输入
 
-- 使用 Python 3.9 或更新版本。安装 wheel 会自动安装依赖；源码运行按 [../../table_to_system_arxml/requirements.txt](../../table_to_system_arxml/requirements.txt) 安装依赖：`python -m pip install -r requirements.txt`。发行依赖为 `armodel>=1.8.7`、`openpyxl>=3.1.2`、`packaging>=21.3`；实测 1.8.7 和 1.9.2 可用，1.9.4 及以后缺少 `ISignalPort` 导出，不能使用。
+- 使用 Python 3.9 或更新版本。安装 wheel 会自动安装依赖；源码运行按 [../../table_to_system_arxml/requirements.txt](../../table_to_system_arxml/requirements.txt) 安装依赖：`python -m pip install -r requirements.txt`。发行依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`；实测 1.8.7 和 1.9.2 可用，1.9.4 及以后缺少 `ISignalPort` 导出，不能使用。
 - 转换器在包内的 `lib/` 中实现，不再依赖或导入 `pya4a`，也不启动 `xlsx-composition-sw`。白表格式和有效输入的输出约定保持兼容；升级 armodel 后应重新验证生成结果。
 - 使用 EB 模式时，`PrefSystemImporter` 必须能从当前进程的 `PATH` 找到；使用已有 lst 时不需要启动该命令。
 - 输入应包含绿表引用的组件类型、端口、接口、实现、信号，以及 General 引用的系统和拓扑定义。lst 只是路径清单，不能代替缺失的定义。
@@ -54,7 +54,7 @@ table_to_system_arxml/
 
 已核实的环境为 `openpyxl 3.1.2`，以及 `armodel 1.8.7`、`1.9.2`（两者生成的 ARXML 完全一致）。其发行包元数据声明的下一层依赖包括：`openpyxl` 的 `et-xmlfile`；`armodel` 的 `colorama`、`openpyxl`、`lxml`。本工具不再要求安装 `pya4a` 或为它引入 `toml`、`py-eb-model`、`py-ea-model`。其他工程工具可能仍需要这些库，因此本次改造不会卸载已有包。
 
-执行时先初始化日志，再实际导入依赖并检查 armodel 至少为 1.8.7；不是只检查包名是否安装。缺失、导入损坏或版本过低会在控制台及日志中记录 `ERROR`，包含具体原因和当前解释器，并返回 `1`。该检查不代替完整的依赖版本兼容性测试，也不自动安装软件。
+执行时先初始化日志，再实际导入依赖并检查 armodel 版本满足 `>=1.8.7,<1.9.4`；不是只检查包名是否安装。缺失、导入损坏或版本不在范围内会在控制台及日志中记录 `ERROR`，包含具体原因和当前解释器，并返回 `1`。该检查不代替完整的依赖版本兼容性测试，也不自动安装软件。
 
 `--help` 不加载第三方转换依赖，不要求 EB。EB 模式若找不到或无法启动 `PrefSystemImporter`，错误也经主入口写入日志；其内部的许可证、运行时等问题以实际启动结果为准。入口和 Python 自身必须能启动，配置可读取且日志目录可写，文件日志才能建立。
 

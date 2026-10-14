@@ -43,7 +43,7 @@
 | `defaultVariant`        | 字符串             | 与`--variant` 至少提供一个非空值；命令行优先                                                                                                                                                                                                                                                                      |
 | `buildType`             | 字符串             | EB 模式可选，缺省或空值取`Debug`；复用 lst 时忽略                                                                                                                                                                                                                                                                 |
 | `projectRoot`           | 路径字符串         | 可选，缺省或空值取`../../..`；`--project-root` 优先                                                                                                                                                                                                                                                             |
-| `logLevel`              | 字符串             | 可选，代码默认`WARNING`，示例配置为 `INFO`；`--log-level` 优先                                                                                                                                                                                                                                                |
+| `logLevel`              | 字符串             | 可选，默认`INFO`；`--log-level` 优先                                                                                                                                                                                                                                                |
 | `outputDir`             | 路径字符串         | 与`--output-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录                                                                                                                                                                                                                         |
 | `logDir`                | 路径字符串         | 与`--log-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录；不能与产物目录相同                                                                                                                                                                                                        |
 | `outputPrefix`          | 字符串             | 必填非空值，例如`Bcm`；应仅填写名称前缀，不含目录、扩展名或 `System` 后缀                                                                                                                                                                                                                                       |
@@ -64,7 +64,7 @@
 | `interfaceMappings`     | 对象数组           | 可选，在`map` 模式下为不同名称的数据元素显式配对，格式见下文                                                                                                                                                                                                                                                      |
 | `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 在已加载 ARXML 中存在时，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
 
-字符串数组参数也可写单个字符串；空字符串条目会被忽略。当前实现没有完整的配置 schema 校验，拼错字段不一定立即报错，不应依赖未知字段生效。
+字符串数组参数也可写单个字符串；空字符串条目会被忽略。配置中出现上表以外的键，或 `general` 中出现下文 General 表以外的键时，直接报错退出并列出支持的键，避免拼错的字段被静默忽略。
 
 排除示例：`"excludeArxml": ["Unused.arxml", "test/common/arxml/BcmArxml/TUR.arxml"]`。
 命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml test/common/arxml/BcmArxml/TUR.arxml`。

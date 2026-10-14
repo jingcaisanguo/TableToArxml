@@ -22,7 +22,7 @@ LIT 与 Horn 的端口方向互补，可用于后续测试 BCM 与 MC 组件连�
 在仓库根目录安装 wheel 后执行。相对 `--config` 须同时给出 `--project-root`，该值与配置中的 `projectRoot`（`../..`）指向同一目录：
 
 ```powershell
-python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.1.0-py3-none-any.whl
+python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.2.0-py3-none-any.whl
 table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 

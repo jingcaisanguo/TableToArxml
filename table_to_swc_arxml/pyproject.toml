@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "table-to-swc-arxml"
-version = "0.1.0"
+version = "0.2.0"
 description = "Add AUTOSAR SWC ports, interfaces and data types to ARXML from Excel"
 requires-python = ">=3.9"
 dynamic = ["dependencies"]

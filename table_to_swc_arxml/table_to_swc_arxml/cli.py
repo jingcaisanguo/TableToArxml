@@ -50,7 +50,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence, cast
+from typing import Sequence, cast
 
 from openpyxl import load_workbook
 
@@ -378,10 +378,6 @@ class FileChange:
     created_ports: list[ResolvedPort]
     existing_ports: list[ResolvedPort]
     created_accesses: list[str]
-
-    @property
-    def has_changes(self) -> bool:
-        return bool(self.created_ports or self.created_accesses)
 
 
 def resolve_config_path(
@@ -1423,9 +1419,9 @@ def read_workbook(workbook_path: Path) -> tuple[dict[str, ComponentSpec], list[P
             )
 
     if not components:
-        LOGGER.error("No usable components found in workbook")
+        LOGGER.info("No component records found in workbook")
     if not ports:
-        LOGGER.error("No usable P-Port or R-Port records found in workbook")
+        LOGGER.info("No P-Port or R-Port records found in workbook")
     return components, ports
 
 
@@ -1640,6 +1636,7 @@ def read_arxml_list(
         else:
             excluded_paths.add((project_dir / excluded).resolve())
     files: list[Path] = []
+    seen: set[str] = set()
     for line_number, line in enumerate(
         list_file.read_text(encoding="utf-8-sig").splitlines(), start=1
     ):
@@ -1653,6 +1650,11 @@ def read_arxml_list(
         if absolute_path.name.casefold() in excluded_names or absolute_path in excluded_paths:
             LOGGER.info("Exclude ARXML file: %s", absolute_path)
             continue
+        key = os.path.normcase(str(absolute_path))
+        if key in seen:
+            LOGGER.info("Skip duplicate ARXML entry at %s:%d: %s", list_file, line_number, absolute_path)
+            continue
+        seen.add(key)
         if absolute_path.suffix.casefold() != ".arxml":
             message = f"Non-ARXML record at {list_file}:{line_number}"
             if strict:
@@ -3444,7 +3446,7 @@ def write_changes(
     temporary_files: list[Path] = []
     replaced: list[tuple[Path, bytes | None]] = []
     try:
-        for destination, document, original in pending:
+        for destination, document, _original in pending:
             destination.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
                 dir=destination.parent,
@@ -3526,6 +3528,8 @@ def run(argv: Sequence[str] | None = None) -> int:
     interfaces = read_sr_interfaces(workbook_path, project_dir)
     cs_interfaces = read_cs_interfaces(workbook_path, project_dir)
     access_specs = read_data_accesses(workbook_path, components)
+    if not any((ports, enumerations, arrays, structures, interfaces, cs_interfaces, access_specs)):
+        LOGGER.error("No usable records found in workbook")
     arxml_files = read_arxml_list(list_file, project_dir, args.strict_list, args.exclude_arxml)
     LOGGER.info("Loaded %d ARXML file(s) from list", len(arxml_files))
     store = SourceStore()
