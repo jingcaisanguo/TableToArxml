@@ -32,7 +32,6 @@ table-to-arxml @ <Release 中 table_to_arxml-0.2.0-py3-none-any.whl 的下载链
 - 安装时自动安装依赖：`armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`。实测 armodel 1.8.7 和 1.9.2 可用；从索引安装时 pip 会在该范围内选最新版，范围外的版本在工具启动时报错。
 - wheel 本身跨平台，但依赖需要适合目标平台的发行包；离线环境需提前下载依赖。
 - 私有仓库先通过已认证的 GitHub 客户端或 CI 下载 wheel，再用本地路径安装；不要把令牌写进 URL、配置或版本库。
-- 0.2.0 之前两个工具分别发布为 `table-to-system-arxml`、`table-to-swc-arxml` 两个包。升级前先卸载旧包：`python -m pip uninstall table-to-system-arxml table-to-swc-arxml`，否则日后卸载旧包会删掉新包的文件。
 
 ## 调用方式
 

@@ -112,7 +112,7 @@ python table_to_swc_arxml/table_to_swc_arxml.py --help
 
 ## 版本历史与迁移
 
-- **合并为单个 wheel**：0.2.0 之前两个工具分别发布 `table-to-system-arxml`、`table-to-swc-arxml` 两个包，标签为 `tableToSystemArxml/<版本>`、`tableToSwcArxml/<版本>`；现在合并为 `table-to-arxml`，标签直接是 `x.y.z`。`init_app_env.py` 会先卸载旧的两个包。
+- **合并为单个 wheel**：0.2.0 之前两个工具分别发布 `table-to-system-arxml`、`table-to-swc-arxml` 两个包，标签为 `tableToSystemArxml/<版本>`、`tableToSwcArxml/<版本>`；现在合并为 `table-to-arxml`，标签直接是 `x.y.z`。
 - **System 工具**：
   - 不再依赖或导入 `pya4a`，也不启动 `xlsx-composition-sw`；白表格式和有效输入的输出约定保持兼容。其他工程工具可能仍需要 `pya4a` 等库，本工具不会卸载它们。
   - 旧配置字段 `name`、`xdm`、`arxml`、`output`、`generatedComponents` 已不用，不提供自动迁移。

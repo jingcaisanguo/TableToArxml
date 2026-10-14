@@ -49,6 +49,3 @@ python -m build --wheel --outdir dist .
 
 1. 用新 wheel 替换 `init_app_env/whl` 下的 `table_to_arxml-<旧版本>-py3-none-any.whl`。
 2. 修改 [init_app_env.py](../../init_app_env/init_app_env.py) 中 `table_to_arxml` 的版本和文件名。
-
-`init_app_env.py` 安装前会卸载 0.2.0 之前的两个独立包 `table-to-system-arxml`、`table-to-swc-arxml`：
-它们与合并包包含同一批文件，不先卸载的话，日后卸载旧包会删掉合并包的文件。卸载过旧包时，即使合并包版本已符合也会重新安装。
