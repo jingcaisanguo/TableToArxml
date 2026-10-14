@@ -1,6 +1,6 @@
 # 绿表转换规则
 
-返回 [README.md](README.md)。以下规则对应 [../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py) 当前实现，不是通用 Excel 或 AUTOSAR 模板规范。
+返回 [README.md](README.md)。以下规则对应 [green_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_table.py)（读取）和 [green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py)（转换）当前实现，不是通用 Excel 或 AUTOSAR 模板规范。
 
 ## 文件、模块与页签
 
@@ -8,7 +8,7 @@
 2. 必须包含大小写完全一致的 `INPUT`、`OUTPUT` 两个页签，可以只有表头而无数据；其他页签不参与转换和合并。
 3. 第 1 行作为表头跳过，从第 2 行读取；不识别表头文字，按固定列位置取值，不能随意移动列。
 4. 数据读取使用 `data_only=True`：公式读取 Excel 保存的缓存结果，不在 Python 中计算公式。使用公式时先在 Excel 中计算并保存。
-5. 单元格值统一转字符串并去除首尾空白；空值和大小写不限的 `nan` 文本按空串处理。数字格式不会自动还原成显示文本，含前导零的名称应使用文本单元格。
+5. 单元格值统一转字符串并去除首尾空白；空值按空串处理，`nan` 等文本原样保留。数字格式不会自动还原成显示文本，含前导零的名称应使用文本单元格。
 
 输入选择按 `greenTables` 配置顺序处理，每个 glob 的结果按路径排序；同一实际文件路径只处理一次，忽略 Excel 的 `~$*.xlsx` 临时锁文件。glob 无匹配可跳过，全部无匹配则失败；直接指定不存在的文件或命中非 `.xlsx` 文件则报错。目录本身不是绿表输入，需写成 `目录/*.xlsx`。
 
@@ -65,7 +65,7 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 | INPUT | I：上游组件 | J：上游 P-port | 当前绿表模块 | B：当前 R-port |
 | OUTPUT | 当前绿表模块 | B：当前 P-port | I：下游组件 | J：下游 R-port |
 
-`Connection` 列由工具留空，最终连接名由本地生成器取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`，最长 255 字符；同名但端点不同的连接会报错退出，避免截断碰撞。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
+最终连接名由本地生成器取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`，最长 255 字符；同名但端点不同的连接会报错退出，避免截断碰撞。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
 
 装配连接强制要求 `P-port -> R-port`；端口引用的 interface 必须存在，默认两端必须是同一完整接口引用。`interfaceMismatch` 仅在 config 中设置，可选 `error`（缺省报错）、`skip`（WARNING 后跳过该连接）、`map`（生成明确的接口映射再连接），不提供命令行参数。映射支持 SenderReceiverInterface 的完整一一数据元素配对，并沿类型引用解析最终位宽、编码/符号性与形状；uint8/uint16、uint8/sint8 均拒绝，相同接口也检查组件各自的应用类型实现。详情见 [configuration.md](configuration.md)。委托连接按内端口生成同方向外端口，不套用装配连接的 P/R 两端规则。
 

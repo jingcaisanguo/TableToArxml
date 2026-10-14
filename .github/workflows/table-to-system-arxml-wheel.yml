@@ -43,11 +43,13 @@ jobs:
           from tempfile import TemporaryDirectory
           from unittest.mock import patch
           from table_to_system_arxml import cli
-          from table_to_system_arxml.lib import arxml_model, arxml_generator, green_to_white, white_table_reader
+          from table_to_system_arxml.lib import (
+              arxml_generator, arxml_model, common, component_map, general, green_table, green_to_white,
+              type_signature, white_table)
           cli._check_python_dependencies()
           with TemporaryDirectory() as temporary:
               config = Path(temporary) / "config.json"
-              config.write_text(json.dumps({"defaultVariant": "test", "outputPrefix": "Test", "greenTables": ["unused.xlsx"]}), encoding="utf-8")
+              config.write_text(json.dumps({"defaultVariant": "test", "projectRoot": ".", "outputPrefix": "Test", "greenTables": ["unused.xlsx"]}), encoding="utf-8")
               with patch.object(cli, "_setup_logging") as setup:
                   try:
                       cli.run(config)

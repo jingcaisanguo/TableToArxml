@@ -1,2 +1,2 @@
-armodel>=1.8.7
+armodel>=1.8.7,<1.9.4
 openpyxl>=3.1.2

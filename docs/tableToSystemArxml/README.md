@@ -19,7 +19,7 @@
 ```text
 table_to_system_arxml/
     table_to_system_arxml.py     薄启动入口，可直接运行
-    table_to_system_arxml-0.1.0-py3-none-any.whl
+    table_to_system_arxml-<版本>-py3-none-any.whl  本地构建产物，不提交
     pyproject.toml              wheel 构建配置
     requirements.txt            Python 依赖
     table_to_system_arxml/       可安装的 Python 包
@@ -29,13 +29,26 @@ table_to_system_arxml/
         lib/                    内部转换实现
 ```
 
-[../../table_to_system_arxml/table_to_system_arxml.py](../../table_to_system_arxml/table_to_system_arxml.py) 只负责启动；[../../table_to_system_arxml/table_to_system_arxml/cli.py](../../table_to_system_arxml/table_to_system_arxml/cli.py) 编排执行流程；[../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py](../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py) 处理 EB 清单；[../../table_to_system_arxml/table_to_system_arxml/lib/arxml_model.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_model.py) 封装模型访问；[../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py) 绿表转白表；[../../table_to_system_arxml/table_to_system_arxml/lib/white_table_reader.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table_reader.py) 读取白表；[../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py) 解析引用并用 armodel 生成输出。
+[../../table_to_system_arxml/table_to_system_arxml.py](../../table_to_system_arxml/table_to_system_arxml.py) 只负责启动；[cli.py](../../table_to_system_arxml/table_to_system_arxml/cli.py) 解析并校验配置、编排执行流程。`lib/` 下各模块：
+
+| 模块 | 职责 |
+| --- | --- |
+| [common.py](../../table_to_system_arxml/table_to_system_arxml/lib/common.py) | 共用取值函数和默认值，不依赖第三方库 |
+| [file_list.py](../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py) | 生成和读取 EB 清单 |
+| [arxml_model.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_model.py) | 加载 ARXML，封装模型查询 |
+| [green_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_table.py) | 绿表读取、收集、合并 |
+| [component_map.py](../../table_to_system_arxml/table_to_system_arxml/lib/component_map.py) | 绿表组件名到实例、类型的映射 |
+| [general.py](../../table_to_system_arxml/table_to_system_arxml/lib/general.py) | 推导白表 General 页 |
+| [green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py) | 绿表转白表 |
+| [white_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table.py) | 白表布局、创建、格式化和读取 |
+| [type_signature.py](../../table_to_system_arxml/table_to_system_arxml/lib/type_signature.py) | 数据类型最终签名，用于接口两端类型比较 |
+| [arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py) | 解析白表引用并用 armodel 生成输出 |
 
 工程配置、输入、产物和日志位于包目录之外，由调用工程提供；本说明位于仓库的 `docs/tableToSystemArxml/`。
 
 ## 环境与输入
 
-- 使用 Python 3.9 或更新版本。安装 wheel 会自动安装依赖；源码运行按 [../../table_to_system_arxml/requirements.txt](../../table_to_system_arxml/requirements.txt) 安装依赖：`python -m pip install -r requirements.txt`。发行依赖为 `armodel>=1.8.7`、`openpyxl>=3.1.2`、`packaging>=21.3`；实测 1.8.7 和 1.9.2 可用，1.9.4 及以后缺少 `ISignalPort` 导出，不能使用。
+- 使用 Python 3.9 或更新版本。安装 wheel 会自动安装依赖；源码运行按 [../../table_to_system_arxml/requirements.txt](../../table_to_system_arxml/requirements.txt) 安装依赖：`python -m pip install -r requirements.txt`。发行依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`；实测 1.8.7 和 1.9.2 可用，1.9.4 及以后缺少 `ISignalPort` 导出，不能使用。
 - 转换器在包内的 `lib/` 中实现，不再依赖或导入 `pya4a`，也不启动 `xlsx-composition-sw`。白表格式和有效输入的输出约定保持兼容；升级 armodel 后应重新验证生成结果。
 - 使用 EB 模式时，`PrefSystemImporter` 必须能从当前进程的 `PATH` 找到；使用已有 lst 时不需要启动该命令。
 - 输入应包含绿表引用的组件类型、端口、接口、实现、信号，以及 General 引用的系统和拓扑定义。lst 只是路径清单，不能代替缺失的定义。
@@ -54,7 +67,7 @@ table_to_system_arxml/
 
 已核实的环境为 `openpyxl 3.1.2`，以及 `armodel 1.8.7`、`1.9.2`（两者生成的 ARXML 完全一致）。其发行包元数据声明的下一层依赖包括：`openpyxl` 的 `et-xmlfile`；`armodel` 的 `colorama`、`openpyxl`、`lxml`。本工具不再要求安装 `pya4a` 或为它引入 `toml`、`py-eb-model`、`py-ea-model`。其他工程工具可能仍需要这些库，因此本次改造不会卸载已有包。
 
-执行时先初始化日志，再实际导入依赖并检查 armodel 至少为 1.8.7；不是只检查包名是否安装。缺失、导入损坏或版本过低会在控制台及日志中记录 `ERROR`，包含具体原因和当前解释器，并返回 `1`。该检查不代替完整的依赖版本兼容性测试，也不自动安装软件。
+执行时先初始化日志，再实际导入依赖并检查 armodel 版本满足 `>=1.8.7,<1.9.4`；不是只检查包名是否安装。缺失、导入损坏或版本不在范围内会在控制台及日志中记录 `ERROR`，包含具体原因和当前解释器，并返回 `1`。该检查不代替完整的依赖版本兼容性测试，也不自动安装软件。
 
 `--help` 不加载第三方转换依赖，不要求 EB。EB 模式若找不到或无法启动 `PrefSystemImporter`，错误也经主入口写入日志；其内部的许可证、运行时等问题以实际启动结果为准。入口和 Python 自身必须能启动，配置可读取且日志目录可写，文件日志才能建立。
 
@@ -101,7 +114,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | --- | --- |
 | `--config` | 指定配置文件，源码脚本默认是工具根目录的配置文件；安装命令默认是当前目录的配置文件；可重复指定多个，见下文“多配置” |
 | `--variant` | 覆盖 `defaultVariant`，用于展开 `${variant}` |
-| `--project-root` | 覆盖 `projectRoot`，影响 lst 内相对路径解析和默认构建目录，不改变 JSON 路径基准 |
+| `--project-root` | 覆盖 `projectRoot`，影响 lst 内相对路径解析和默认构建目录，不改变 JSON 路径基准；与 `projectRoot` 至少提供一个 |
 | `--arxml-file-list` | 覆盖 `arxmlFileList`，使用已有清单 |
 | `--output-dir` | 指定产物目录，覆盖 `outputDir`；参数或配置必须提供，无默认值，不改变日志位置 |
 | `--log-dir` | 指定日志目录，覆盖 `logDir`；参数或配置必须提供，无默认值；不能与产物目录相同 |
@@ -112,11 +125,11 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 - 加载集合是各配置清单的并集，并排除所有配置本次要生成的 `<outputPrefix>System.arxml`。
 - 按 `--config` 顺序依次生成；前一个配置新生成的 ARXML 会追加到模型中，因此被引用的配置要排在前面（如 Cem 引用 Mc 的 `itsMirrorWrapper`，须 Mc 在前）。
-- 各配置的 `outputPrefix` 不能重复；日志级别取命令行或第一个配置的 `logLevel`。
+- 各配置的 `outputPrefix` 不能重复；未传 `--log-level` 时，各配置写了的 `logLevel` 必须一致，否则报错。
 - 未传 `--output-dir` 或 `--log-dir` 时，每份配置必须提供对应的 `outputDir` 或 `logDir`，且各自解析后的目录必须一致。
 - 任一配置失败则全部不发布。
 
-输入表格在加载 ARXML 前校验：绿表须有 INPUT/OUTPUT 页，表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。不符合即报错退出。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
+输入表格在加载 ARXML 前校验：绿表须有 INPUT/OUTPUT 页，表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。全部输入表检查完后再报错退出，一次列出所有问题；后续的绿表转换和白表引用解析同样逐行记录错误，处理完再失败。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
 
 接口策略仅在 config 中配置：`"interfaceMismatch": "error"`，也可选 `skip`、`map`；没有配置该字段时默认 `error`，不提供命令行覆盖。完整映射配置见 [configuration.md](configuration.md)。
 

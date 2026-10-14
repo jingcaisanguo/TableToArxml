@@ -1,7 +1,7 @@
 """ARXML 模型访问层，集中封装 armodel 的全部用法。
 
-:class:`ArxmlModel` 把一组 ARXML 合并成一个模型，提供组件、连线、信号映射、
-CAN/LIN 通道与端口查询，并向外暴露底层 AUTOSAR 文档供 composition 生成复用。
+:class:`ArxmlModel` 把一组 ARXML 合并成一个模型，提供组件、System、
+CAN/LIN 通道与信号查询，并向外暴露底层 AUTOSAR 文档供 composition 生成复用。
 
 更换解析库时只需替换本模块的实现，业务脚本无需改动。
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -20,9 +19,6 @@ from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.
     ARPackage,
 )
 from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Components import SwComponentType
-from armodel.models.M2.AUTOSARTemplates.SystemTemplate.DataMapping import (
-    SenderReceiverToSignalMapping,
-)
 from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreCommunication import (
     ISignal, ISignalGroup, SystemSignal, SystemSignalGroup,
 )
@@ -32,6 +28,9 @@ from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreTopol
 )
 from armodel.parser.arxml_parser import ARXMLParser
 
+from .common import ref_value
+
+LOGGER = logging.getLogger(__name__)
 
 # armodel 的 warning 模式会在日志里插入 colorama 的 ANSI 颜色码。
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -42,28 +41,6 @@ MODULE_LIN = "LIN"
 
 def _clean(message: object) -> str:
     return ANSI_ESCAPE_PATTERN.sub("", " ".join(str(message).splitlines()))
-
-
-def _value(reference) -> str:
-    """读取 RefType / ARLiteral 的字符串值。"""
-
-    if reference is None:
-        return ""
-    value = reference.getValue()
-    return "" if value is None else str(value).strip()
-
-
-def _last_segment(path_value: str) -> str:
-    parts = [part for part in path_value.split("/") if part]
-    return parts[-1] if parts else ""
-
-
-@dataclass(frozen=True)
-class ComponentPorts:
-    """一个组件类型上定义的端口简称集合。"""
-
-    r_ports: set[str] = field(default_factory=set)
-    p_ports: set[str] = field(default_factory=set)
 
 
 class _DiagnosticHandler(logging.Handler):
@@ -126,7 +103,7 @@ class ArxmlModel:
         paths = list(paths)
         loaded: list[Path] = []
         for index, path in enumerate(paths, start=1):
-            logging.info("Parsing ARXML %d/%d: %s", index, len(paths), path)
+            LOGGER.info("Parsing ARXML %d/%d: %s", index, len(paths), path)
             parser.load(str(path), document)
             loaded.append(path)
         return cls(document, loaded, diagnostics)
@@ -134,7 +111,7 @@ class ArxmlModel:
     def add(self, path: Path) -> None:
         """追加加载一个 ARXML（如本次刚生成的结果），供后续配置引用。"""
 
-        logging.info("Parsing ARXML: %s", path)
+        LOGGER.info("Parsing ARXML: %s", path)
         _new_parser(self.diagnostics).load(str(path), self._document)
         self.paths.append(path)
         self.invalidate()
@@ -175,30 +152,10 @@ class ArxmlModel:
                 continue
             for prototype in composition.getComponents():
                 name = prototype.getFullName()
-                type_path = _value(prototype.getTypeTRef())
+                type_path = ref_value(prototype.getTypeTRef())
                 if name and type_path:
                     prototypes[name] = type_path
         return prototypes
-
-    def assembly_connectors(self) -> set[tuple[str, str, str, str]]:
-        """返回 ``(provider, P-port, requester, R-port)`` 四元组集合。"""
-
-        connectors: set[tuple[str, str, str, str]] = set()
-        for composition in self._elements_of(CompositionSwComponentType):
-            for connector in composition.getAssemblySwConnectors():
-                provider = connector.getProviderIRef()
-                requester = connector.getRequesterIRef()
-                if provider is None or requester is None:
-                    continue
-                entry = (
-                    _last_segment(_value(provider.getContextComponentRef())),
-                    _last_segment(_value(provider.getTargetPPortRef())),
-                    _last_segment(_value(requester.getContextComponentRef())),
-                    _last_segment(_value(requester.getTargetRPortRef())),
-                )
-                if all(entry):
-                    connectors.add(entry)
-        return connectors
 
     def composition_types(self) -> set[str]:
         """返回全部 Composition 类型的完整路径。"""
@@ -250,7 +207,7 @@ class ArxmlModel:
         children: dict[str, set[str]] = {}
         for composition in self._elements_of(CompositionSwComponentType):
             children.setdefault(composition.getFullName(), set()).update(
-                _value(prototype.getTypeTRef()) for prototype in composition.getComponents())
+                ref_value(prototype.getTypeTRef()) for prototype in composition.getComponents())
 
         def contains(type_path: str, depth: int) -> bool:
             if type_path == composition_path:
@@ -260,7 +217,7 @@ class ArxmlModel:
         systems = []
         for system in self._elements_of(System):
             root = system.getRootSoftwareComposition()
-            if root is not None and contains(_value(root.getSoftwareCompositionTRef()), 0):
+            if root is not None and contains(ref_value(root.getSoftwareCompositionTRef()), 0):
                 systems.append(system)
         return systems
 
@@ -268,65 +225,7 @@ class ArxmlModel:
     def system_ecu_instances(system) -> list[str]:
         """返回 System 的 FIBEX-ELEMENTS 中引用的 ECU-INSTANCE 路径。"""
 
-        return [_value(ref) for ref in system.getFibexElementRefs() if ref.getDest() == "ECU-INSTANCE"]
-
-    def component_ports(self) -> dict[str, ComponentPorts]:
-        """返回 ``组件类型完整路径 -> 端口集合``。"""
-
-        result: dict[str, ComponentPorts] = {}
-        for component in self._elements_of(SwComponentType):
-            if isinstance(component, CompositionSwComponentType):
-                continue
-            name = component.getFullName()
-            if not name:
-                continue
-            ports = result.setdefault(name, ComponentPorts(set(), set()))
-            ports.r_ports.update(
-                port.getShortName() for port in component.getRPortPrototypes()
-                if port.getShortName())
-            ports.p_ports.update(
-                port.getShortName() for port in component.getPPortPrototypes()
-                if port.getShortName())
-        return result
-
-    # -- 信号映射 -----------------------------------------------------------
-
-    def signal_mappings(self) -> set[tuple[str, str, str, str, str]]:
-        """返回 ``(方向, 组件, port, 通道, 信号)`` 五元组集合。
-
-        只保留带 CONTEXT-COMPONENT-REF 的 mapping；顶层 composition 的 mapping
-        没有具体组件上下文，无法参与绿表逐行比对。
-        """
-
-        mappings: set[tuple[str, str, str, str, str]] = set()
-        for system in self._document.getSystems():
-            for mapping_set in system.getMappings():
-                for mapping in mapping_set.getDataMappings():
-                    if not isinstance(mapping, SenderReceiverToSignalMapping):
-                        continue
-                    iref = mapping.getDataElementIRef()
-                    if iref is None:
-                        continue
-                    component_refs = [
-                        _last_segment(_value(ref))
-                        for ref in iref.getContextComponentRefs()
-                    ]
-                    if not component_refs:
-                        continue
-                    signal_path = _value(mapping.getSystemSignalRef())
-                    signal_parts = [part for part in signal_path.split("/") if part]
-                    if len(signal_parts) < 3:
-                        continue
-                    entry = (
-                        _value(mapping.getCommunicationDirection()).upper(),
-                        component_refs[-1],
-                        _last_segment(_value(iref.getContextPortRef())),
-                        signal_parts[0],
-                        signal_parts[-1],
-                    )
-                    if all(entry):
-                        mappings.add(entry)
-        return mappings
+        return [ref_value(ref) for ref in system.getFibexElementRefs() if ref.getDest() == "ECU-INSTANCE"]
 
     # -- CAN/LIN ------------------------------------------------------------
 
@@ -367,22 +266,22 @@ class ArxmlModel:
                 continue
             for channel in cluster.getPhysicalChannels():
                 for triggering in channel.getISignalTriggerings():
-                    signal = self._document.find(_value(triggering.getISignalRef()))
+                    signal = self._document.find(ref_value(triggering.getISignalRef()))
                     if not isinstance(signal, ISignal):
                         continue
-                    system_path = _value(signal.getSystemSignalRef())
+                    system_path = ref_value(signal.getSystemSignalRef())
                     if not system_path:
                         continue
                     key = (module, channel.getShortName(), system_path)
                     signal_directions = directions.setdefault(key, set())
                     for port_ref in triggering.getISignalPortRefs():
-                        port_path = _value(port_ref)
+                        port_path = ref_value(port_ref)
                         if not port_path.startswith(ecu_path.rstrip("/") + "/"):
                             continue
                         port = self._document.find(port_path)
                         if not isinstance(port, ISignalPort):
                             raise ValueError(f"I-SIGNAL-PORT is not defined: {port_path}")
-                        signal_directions.add(_value(port.getCommunicationDirection()).upper())
+                        signal_directions.add(ref_value(port.getCommunicationDirection()).upper())
         self._directions[ecu_path] = directions
         return directions
 
@@ -394,21 +293,21 @@ class ArxmlModel:
         group_members: dict[str, set[str]] = {}
         for group in self._elements_of(SystemSignalGroup):
             for reference in group.getSystemSignalRefs():
-                path = _value(reference)
+                path = ref_value(reference)
                 if path:
                     group_members.setdefault(path, set()).add(group.getFullName())
         for group in self._elements_of(ISignalGroup):
             for signal_ref in group.getISignalRefs():
-                signal = self._document.find(_value(signal_ref))
-                if isinstance(signal, ISignal) and _value(signal.getSystemSignalRef()):
-                    group_members.setdefault(_value(signal.getSystemSignalRef()), set()).add(group.getFullName())
+                signal = self._document.find(ref_value(signal_ref))
+                if isinstance(signal, ISignal) and ref_value(signal.getSystemSignalRef()):
+                    group_members.setdefault(ref_value(signal.getSystemSignalRef()), set()).add(group.getFullName())
         for cluster in self._elements_of(CommunicationCluster):
             for channel in cluster.getPhysicalChannels():
                 for triggering in channel.getISignalTriggerings():
-                    group_ref = _value(triggering.getISignalGroupRef())
-                    signal = self._document.find(_value(triggering.getISignalRef()))
-                    if group_ref and isinstance(signal, ISignal) and _value(signal.getSystemSignalRef()):
-                        group_members.setdefault(_value(signal.getSystemSignalRef()), set()).add(group_ref)
+                    group_ref = ref_value(triggering.getISignalGroupRef())
+                    signal = self._document.find(ref_value(triggering.getISignalRef()))
+                    if group_ref and isinstance(signal, ISignal) and ref_value(signal.getSystemSignalRef()):
+                        group_members.setdefault(ref_value(signal.getSystemSignalRef()), set()).add(group_ref)
         self._groups = group_members
         return group_members
 

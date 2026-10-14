@@ -1,6 +1,6 @@
 # Wheel 构建与 GitHub 分发
 
-发行包名为 `table-to-system-arxml`，当前版本为 `0.1.0`，需要 Python 3.9 或更新版本。
+发行包名为 `table-to-system-arxml`，当前版本为 `0.2.0`，需要 Python 3.9 或更新版本。
 安装后提供 `table-to-system-arxml` 命令，也支持 `python -m table_to_system_arxml`。
 
 ## 本地构建
@@ -12,7 +12,7 @@ python -m pip install build
 python -m build --wheel --outdir ./table_to_system_arxml ./table_to_system_arxml
 ```
 
-生成 `table_to_system_arxml/table_to_system_arxml-0.1.0-py3-none-any.whl`，与入口脚本放在同一目录。
+生成 `table_to_system_arxml/table_to_system_arxml-0.2.0-py3-none-any.whl`，与入口脚本放在同一目录。
 只打包 Python 实现与发行元数据，不包含工程 JSON、Excel、ARXML、日志或输出目录。
 项目根目录的启动脚本和 wheel 同目录；内部实现位于 `table_to_system_arxml/` Python 包中。
 根目录脚本仅负责启动，不打进 wheel；安装命令与模块入口都调用 `table_to_system_arxml.cli:main`。
@@ -37,8 +37,8 @@ python -m build --wheel --outdir ./table_to_system_arxml ./table_to_system_arxml
 ```powershell
 git checkout main
 git pull
-git tag tableToSystemArxml/0.1.0
-git push origin tableToSystemArxml/0.1.0
+git tag tableToSystemArxml/0.2.0
+git push origin tableToSystemArxml/0.2.0
 ```
 
 对已有 Release 重新推送同名标签会覆盖其中同名 wheel。仓库需启用 GitHub Actions，并允许工作流写入 Release。
@@ -49,7 +49,7 @@ git push origin tableToSystemArxml/0.1.0
 建议在项目虚拟环境中安装。下载 Release 的 wheel 后执行：
 
 ```powershell
-python -m pip install ./table_to_system_arxml-0.1.0-py3-none-any.whl
+python -m pip install ./table_to_system_arxml-0.2.0-py3-none-any.whl
 table-to-system-arxml --help
 table-to-system-arxml --config ./config/system-arxml.json --output-dir ./generated --log-dir ./logs
 ```
@@ -57,21 +57,21 @@ table-to-system-arxml --config ./config/system-arxml.json --output-dir ./generat
 公开仓库也可直接按固定版本的 Release 地址安装，链接从 Release 页面的 wheel 附件复制，形如：
 
 ```powershell
-python -m pip install "<Release 中 table_to_system_arxml-0.1.0-py3-none-any.whl 的下载链接>"
+python -m pip install "<Release 中 table_to_system_arxml-0.2.0-py3-none-any.whl 的下载链接>"
 ```
 
 在其他项目的 `requirements.txt` 中可固定同一版本：
 
 ```text
-table-to-system-arxml @ <Release 中 table_to_system_arxml-0.1.0-py3-none-any.whl 的下载链接>
+table-to-system-arxml @ <Release 中 table_to_system_arxml-0.2.0-py3-none-any.whl 的下载链接>
 ```
 
 私有仓库先通过已认证的 GitHub 客户端或 CI 下载 wheel，再使用本地路径安装。不要将令牌写入 URL、配置或版本库。
 GitHub Enterprise 使用对应实例域名；下载方式和 Actions 可用版本以实例策略为准。
 
 安装会自动安装 Python 依赖，不需要另外执行 `pip install -r requirements.txt`。
-`armodel` 要求 `>=1.8.7`：实测 1.8.7 和 1.9.2 可用；1.9.4、1.9.7、1.9.8 缺少工具依赖的 `ISignalPort` 导出，不能使用。
-从索引安装时 pip 会选最新版，应先安装兼容版本（如 `init_app_env` 提供的 1.9.2）再安装本工具。
+`armodel` 要求 `>=1.8.7,<1.9.4`：实测 1.8.7 和 1.9.2 可用；1.9.4、1.9.7、1.9.8 缺少工具依赖的 `ISignalPort` 导出，不能使用。
+从索引安装时 pip 会在该范围内选最新版（当前为 1.9.2）；范围外的版本会在启动检查时报错。
 wheel 本身跨平台，但依赖需要适合目标平台的发行包；离线使用需提前下载依赖。
 EB 模式仍需工程提供 `PrefSystemImporter` 和对应运行环境，wheel 不包含这些外部工具。
 

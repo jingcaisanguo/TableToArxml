@@ -7,13 +7,27 @@ test/
 ├── common/                  两个工具共用的工程模型
 │   ├── arxml.lst            ARXML 清单，条目相对仓库根目录
 │   └── arxml/               System.arxml、BcmArxml/、McArxml/
-├── tableToSystemArxml/      table-to-system-arxml 测试：BCM 绿表、MC 白表
-└── tableToSwcArxml/         table-to-swc-arxml 测试：向 LIT、Horn 添加测试端口
+├── e2e/                     端到端测试：运行样例并与 expected/ 比对
+├── tableToSystemArxml/      table-to-system-arxml 测试：BCM 绿表、MC 白表；expected/ 为基线产物
+└── tableToSwcArxml/         table-to-swc-arxml 测试：向 LIT、Horn 添加测试端口；expected/ 为基线产物
 ```
 
 - 各测试配置的 `projectRoot` 都是仓库根目录（`../..`），共用 [common/arxml.lst](common/arxml.lst)。
 - 产物和日志写到各工具测试目录下的 `output/`、`log/`，已在 [.gitignore](.gitignore) 中忽略。
 - 测试命令都从仓库根目录执行，详见 [tableToSystemArxml/README.md](tableToSystemArxml/README.md) 和 [tableToSwcArxml/README.md](tableToSwcArxml/README.md)。
+
+## 自动测试
+
+在装好两个工具依赖和 `pytest` 的环境中，从仓库根目录执行：
+
+```powershell
+python -m pytest test
+```
+
+- [e2e/test_samples.py](e2e/test_samples.py) 直接运行源码中的两个工具，产物写到临时目录，不覆盖本目录。
+- ARXML 统一换行符后与 `expected/` 逐字节比对；Excel 按单元格值比对。有意改变输出时，用新产物替换对应基线并在提交说明中写明原因。
+- 另有一个 SWC 场景：同一文件中两个组件的 runnable 同名，验证新增内容只写入指定组件。
+- CI（[tests.yml](../.github/workflows/tests.yml)）在 Ubuntu 和 Windows 上分别用 armodel 1.8.7、1.9.2 运行 ruff 和上述测试。
 
 ## 共享模型
 

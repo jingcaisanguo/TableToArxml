@@ -1,6 +1,6 @@
 # 白表文件格式
 
-返回 [README.md](README.md)。读取实现见 [../../table_to_system_arxml/table_to_system_arxml/lib/white_table_reader.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table_reader.py)，生成实现见 [../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py)。
+返回 [README.md](README.md)。布局与读取实现见 [../../table_to_system_arxml/table_to_system_arxml/lib/white_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table.py)，生成实现见 [../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py)。
 
 白表（`<outputPrefix>WhiteTable.xlsx`）是 Composition/System ARXML 的直接输入：绿表模式下由工具生成，白表模式（config 写 `whiteTable` 或命令行传 `--white-table`）下由用户提供。本文描述两种模式共用的格式与语义。
 
@@ -15,12 +15,14 @@
 | --- | --- | --- |
 | `General` | 必需 | `Key`、`Value` |
 | `Components` | 必需 | `Prototype`、`SW-C`、`Type`、`Action` |
-| `AssemblySwConnection` | 可省略 | `Connection`、`Provider SW-C`、`PPort`、`Requester SW-C`、`RPort` |
-| `DelegationSwConnection` | 可省略 | `Connection`、`Inner SW-C`、`Inner Port`、`Outer Port` |
+| `AssemblySwConnection` | 可省略 | `Provider SW-C`、`PPort`、`Requester SW-C`、`RPort` |
+| `DelegationSwConnection` | 可省略 | `Inner SW-C`、`Inner Port`、`Outer Port` |
 | `SenderReceiverToSignal` | 可省略 | `Signal`、`Direction`、`SW-C`、`Port`、`DataElement` |
 | `SenderReceiverToSignalGroup` | 可省略 | `SignalGroup`、`SW-C`、`Port`、`DataElement` |
 
-页签缺失、表头不符或 General 不完整时，工具在加载 ARXML 前即报错退出。
+页签缺失、表头不符或 General 不完整时，工具在加载 ARXML 前即报错退出。数据行的引用错误逐行记录 ERROR，全部处理完后再退出。
+
+连接名固定自动生成，白表不再有 `Connection` 列；旧白表中的 `Connection` 列作为多余列忽略。
 
 ## General
 
@@ -52,11 +54,10 @@
 
 ## AssemblySwConnection
 
-组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`。
+组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`，连接名为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`（最长 255 字符）。
 
 | 列 | 说明 |
 | --- | --- |
-| `Connection` | 当前不使用，连接名固定自动生成为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`（最长 255 字符），可留空 |
 | `Provider SW-C` | 提供方组件（见 Components 引用规则） |
 | `PPort` | 提供方 P-Port 短名 |
 | `Requester SW-C` | 请求方组件 |
@@ -66,11 +67,10 @@
 
 ## DelegationSwConnection
 
-内部端口委托到 `Composition` 外部端口，生成 `DELEGATION-SW-CONNECTOR`；外部端口在已加载 ARXML 中不存在时才一并生成。
+内部端口委托到 `Composition` 外部端口，生成 `DELEGATION-SW-CONNECTOR`，连接名为 `dc_<Outer Port>_<内实例><Inner Port>`；外部端口在已加载 ARXML 中不存在时才一并生成。
 
 | 列 | 说明 |
 | --- | --- |
-| `Connection` | 当前不使用，连接名自动生成为 `dc_<Outer Port>_<内实例><Inner Port>` |
 | `Inner SW-C` | 内部组件 |
 | `Inner Port` | 内部端口短名 |
 | `Outer Port` | `Composition` 外部端口短名。已存在（如 SDB 中已定义）时直接引用，其方向和接口须与内部端口一致，否则报错；不存在时按内部端口的方向和接口创建；同名外部端口必须一致 |
@@ -122,8 +122,8 @@
 
 `AssemblySwConnection`：
 
-| Connection | Provider SW-C | PPort | Requester SW-C | RPort |
-| --- | --- | --- | --- | --- |
-| | itsIoHwAb_ProxyMgr_OsApplication_C1_P0 | AI_FBLW_LPM_DIAG | itsCCMWrapper | R_AI_FBLW_LPM_DIAG |
+| Provider SW-C | PPort | Requester SW-C | RPort |
+| --- | --- | --- | --- |
+| itsIoHwAb_ProxyMgr_OsApplication_C1_P0 | AI_FBLW_LPM_DIAG | itsCCMWrapper | R_AI_FBLW_LPM_DIAG |
 
 生成结果：在 `/SwComponentType/ZCUP5` 中新增 `itsCCMWrapper` 实例及连接 `ac_itsIoHwAb_ProxyMgr_OsApplication_C1_P0_AI_FBLW_LPM_DIAG_itsCCMWrapper_R_AI_FBLW_LPM_DIAG`，并在 System `SDB326300` 中生成 `itsCCMWrapper` 的 SwcToEcuMapping 与 SwcToImplMapping。

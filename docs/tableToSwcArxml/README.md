@@ -12,9 +12,19 @@
 | [swc_arxml_template.xlsx](swc_arxml_template.xlsx) | 工作簿模板，首个工作表为填写说明；复制到项目中填写后使用 |
 | 本文 | 处理流程、检查规则、生成规则、写出与退出码 |
 
-源码：[table_to_swc_arxml.py](../../table_to_swc_arxml/table_to_swc_arxml.py) 为源码启动脚本；
-[cli.py](../../table_to_swc_arxml/table_to_swc_arxml/cli.py) 负责读取工作簿、校验和编排修改；
-[lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) 封装 `armodel` 的解析和片段生成。
+源码：[table_to_swc_arxml.py](../../table_to_swc_arxml/table_to_swc_arxml.py) 为源码启动脚本，包内模块：
+
+| 模块 | 职责 |
+| --- | --- |
+| [cli.py](../../table_to_swc_arxml/table_to_swc_arxml/cli.py) | 入口、日志和处理流程编排 |
+| [options.py](../../table_to_swc_arxml/table_to_swc_arxml/options.py) | 合并命令行与 JSON 配置，得到冻结的 `Options` |
+| [workbook.py](../../table_to_swc_arxml/table_to_swc_arxml/workbook.py) | 一次加载工作簿，逐表校验并转为待创建对象 |
+| [resolve.py](../../table_to_swc_arxml/table_to_swc_arxml/resolve.py) | 读取清单，定位组件、接口、runnable，补全端口和访问点 |
+| [apply.py](../../table_to_swc_arxml/table_to_swc_arxml/apply.py) | 生成片段、插入并重新解析验证 |
+| [xml_patch.py](../../table_to_swc_arxml/table_to_swc_arxml/xml_patch.py) | 按 AUTOSAR 路径在原始字节中定位和插入 |
+| [store.py](../../table_to_swc_arxml/table_to_swc_arxml/store.py) | 缓存待写出的字节和解析结果 |
+| [writer.py](../../table_to_swc_arxml/table_to_swc_arxml/writer.py) | 原子写出 |
+| [lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) | 封装 `armodel` 的解析和片段生成 |
 
 ## 安装与运行
 
@@ -22,12 +32,12 @@
 
 ```bash
 python -m pip wheel --no-deps --wheel-dir ./table_to_swc_arxml ./table_to_swc_arxml
-python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.1.0-py3-none-any.whl
-table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxml.json
+python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.2.0-py3-none-any.whl
+table-to-swc-arxml --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 
 - wheel 只包含 Python 代码，不含模板、配置或日志，这些由使用工具的项目提供。
-- 依赖为 `armodel>=1.8.7`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，不能使用，应先安装兼容版本再安装本工具。
+- 依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，安装了范围外的版本时工具启动即报版本错误。
 - 与 `table-to-system-arxml` 共用同一 `armodel` 版本，两个工具可装在同一环境。
 - 发布新版本前修改 `table_to_swc_arxml/pyproject.toml` 中的 `version`。
 
@@ -66,6 +76,7 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 | `inPlace`、`outputDir`、`dryRun` 最多选一个；布尔项为 `true`/`false` | 参数错误，退出码 `2` |
 | 工程目录存在，工作簿和清单文件存在 | `ERROR`，退出码 `1` |
 | 清单条目扩展名为 `.arxml` 且文件存在 | 默认 `WARNING` 后跳过该条目；`strictList=true` 时直接失败 |
+| 清单中同一文件重复出现 | 只保留第一次，`INFO` 记录 |
 | 清单中至少有一个可用文件 | `ERROR`，退出码 `1` |
 
 ### 工作簿检查
@@ -75,6 +86,7 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 | 检查项 | 不满足时 |
 | --- | --- |
 | 9 个工作表都存在（可以只有表头） | `ERROR`，该表按空表处理 |
+| 整本工作簿至少有一条有效记录（端口、类型、接口、访问点任一种） | `ERROR`，退出码 `1` |
 | 表头无未知列、无重复列、必填列齐全（列名不区分大小写，旧列名可识别） | `ERROR`，跳过整张表 |
 | 单元格为文本、数字或布尔值 | `ERROR`，跳过该行 |
 | 必填单元格非空 | `ERROR`，跳过该行 |
@@ -192,6 +204,8 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 | 内部行为的 `EVENTS` | 自动创建，放在 `EXCLUSIVE-AREAS` 或 `RUNNABLES` 之前 |
 | 内部行为的 `RUNNABLES` | 自动创建，放在 `SERVICE-DEPENDENCIES` 之前 |
 
+容器写成自闭合形式（如 `<PORTS/>`）时无法追加内容，报 `ERROR`，需改写为 `<PORTS></PORTS>`。
+
 ### 默认值和固定值
 
 | 对象 | 值 |
@@ -231,6 +245,7 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 `armodel` 整文件重新序列化会改写原有 ARXML 的格式，产生大量无关差异。工具因此只把新元素的 XML 片段
 插入原文件字节，其余字节保持不变：
 
+- 插入位置按完整 AUTOSAR 路径（各级 `SHORT-NAME`）定位，同一文件中不同组件下同名的 runnable、内部行为互不影响。
 - 片段插入到目标容器结束标签之前，缩进取该行缩进再加两个空格。
 - 换行符沿用原文件（`CRLF` 或 `LF`）；`<TAG></TAG>` 写在同一行的空容器会被展开成多行。
 - 片段按 UTF-8 编码，名称和标签可以使用中文。
@@ -277,8 +292,8 @@ Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped; 0 enu
 ## 更换解析库
 
 [lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) 集中封装了 `armodel` 的全部用法，
-`cli.py` 只依赖与库无关的抽象：`PortInfo`、`AccessInfo` 描述端口和访问点，`ArxmlDocument` 提供查询和片段生成，
+其余模块只依赖与库无关的抽象：`PortInfo`、`AccessInfo` 描述端口和访问点，`ArxmlDocument` 提供查询和片段生成，
 `ArxmlBackend` 负责加载文件并返回文档和解析诊断。
 
 更换解析库时：在该模块中新增实现 `ArxmlDocument` 的文档类和提供 `name`、`load()` 的后端类，
-注册到 `BACKENDS`，运行时用 `--backend <名称>` 选择；`cli.py` 无需改动。
+注册到 `BACKENDS`，运行时用 `--backend <名称>` 选择；其余模块无需改动。

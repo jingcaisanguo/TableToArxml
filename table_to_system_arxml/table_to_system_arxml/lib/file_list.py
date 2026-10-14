@@ -18,6 +18,8 @@ import subprocess
 from pathlib import Path, PureWindowsPath
 from typing import Iterable
 
+LOGGER = logging.getLogger(__name__)
+
 IMPORTER = "PrefSystemImporter"
 TRESOS_OUTPUT_BASE_DIR_ENV = "TRESOS_OUTPUT_BASE_DIR"
 TRESOS_PROJECT_SUBDIR = "tresos"
@@ -85,7 +87,7 @@ def generate_file_list(
         + [str(output_file),
            "--env", f"{TRESOS_OUTPUT_BASE_DIR_ENV}={tresos_output_base_dir}"]
     )
-    logging.info("Running: %s", subprocess.list2cmdline(command))
+    LOGGER.info("Running: %s", subprocess.list2cmdline(command))
     return_code = subprocess.call(command)
     if return_code != 0:
         raise RuntimeError(f"{IMPORTER} failed with exit code {return_code}")
@@ -140,7 +142,7 @@ def read_file_list(
             entry = _normalize_entry(entry, build_dir_name)
             entry_path = Path(entry)
             if entry_path.name.casefold() in excluded_names or (project_root / entry_path).resolve() in excluded_paths:
-                logging.info("Exclude ARXML file: %s", entry)
+                LOGGER.info("Exclude ARXML file: %s", entry)
                 continue
 
             if os.path.isabs(entry):
@@ -157,18 +159,18 @@ def read_file_list(
             else:
                 matches = [Path(pattern) for pattern in patterns if Path(pattern).is_file()]
                 if not matches:
-                    logging.warning("Skip missing ARXML file: %s", entry)
+                    LOGGER.warning("Skip missing ARXML file: %s", entry)
                     continue
 
             for match in sorted(matches, key=lambda item: str(item).casefold()):
                 candidate = match.resolve()
                 if candidate.name.casefold() in excluded_names or candidate in excluded_paths:
-                    logging.info("Exclude ARXML file: %s", candidate)
+                    LOGGER.info("Exclude ARXML file: %s", candidate)
                     continue
                 if candidate.suffix.casefold() != ".arxml" or not candidate.is_file():
                     continue
                 if any(exclude.match(str(candidate)) for exclude in excludes):
-                    logging.info("Exclude ARXML file: %s", candidate)
+                    LOGGER.info("Exclude ARXML file: %s", candidate)
                     continue
                 if candidate not in seen:
                     seen.add(candidate)
@@ -176,5 +178,5 @@ def read_file_list(
 
     if not resolved:
         raise FileNotFoundError(f"No ARXML files were resolved from {list_file}")
-    logging.info("Resolved %s ARXML files from %s", len(resolved), list_file)
+    LOGGER.info("Resolved %s ARXML files from %s", len(resolved), list_file)
     return resolved
