@@ -28,6 +28,9 @@ from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreTopol
 )
 from armodel.parser.arxml_parser import ARXMLParser
 
+from .common import ref_value
+
+LOGGER = logging.getLogger(__name__)
 
 # armodel 的 warning 模式会在日志里插入 colorama 的 ANSI 颜色码。
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -38,15 +41,6 @@ MODULE_LIN = "LIN"
 
 def _clean(message: object) -> str:
     return ANSI_ESCAPE_PATTERN.sub("", " ".join(str(message).splitlines()))
-
-
-def _value(reference) -> str:
-    """读取 RefType / ARLiteral 的字符串值。"""
-
-    if reference is None:
-        return ""
-    value = reference.getValue()
-    return "" if value is None else str(value).strip()
 
 
 class _DiagnosticHandler(logging.Handler):
@@ -109,7 +103,7 @@ class ArxmlModel:
         paths = list(paths)
         loaded: list[Path] = []
         for index, path in enumerate(paths, start=1):
-            logging.info("Parsing ARXML %d/%d: %s", index, len(paths), path)
+            LOGGER.info("Parsing ARXML %d/%d: %s", index, len(paths), path)
             parser.load(str(path), document)
             loaded.append(path)
         return cls(document, loaded, diagnostics)
@@ -117,7 +111,7 @@ class ArxmlModel:
     def add(self, path: Path) -> None:
         """追加加载一个 ARXML（如本次刚生成的结果），供后续配置引用。"""
 
-        logging.info("Parsing ARXML: %s", path)
+        LOGGER.info("Parsing ARXML: %s", path)
         _new_parser(self.diagnostics).load(str(path), self._document)
         self.paths.append(path)
         self.invalidate()
@@ -158,7 +152,7 @@ class ArxmlModel:
                 continue
             for prototype in composition.getComponents():
                 name = prototype.getFullName()
-                type_path = _value(prototype.getTypeTRef())
+                type_path = ref_value(prototype.getTypeTRef())
                 if name and type_path:
                     prototypes[name] = type_path
         return prototypes
@@ -213,7 +207,7 @@ class ArxmlModel:
         children: dict[str, set[str]] = {}
         for composition in self._elements_of(CompositionSwComponentType):
             children.setdefault(composition.getFullName(), set()).update(
-                _value(prototype.getTypeTRef()) for prototype in composition.getComponents())
+                ref_value(prototype.getTypeTRef()) for prototype in composition.getComponents())
 
         def contains(type_path: str, depth: int) -> bool:
             if type_path == composition_path:
@@ -223,7 +217,7 @@ class ArxmlModel:
         systems = []
         for system in self._elements_of(System):
             root = system.getRootSoftwareComposition()
-            if root is not None and contains(_value(root.getSoftwareCompositionTRef()), 0):
+            if root is not None and contains(ref_value(root.getSoftwareCompositionTRef()), 0):
                 systems.append(system)
         return systems
 
@@ -231,7 +225,7 @@ class ArxmlModel:
     def system_ecu_instances(system) -> list[str]:
         """返回 System 的 FIBEX-ELEMENTS 中引用的 ECU-INSTANCE 路径。"""
 
-        return [_value(ref) for ref in system.getFibexElementRefs() if ref.getDest() == "ECU-INSTANCE"]
+        return [ref_value(ref) for ref in system.getFibexElementRefs() if ref.getDest() == "ECU-INSTANCE"]
 
     # -- CAN/LIN ------------------------------------------------------------
 
@@ -272,22 +266,22 @@ class ArxmlModel:
                 continue
             for channel in cluster.getPhysicalChannels():
                 for triggering in channel.getISignalTriggerings():
-                    signal = self._document.find(_value(triggering.getISignalRef()))
+                    signal = self._document.find(ref_value(triggering.getISignalRef()))
                     if not isinstance(signal, ISignal):
                         continue
-                    system_path = _value(signal.getSystemSignalRef())
+                    system_path = ref_value(signal.getSystemSignalRef())
                     if not system_path:
                         continue
                     key = (module, channel.getShortName(), system_path)
                     signal_directions = directions.setdefault(key, set())
                     for port_ref in triggering.getISignalPortRefs():
-                        port_path = _value(port_ref)
+                        port_path = ref_value(port_ref)
                         if not port_path.startswith(ecu_path.rstrip("/") + "/"):
                             continue
                         port = self._document.find(port_path)
                         if not isinstance(port, ISignalPort):
                             raise ValueError(f"I-SIGNAL-PORT is not defined: {port_path}")
-                        signal_directions.add(_value(port.getCommunicationDirection()).upper())
+                        signal_directions.add(ref_value(port.getCommunicationDirection()).upper())
         self._directions[ecu_path] = directions
         return directions
 
@@ -299,21 +293,21 @@ class ArxmlModel:
         group_members: dict[str, set[str]] = {}
         for group in self._elements_of(SystemSignalGroup):
             for reference in group.getSystemSignalRefs():
-                path = _value(reference)
+                path = ref_value(reference)
                 if path:
                     group_members.setdefault(path, set()).add(group.getFullName())
         for group in self._elements_of(ISignalGroup):
             for signal_ref in group.getISignalRefs():
-                signal = self._document.find(_value(signal_ref))
-                if isinstance(signal, ISignal) and _value(signal.getSystemSignalRef()):
-                    group_members.setdefault(_value(signal.getSystemSignalRef()), set()).add(group.getFullName())
+                signal = self._document.find(ref_value(signal_ref))
+                if isinstance(signal, ISignal) and ref_value(signal.getSystemSignalRef()):
+                    group_members.setdefault(ref_value(signal.getSystemSignalRef()), set()).add(group.getFullName())
         for cluster in self._elements_of(CommunicationCluster):
             for channel in cluster.getPhysicalChannels():
                 for triggering in channel.getISignalTriggerings():
-                    group_ref = _value(triggering.getISignalGroupRef())
-                    signal = self._document.find(_value(triggering.getISignalRef()))
-                    if group_ref and isinstance(signal, ISignal) and _value(signal.getSystemSignalRef()):
-                        group_members.setdefault(_value(signal.getSystemSignalRef()), set()).add(group_ref)
+                    group_ref = ref_value(triggering.getISignalGroupRef())
+                    signal = self._document.find(ref_value(triggering.getISignalRef()))
+                    if group_ref and isinstance(signal, ISignal) and ref_value(signal.getSystemSignalRef()):
+                        group_members.setdefault(ref_value(signal.getSystemSignalRef()), set()).add(group_ref)
         self._groups = group_members
         return group_members
 

@@ -29,7 +29,20 @@ table_to_system_arxml/
         lib/                    内部转换实现
 ```
 
-[../../table_to_system_arxml/table_to_system_arxml.py](../../table_to_system_arxml/table_to_system_arxml.py) 只负责启动；[../../table_to_system_arxml/table_to_system_arxml/cli.py](../../table_to_system_arxml/table_to_system_arxml/cli.py) 编排执行流程；[../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py](../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py) 处理 EB 清单；[../../table_to_system_arxml/table_to_system_arxml/lib/arxml_model.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_model.py) 封装模型访问；[../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py) 绿表转白表；[../../table_to_system_arxml/table_to_system_arxml/lib/white_table_reader.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table_reader.py) 读取白表；[../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py) 解析引用并用 armodel 生成输出。
+[../../table_to_system_arxml/table_to_system_arxml.py](../../table_to_system_arxml/table_to_system_arxml.py) 只负责启动；[cli.py](../../table_to_system_arxml/table_to_system_arxml/cli.py) 解析并校验配置、编排执行流程。`lib/` 下各模块：
+
+| 模块 | 职责 |
+| --- | --- |
+| [common.py](../../table_to_system_arxml/table_to_system_arxml/lib/common.py) | 共用取值函数和默认值，不依赖第三方库 |
+| [file_list.py](../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py) | 生成和读取 EB 清单 |
+| [arxml_model.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_model.py) | 加载 ARXML，封装模型查询 |
+| [green_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_table.py) | 绿表读取、收集、合并 |
+| [component_map.py](../../table_to_system_arxml/table_to_system_arxml/lib/component_map.py) | 绿表组件名到实例、类型的映射 |
+| [general.py](../../table_to_system_arxml/table_to_system_arxml/lib/general.py) | 推导白表 General 页 |
+| [green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py) | 绿表转白表 |
+| [white_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table.py) | 白表布局、创建、格式化和读取 |
+| [type_signature.py](../../table_to_system_arxml/table_to_system_arxml/lib/type_signature.py) | 数据类型最终签名，用于接口两端类型比较 |
+| [arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py) | 解析白表引用并用 armodel 生成输出 |
 
 工程配置、输入、产物和日志位于包目录之外，由调用工程提供；本说明位于仓库的 `docs/tableToSystemArxml/`。
 
@@ -101,7 +114,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | --- | --- |
 | `--config` | 指定配置文件，源码脚本默认是工具根目录的配置文件；安装命令默认是当前目录的配置文件；可重复指定多个，见下文“多配置” |
 | `--variant` | 覆盖 `defaultVariant`，用于展开 `${variant}` |
-| `--project-root` | 覆盖 `projectRoot`，影响 lst 内相对路径解析和默认构建目录，不改变 JSON 路径基准 |
+| `--project-root` | 覆盖 `projectRoot`，影响 lst 内相对路径解析和默认构建目录，不改变 JSON 路径基准；与 `projectRoot` 至少提供一个 |
 | `--arxml-file-list` | 覆盖 `arxmlFileList`，使用已有清单 |
 | `--output-dir` | 指定产物目录，覆盖 `outputDir`；参数或配置必须提供，无默认值，不改变日志位置 |
 | `--log-dir` | 指定日志目录，覆盖 `logDir`；参数或配置必须提供，无默认值；不能与产物目录相同 |
@@ -116,7 +129,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 - 未传 `--output-dir` 或 `--log-dir` 时，每份配置必须提供对应的 `outputDir` 或 `logDir`，且各自解析后的目录必须一致。
 - 任一配置失败则全部不发布。
 
-输入表格在加载 ARXML 前校验：绿表须有 INPUT/OUTPUT 页，表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。不符合即报错退出。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
+输入表格在加载 ARXML 前校验：绿表须有 INPUT/OUTPUT 页，表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。全部输入表检查完后再报错退出，一次列出所有问题；后续的绿表转换和白表引用解析同样逐行记录错误，处理完再失败。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
 
 接口策略仅在 config 中配置：`"interfaceMismatch": "error"`，也可选 `skip`、`map`；没有配置该字段时默认 `error`，不提供命令行覆盖。完整映射配置见 [configuration.md](configuration.md)。
 

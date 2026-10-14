@@ -42,7 +42,7 @@
 | `project`               | 字符串             | 可选说明标签；当前代码不读取，不参与路径或命名                                                                                                                                                                                                                                                                      |
 | `defaultVariant`        | 字符串             | 与`--variant` 至少提供一个非空值；命令行优先                                                                                                                                                                                                                                                                      |
 | `buildType`             | 字符串             | EB 模式可选，缺省或空值取`Debug`；复用 lst 时忽略                                                                                                                                                                                                                                                                 |
-| `projectRoot`           | 路径字符串         | 可选，缺省或空值取`../../..`；`--project-root` 优先                                                                                                                                                                                                                                                             |
+| `projectRoot`           | 路径字符串         | 与`--project-root` 至少提供一个，命令行优先；相对路径基于配置文件所在目录                                                                                                                                                                                                                                                             |
 | `logLevel`              | 字符串             | 可选，默认`INFO`；`--log-level` 优先；多配置运行且未传 `--log-level` 时，各配置写了的值必须一致                                                                                                                                                                                                                                                |
 | `outputDir`             | 路径字符串         | 与`--output-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录                                                                                                                                                                                                                         |
 | `logDir`                | 路径字符串         | 与`--log-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录；不能与产物目录相同                                                                                                                                                                                                        |
@@ -201,7 +201,7 @@ AUTOSAR 允许不同包下存在相同 SHORT-NAME 的组件类型，它们是独
 - `outputPrefix=Bcm` 推导 `BcmWhiteTable.xlsx`、`BcmGreenTables.xlsx`、`BcmSystem.arxml`，与变体名称无关。
 - 产物目录必须通过 `--output-dir` 或 `outputDir` 指定；日志目录必须通过 `--log-dir` 或 `logDir` 指定。命令行优先，脚本和安装命令都没有默认目录；缺失、空值或类型错误在创建日志前报错并退出 1。日志目录与产物目录不能相同。
 - 多配置仍共用一组产物和日志目录。未传对应命令行参数时，每份配置必须提供对应目录，且相对各自配置目录解析后必须一致；有冲突时可通过命令行统一覆盖。
-- `replace=True` 使本地生成器按 prototype 和端口更新连接名；输出 release 由 `arRelease` 配置，默认 `R19-11`。
+- 连接名由本地生成器按 prototype 和端口固定生成（见 [white-table-format.md](white-table-format.md)）；输出 release 由 `arRelease` 配置，默认 `R19-11`。
 - 转换及写出先在临时目录完成，全部成功后才发布 Excel、ARXML 及 EB 生成的 lst。任何 ERROR/异常均退出 1，不发布本次产物；原有产物保留不变，失败日志保留。发布时普通 I/O 异常会回滚已替换文件；断电、进程强制终止或回滚期间存储故障不属于可保证的事务范围。
 - `outputPrefix` 不会展开到 `greenTables` 或 `general` 中。改变产物前缀不会自动改变 AUTOSAR 包路径、System 或 ECU。
 - `buildType` 没有单独的命令行覆盖选项；EB 模式下需在配置中与实际构建目录保持一致。

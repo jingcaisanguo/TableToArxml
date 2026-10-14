@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import importlib
-from importlib.metadata import version
 import json
 import logging
 import mimetypes
@@ -25,11 +24,19 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+from importlib.metadata import version
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import TYPE_CHECKING
 
+from .lib.common import (
+    DEFAULT_AR_RELEASE,
+    DEFAULT_E2E_WRAPPER,
+    DEFAULT_PROTOTYPE_PREFIX,
+    DEFAULT_SIGNAL_PATH_TEMPLATE,
+    norm,
+)
 from .lib.file_list import (
     DEFAULT_EXCLUDE_PATTERNS,
     filesystem_path,
@@ -40,8 +47,8 @@ from .lib.file_list import (
 )
 
 if TYPE_CHECKING:
-    from .lib.green_to_white import GreenWorkbookInfo
-    from .lib.white_table_reader import CompositionInput
+    from .lib.green_table import GreenWorkbookInfo
+    from .lib.white_table import CompositionInput
 
 
 # Workaround: avoid slow registry probing on some Windows setups when importing openpyxl.
@@ -49,6 +56,7 @@ if os.name == "nt" and hasattr(mimetypes, "_winreg"):
     mimetypes._winreg = None  # type: ignore[attr-defined]
 
 
+LOGGER = logging.getLogger(__name__)
 TOOL_NAME = "table_to_system_arxml"
 WHITE_TABLE_SUFFIX = "WhiteTable.xlsx"
 MERGED_GREEN_TABLE_SUFFIX = "GreenTables.xlsx"
@@ -57,6 +65,7 @@ DEFAULT_BUILD_TYPE = "Debug"
 # CMB 约定的 tresos 生成目录，EB 导入器把它作为 TRESOS_OUTPUT_BASE_DIR。
 DEFAULT_TRESOS_OUTPUT_BASE_DIR = "build/${variant}.${buildType}"
 LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+INTERFACE_MISMATCH_POLICIES = ("error", "skip", "map")
 # 与 requirements.txt 保持一致；1.9.4 起缺少本工具依赖的导出。
 ARMODEL_REQUIREMENT = ">=1.8.7,<1.9.4"
 CONFIG_KEYS = frozenset({
@@ -67,6 +76,7 @@ CONFIG_KEYS = frozenset({
     "interfaceMappings", "generateSystem",
 })
 GENERAL_CONFIG_KEYS = frozenset({"Composition", "System", "EcuInstance", "RootSwCompositionPrototype", "systemMapping"})
+INTERFACE_MAPPING_KEYS = {"providerInterface", "requesterInterface", "dataElements"}
 
 
 def _is_armodel_record(record: logging.LogRecord) -> bool:
@@ -109,7 +119,7 @@ def _publish_outputs(staging: Path, output_dir: Path) -> None:
     created_directory = not output_dir.exists()
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
-        with TemporaryDirectory(prefix=".green-table-", dir=output_dir) as directory:
+        with TemporaryDirectory(prefix=".table-to-system-", dir=output_dir) as directory:
             pending = Path(directory)
             artifacts = sorted(path for path in staging.iterdir() if path.is_file())
             for artifact in artifacts:
@@ -159,10 +169,6 @@ def _check_python_dependencies() -> None:
             + "; ".join(failures))
 
 
-def _norm(value: object) -> str:
-    return "" if value is None else str(value).strip()
-
-
 def _load_config(config_path: Path) -> dict:
     with config_path.open("r", encoding="utf-8-sig") as handle:
         config = json.load(handle)
@@ -200,7 +206,7 @@ def _string_list(config: dict, key: str, required: bool) -> list[str]:
 
 
 def _required(config: dict, key: str, label: str) -> str:
-    value = _norm(config.get(key))
+    value = norm(config.get(key))
     if not value:
         raise KeyError(f"Missing config.{label}")
     return value
@@ -252,114 +258,86 @@ def _resolve_config_path(value: str, config_dir: Path) -> Path:
     return path if path.is_absolute() else config_dir / path
 
 
-def _resolve_project_root(config: dict, project_root: str | None, config_dir: Path) -> Path:
-    """工程根目录，用于解析清单里的相对路径；命令行优先。"""
+def _optional_directory(config: dict, key: str, config_dir: Path) -> Path | None:
+    if key not in config:
+        return None
+    return _resolve_config_path(_string_option(config, key, ""), config_dir).resolve()
+
+
+def _resolve_project_root(config: dict, project_root: str | None, config_path: Path) -> Path:
+    """工程根目录，用于解析清单里的相对路径；命令行优先，二者必须提供其一。"""
 
     if project_root:
         return filesystem_path(project_root).resolve()
-    return _resolve_config_path(_norm(config.get("projectRoot")) or "../../..", config_dir).resolve()
+    configured = norm(config.get("projectRoot"))
+    if not configured:
+        raise ValueError(f"{config_path}: project root is required via --project-root or config field 'projectRoot'")
+    return _resolve_config_path(configured, config_path.parent).resolve()
 
 
-def _resolve_file_list(
-    config: dict,
-    variant: str,
-    config_dir: Path,
-    default_list_file: Path,
-    cli_file_list: str | None,
-) -> tuple[Path, bool]:
-    """确定清单文件位置，并告知是否需要调 EB 导入器生成。
-
-    优先级：``--arxml-file-list`` > ``config.arxmlFileList`` > 用 EB 导入器生成到输出目录。
-    配置中存在 arxmlFileList 时必须是有效清单，空值或缺失文件不回退到 EB。
-    """
-
-    if cli_file_list:
-        selected = filesystem_path(cli_file_list).resolve()
-    elif "arxmlFileList" in config:
-        configured = _string_option(config, "arxmlFileList", "").replace("${variant}", variant)
-        selected = _resolve_config_path(configured, config_dir).resolve()
-    else:
-        return default_list_file, False
-    if not selected.is_file():
-        raise FileNotFoundError(f"ARXML file list does not exist: {selected}")
-    return selected, True
+def _exclude_patterns(config: dict) -> list[str]:
+    patterns = _string_list(config, "excludeArxmlPatterns", required=False)
+    for pattern in patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"config.excludeArxmlPatterns: invalid regular expression {pattern!r}: {exc}") from exc
+    return patterns
 
 
-def _collect_arxml_paths(
-    config: dict,
-    variant: str,
-    config_dir: Path,
-    project_root: Path,
-    generated_arxml_names: list[str],
-    list_file: Path,
-    reuse_existing_list: bool,
-    generated_lists: dict[tuple, Path],
-    exclude_arxml: list[str] | None = None,
-) -> list[Path]:
-    """用 EB 导入器生成清单，再读出本次需要加载的 ARXML。
+def _interface_mappings(value: object) -> dict[tuple[str, str], dict[str, str]]:
+    """校验 ``interfaceMappings``，返回 ``(提供方接口, 请求方接口) -> 数据元素名映射``。"""
 
-    两个阶段共用同一份文件集合，因此只需要加载一次；本次将要生成的同名 ARXML
-    必须排除，否则 composition 会把上一次的结果当成输入。
-    """
-
-    exclude_patterns: list[str] = list(DEFAULT_EXCLUDE_PATTERNS)
-    exclude_patterns.extend(rf".*[\\/]{re.escape(name)}$" for name in generated_arxml_names)
-    exclude_patterns.extend(_string_list(config, "excludeArxmlPatterns", required=False))
-    excluded = exclude_arxml if exclude_arxml is not None else _string_list(config, "excludeArxml", required=False)
-
-    if reuse_existing_list:
-        logging.info("Reusing the configured ARXML file list: %s; skipping XDM and EB importer", list_file)
-        return read_file_list(list_file, project_root, project_root, "", exclude_patterns, excluded)
-
-    build_type = _norm(config.get("buildType")) or DEFAULT_BUILD_TYPE
-    configured_output = _norm(config.get("tresosOutputBaseDir"))
-    if configured_output:
-        tresos_output_path = _resolve_config_path(
-            configured_output.replace("${variant}", variant).replace("${buildType}", build_type),
-            config_dir)
-    else:
-        tresos_output_path = project_root / DEFAULT_TRESOS_OUTPUT_BASE_DIR.replace(
-            "${variant}", variant).replace("${buildType}", build_type)
-
-    preference_files = resolve_preference_files(
-        _string_list(config, "tresosPreferenceFiles", required=True),
-        variant, config_dir)
-
-    generate_key = (tuple(preference_files), tresos_output_path)
-    if generate_key in generated_lists:
-        list_file = generated_lists[generate_key]
-    else:
-        generate_file_list(preference_files, tresos_output_path, list_file)
-        generated_lists[generate_key] = list_file
-
-    return read_file_list(
-        list_file,
-        project_root,
-        tresos_project_dir(preference_files),
-        tresos_output_path.name,
-        exclude_patterns,
-        excluded,
-    )
+    if value is None:
+        return {}
+    if not isinstance(value, list):
+        raise ValueError("interfaceMappings must be a list")
+    mappings: dict[tuple[str, str], dict[str, str]] = {}
+    for spec in value:
+        if not isinstance(spec, dict) or set(spec) != INTERFACE_MAPPING_KEYS:
+            raise ValueError("interfaceMappings entries require providerInterface, requesterInterface and dataElements")
+        first, second, elements = spec["providerInterface"], spec["requesterInterface"], spec["dataElements"]
+        if not all(isinstance(path, str) and path.startswith("/") for path in (first, second)):
+            raise ValueError("interfaceMappings interface paths must be absolute AUTOSAR paths")
+        if (not isinstance(elements, dict) or not elements
+                or not all(isinstance(key, str) and key and isinstance(name, str) and name
+                           for key, name in elements.items())):
+            raise ValueError("interfaceMappings.dataElements must map provider names to requester names")
+        if (first, second) in mappings:
+            raise ValueError(f"Duplicate interfaceMappings entry: {first} -> {second}")
+        mappings[(first, second)] = dict(elements)
+    return mappings
 
 
 @dataclass
 class _Job:
-    """一个配置文件对应的一次生成任务。"""
+    """一个配置文件对应的一次生成任务；配置在加载 ARXML 前一次性解析和校验。"""
 
     config_path: Path
-    config: dict
     variant: str
     project_root: Path
     output_prefix: str
     general: dict
     system_mapping: str
     white_table: Path | None
+    green_table_entries: list[str]
     prototype_prefix: str
     e2e_wrapper: str
     signal_template: str
     ar_release: str
     mismatch_policy: str
+    interface_mappings: dict[tuple[str, str], dict[str, str]]
+    component_aliases: dict
     generate_system: bool
+    log_level: str
+    output_dir: Path | None
+    log_dir: Path | None
+    arxml_file_list: Path | None
+    exclude_patterns: list[str]
+    exclude_arxml: list[str]
+    preference_entries: list[str]
+    build_type: str
+    tresos_output_dir: Path | None
     green_tables: list[tuple[str, Path]] = field(default_factory=list)
     # 加载 ARXML 前预校验时解析的输入表，生成阶段直接复用，不再重复读取 Excel。
     green_infos: list[GreenWorkbookInfo] = field(default_factory=list)
@@ -378,7 +356,7 @@ def _prepare_job(
     config_path = config_path.resolve()
     config = _load_config(config_path)
     config_dir = config_path.parent
-    resolved_variant = _norm(variant) or _norm(config.get("defaultVariant"))
+    resolved_variant = norm(variant) or norm(config.get("defaultVariant"))
     if not resolved_variant:
         raise ValueError(f"{config_path}: variant is required via --variant or config field 'defaultVariant'")
     _filename_part(resolved_variant, "variant")
@@ -405,41 +383,127 @@ def _prepare_job(
     if input_white_table is not None and not input_white_table.is_file():
         raise FileNotFoundError(f"White table does not exist: {input_white_table}")
 
-    prototype_prefix = _string_option(config, "prototypePrefix", "its", allow_empty=True)
+    prototype_prefix = _string_option(config, "prototypePrefix", DEFAULT_PROTOTYPE_PREFIX, allow_empty=True)
     if prototype_prefix and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", prototype_prefix):
         raise ValueError("config.prototypePrefix must be an AUTOSAR name prefix")
-    signal_template = _string_option(config, "signalPathTemplate", "/${channel}/Signal/${signal}")
+    signal_template = _string_option(config, "signalPathTemplate", DEFAULT_SIGNAL_PATH_TEMPLATE)
     if not signal_template.startswith("/") or "${signal}" not in signal_template:
         raise ValueError("config.signalPathTemplate must be absolute and contain ${signal}")
     if "${" in signal_template.replace("${channel}", "").replace("${signal}", ""):
         raise ValueError("config.signalPathTemplate only supports ${channel} and ${signal}")
     mismatch_policy = _string_option(config, "interfaceMismatch", "error")
-    if mismatch_policy not in ("error", "skip", "map"):
+    if mismatch_policy not in INTERFACE_MISMATCH_POLICIES:
         raise ValueError("interfaceMismatch must be error, skip or map")
     generate_system = config.get("generateSystem", True)
     if not isinstance(generate_system, bool):
         raise ValueError("config.generateSystem must be true or false")
 
+    arxml_file_list = None
+    if "arxmlFileList" in config:
+        configured = _string_option(config, "arxmlFileList", "").replace("${variant}", resolved_variant)
+        arxml_file_list = _resolve_config_path(configured, config_dir).resolve()
+    build_type = norm(config.get("buildType")) or DEFAULT_BUILD_TYPE
+    configured_output = norm(config.get("tresosOutputBaseDir"))
+    tresos_output_dir = _resolve_config_path(
+        configured_output.replace("${variant}", resolved_variant).replace("${buildType}", build_type),
+        config_dir) if configured_output else None
+
     return _Job(
         config_path=config_path,
-        config=config,
         variant=resolved_variant,
-        project_root=_resolve_project_root(config, project_root, config_dir),
+        project_root=_resolve_project_root(config, project_root, config_path),
         output_prefix=output_prefix,
         general=general,
-        system_mapping=_norm(general.get("systemMapping")) or f"{output_prefix}SystemImpl",
+        system_mapping=norm(general.get("systemMapping")) or f"{output_prefix}SystemImpl",
         white_table=input_white_table,
+        green_table_entries=(
+            [] if input_white_table is not None else _string_list(config, "greenTables", required=True)),
         prototype_prefix=prototype_prefix,
-        e2e_wrapper=_string_option(config, "e2eWrapperComponent", "E2EWrapper", allow_empty=True),
+        e2e_wrapper=_string_option(config, "e2eWrapperComponent", DEFAULT_E2E_WRAPPER, allow_empty=True),
         signal_template=signal_template,
-        ar_release=_string_option(config, "arRelease", "R19-11"),
+        ar_release=_string_option(config, "arRelease", DEFAULT_AR_RELEASE),
         mismatch_policy=mismatch_policy,
+        interface_mappings=_interface_mappings(config.get("interfaceMappings")),
+        component_aliases=_section(config, "componentAliases"),
         generate_system=generate_system,
+        log_level=norm(config.get("logLevel")).upper(),
+        output_dir=_optional_directory(config, "outputDir", config_dir),
+        log_dir=_optional_directory(config, "logDir", config_dir),
+        arxml_file_list=arxml_file_list,
+        exclude_patterns=_exclude_patterns(config),
+        exclude_arxml=_string_list(config, "excludeArxml", required=False),
+        preference_entries=_string_list(config, "tresosPreferenceFiles", required=False),
+        build_type=build_type,
+        tresos_output_dir=tresos_output_dir,
+    )
+
+
+def _resolve_file_list(job: _Job, default_list_file: Path, cli_file_list: str | None) -> tuple[Path, bool]:
+    """确定清单文件位置，并告知是否需要调 EB 导入器生成。
+
+    优先级：``--arxml-file-list`` > ``config.arxmlFileList`` > 用 EB 导入器生成到输出目录。
+    配置中存在 arxmlFileList 时必须是有效清单，空值或缺失文件不回退到 EB。
+    """
+
+    if cli_file_list:
+        selected = filesystem_path(cli_file_list).resolve()
+    elif job.arxml_file_list is not None:
+        selected = job.arxml_file_list
+    else:
+        return default_list_file, False
+    if not selected.is_file():
+        raise FileNotFoundError(f"ARXML file list does not exist: {selected}")
+    return selected, True
+
+
+def _collect_arxml_paths(
+    job: _Job,
+    generated_arxml_names: list[str],
+    list_file: Path,
+    reuse_existing_list: bool,
+    generated_lists: dict[tuple, Path],
+    exclude_arxml: list[str] | None = None,
+) -> list[Path]:
+    """用 EB 导入器生成清单，再读出本次需要加载的 ARXML。
+
+    两个阶段共用同一份文件集合，因此只需要加载一次；本次将要生成的同名 ARXML
+    必须排除，否则 composition 会把上一次的结果当成输入。
+    """
+
+    exclude_patterns: list[str] = list(DEFAULT_EXCLUDE_PATTERNS)
+    exclude_patterns.extend(rf".*[\\/]{re.escape(name)}$" for name in generated_arxml_names)
+    exclude_patterns.extend(job.exclude_patterns)
+    excluded = exclude_arxml if exclude_arxml is not None else job.exclude_arxml
+
+    if reuse_existing_list:
+        LOGGER.info("Reusing the configured ARXML file list: %s; skipping XDM and EB importer", list_file)
+        return read_file_list(list_file, job.project_root, job.project_root, "", exclude_patterns, excluded)
+
+    tresos_output_path = job.tresos_output_dir or job.project_root / DEFAULT_TRESOS_OUTPUT_BASE_DIR.replace(
+        "${variant}", job.variant).replace("${buildType}", job.build_type)
+    if not job.preference_entries:
+        raise KeyError("Missing config.tresosPreferenceFiles")
+    preference_files = resolve_preference_files(job.preference_entries, job.variant, job.config_dir)
+
+    generate_key = (tuple(preference_files), tresos_output_path)
+    if generate_key in generated_lists:
+        list_file = generated_lists[generate_key]
+    else:
+        generate_file_list(preference_files, tresos_output_path, list_file)
+        generated_lists[generate_key] = list_file
+
+    return read_file_list(
+        list_file,
+        job.project_root,
+        tresos_project_dir(preference_files),
+        tresos_output_path.name,
+        exclude_patterns,
+        excluded,
     )
 
 
 def _resolve_run_directory(
-    jobs: list[_Job], cli_value: str | None, config_key: str, cli_option: str,
+    jobs: list[_Job], cli_value: str | None, attribute: str, config_key: str, cli_option: str,
 ) -> Path:
     if cli_value is not None:
         if not isinstance(cli_value, str) or not cli_value.strip():
@@ -449,12 +513,12 @@ def _resolve_run_directory(
 
     directories: list[Path] = []
     for job in jobs:
-        value = job.config.get(config_key)
-        if not isinstance(value, str) or not value.strip():
+        directory = getattr(job, attribute)
+        if directory is None:
             raise ValueError(
                 f"{job.config_path}: directory is required via {cli_option} "
                 f"or nonempty config.{config_key}")
-        directories.append(_resolve_config_path(value.strip(), job.config_dir).resolve())
+        directories.append(directory)
     if any(directory != directories[0] for directory in directories[1:]):
         raise ValueError(
             f"config.{config_key} must resolve to the same directory across configs; "
@@ -465,10 +529,10 @@ def _resolve_run_directory(
 def _resolve_log_level(jobs: list[_Job], cli_value: str | None) -> str:
     """命令行优先；否则各配置中写了的 logLevel 必须一致，都没写时为 INFO。"""
 
-    if _norm(cli_value):
-        level = _norm(cli_value).upper()
+    if norm(cli_value):
+        level = norm(cli_value).upper()
     else:
-        levels = {_norm(job.config.get("logLevel")).upper() for job in jobs} - {""}
+        levels = {job.log_level for job in jobs} - {""}
         if len(levels) > 1:
             raise ValueError(
                 f"config.logLevel differs across configs: {', '.join(sorted(levels))}; "
@@ -510,78 +574,84 @@ def run(
         raise ValueError(f"config.outputPrefix must be unique across configs: {', '.join(duplicated)}")
 
     resolved_log_level = _resolve_log_level(jobs, log_level)
-    resolved_log_dir = _resolve_run_directory(jobs, log_dir, "logDir", "--log-dir")
-    resolved_output_dir = _resolve_run_directory(jobs, output_dir, "outputDir", "--output-dir")
-    if resolved_log_dir.resolve() == resolved_output_dir.resolve():
+    resolved_log_dir = _resolve_run_directory(jobs, log_dir, "log_dir", "logDir", "--log-dir")
+    resolved_output_dir = _resolve_run_directory(jobs, output_dir, "output_dir", "outputDir", "--output-dir")
+    if resolved_log_dir == resolved_output_dir:
         raise ValueError("Log directory and output directory must be different")
     log_file = _setup_logging(resolved_log_level, resolved_log_dir)
 
-    logging.info("Log file: %s", log_file)
-    logging.info("Python interpreter: %s", sys.executable)
+    LOGGER.info("Log file: %s", log_file)
+    LOGGER.info("Python interpreter: %s", sys.executable)
     _check_python_dependencies()
     try:
-        from .lib.arxml_model import ArxmlModel
         from .lib.arxml_generator import generate_composition_arxml
-        from .lib.white_table_reader import read_composition_input
-        from .lib.green_to_white import (
-            collect_green_workbooks, generate_white_table, merge_green_workbooks, parse_green_workbook)
+        from .lib.arxml_model import ArxmlModel
+        from .lib.green_table import collect_green_workbooks, merge_green_workbooks, parse_green_workbook
+        from .lib.green_to_white import generate_white_table
+        from .lib.white_table import read_composition_input
     except (ImportError, OSError, AttributeError) as exc:
         raise RuntimeError(
             f"Cannot load conversion dependencies (interpreter: {sys.executable}): "
             f"{type(exc).__name__}: {exc}. Check armodel, openpyxl and their dependencies."
         ) from exc
 
-    logging.info("Output directory: %s", resolved_output_dir)
-    # 加载 ARXML 前先校验所有输入表格式，格式不对立即失败。
+    LOGGER.info("Output directory: %s", resolved_output_dir)
+    # 加载 ARXML 前先校验所有输入表；逐个检查完再失败，一次报出全部问题。
+    invalid_tables = 0
     for job in jobs:
-        logging.info("Config: %s (variant %s, project root %s)", job.config_path, job.variant, job.project_root)
+        LOGGER.info("Config: %s (variant %s, project root %s)", job.config_path, job.variant, job.project_root)
         if job.white_table is not None:
-            job.white_input = read_composition_input(job.white_table)
-            logging.info("Selected white table: %s", job.white_table)
-        else:
-            # 配置里的相对路径以配置文件所在目录为基准。
-            job.green_tables = collect_green_workbooks(
-                _string_list(job.config, "greenTables", required=True), job.variant, job.config_dir)
-            job.green_infos = [
-                parse_green_workbook(green_excel, app_name)
-                for app_name, green_excel in job.green_tables]
-            logging.info("Selected %s green tables", len(job.green_tables))
+            try:
+                job.white_input = read_composition_input(job.white_table)
+            except ValueError as exc:
+                LOGGER.error("%s", exc)
+                invalid_tables += 1
+                continue
+            LOGGER.info("Selected white table: %s", job.white_table)
+            continue
+        # 配置里的相对路径以配置文件所在目录为基准。
+        job.green_tables = collect_green_workbooks(job.green_table_entries, job.variant, job.config_dir)
+        for app_name, green_excel in job.green_tables:
+            try:
+                job.green_infos.append(parse_green_workbook(green_excel, app_name))
+            except ValueError as exc:
+                LOGGER.error("%s", exc)
+                invalid_tables += 1
+        LOGGER.info("Selected %s green tables", len(job.green_tables))
+    if invalid_tables:
+        raise ValueError(f"{invalid_tables} input table(s) are invalid; see the messages above")
 
     generated_names = [f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}" for job in jobs]
-    with _abort_on_error() as errors, TemporaryDirectory(prefix="green-table-") as directory:
+    with _abort_on_error() as errors, TemporaryDirectory(prefix="table-to-system-") as directory:
         staging = Path(directory)
         generated_lists: dict[tuple, Path] = {}
         arxml_paths: list[Path] = []
         seen: set[str] = set()
         for index, job in enumerate(jobs):
             list_name = f"{job.variant}.lst" if index == 0 else f"{job.variant}_{index}.lst"
-            list_file, reuse_existing_list = _resolve_file_list(
-                job.config, job.variant, job.config_dir, staging / list_name, file_list)
+            list_file, reuse_existing_list = _resolve_file_list(job, staging / list_name, file_list)
             for path in _collect_arxml_paths(
-                    job.config, job.variant, job.config_dir, job.project_root,
-                    generated_names, list_file, reuse_existing_list, generated_lists, exclude_arxml):
+                    job, generated_names, list_file, reuse_existing_list, generated_lists, exclude_arxml):
                 key = os.path.normcase(str(path))
                 if key not in seen:
                     seen.add(key)
                     arxml_paths.append(path)
         started = perf_counter()
         model = ArxmlModel.load(arxml_paths)
-        logging.info(
-            "Loaded %s ARXML files in %.1fs", len(model.paths), perf_counter() - started)
+        LOGGER.info("Loaded %s ARXML files in %.1fs", len(model.paths), perf_counter() - started)
 
         results: list[tuple[Path, Path]] = []
         for index, job in enumerate(jobs):
-            logging.info("Generating %s from %s", job.output_prefix, job.config_path)
-            if job.white_table is not None:
+            LOGGER.info("Generating %s from %s", job.output_prefix, job.config_path)
+            if job.white_input is not None:
                 white_table_path = job.white_table
                 composition_input = job.white_input
             else:
                 white_table_path = generate_white_table(
                     model=model, green_infos=job.green_infos, general=job.general,
                     output_file=staging / f"{job.output_prefix}{WHITE_TABLE_SUFFIX}",
-                    component_aliases=_section(job.config, "componentAliases"),
-                    prototype_prefix=job.prototype_prefix, e2e_wrapper=job.e2e_wrapper,
-                    signal_path_template=job.signal_template)
+                    component_aliases=job.component_aliases, prototype_prefix=job.prototype_prefix,
+                    e2e_wrapper=job.e2e_wrapper, signal_path_template=job.signal_template)
                 merge_green_workbooks(
                     job.green_tables, staging / f"{job.output_prefix}{MERGED_GREEN_TABLE_SUFFIX}")
                 composition_input = read_composition_input(white_table_path)
@@ -589,8 +659,7 @@ def run(
                 document=model.document, data=composition_input,
                 output_file=staging / f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}",
                 system_mapping=job.system_mapping, ar_release=job.ar_release,
-                interface_mismatch=job.mismatch_policy,
-                interface_mappings=job.config.get("interfaceMappings"),
+                interface_mismatch=job.mismatch_policy, interface_mappings=job.interface_mappings,
                 generate_system=job.generate_system)
             if index < len(jobs) - 1:
                 # 同名旧文件已被排除，后续配置需要看到本次新生成的内容。
@@ -619,7 +688,7 @@ def build_argument_parser(default_config: Path | None = None) -> argparse.Argume
     parser.add_argument(
         "--project-root",
         help="Project root used to resolve the project paths in the configuration. "
-             "Default: config field 'projectRoot'",
+             "Required via CLI or config field 'projectRoot'",
     )
     parser.add_argument(
         "--variant",
@@ -675,16 +744,16 @@ def main(default_config: Path | None = None) -> int:
             exclude_arxml=args.exclude_arxml,
         )
     except (OSError, ValueError, KeyError, RuntimeError) as exc:
-        logging.error("%s failed; no new artifacts published: %s", TOOL_NAME, exc)
+        LOGGER.error("%s failed; no new artifacts published: %s", TOOL_NAME, exc)
         return 1
     except Exception:
         # 非预期异常多为程序缺陷，保留堆栈便于定位。
-        logging.exception("%s failed unexpectedly; no new artifacts published", TOOL_NAME)
+        LOGGER.exception("%s failed unexpectedly; no new artifacts published", TOOL_NAME)
         return 1
 
     for white_table, composition_arxml in results:
-        logging.info("Generated: %s, %s", white_table, composition_arxml)
-    logging.info("Finished in %.1fs", perf_counter() - started)
+        LOGGER.info("Generated: %s, %s", white_table, composition_arxml)
+    LOGGER.info("Finished in %.1fs", perf_counter() - started)
     return 0
 
 

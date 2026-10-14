@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
 
@@ -23,19 +22,16 @@ from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSARD
 from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.PortInterface import (
     DataPrototypeMapping, PortInterface, SenderReceiverInterface,
 )
-from armodel.models.M2.AUTOSARTemplates.CommonStructure.ImplementationDataTypes import (
-    ImplementationDataType, ImplementationDataTypeElement,
-)
-from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Datatype.Datatypes import (
-    ApplicationArrayDataType, ApplicationDataType, ApplicationPrimitiveDataType,
-    ApplicationRecordDataType, DataTypeMappingSet,
-)
-from armodel.models.M2.MSR.AsamHdo.BaseTypes import SwBaseType
 
-from .white_table_reader import CompositionInput, TableRow
 from .arxml_model import ArxmlModel
+from .common import ref_value
+from .type_signature import TypeSignatures
+from .white_table import (
+    ASSEMBLY_SHEET, COMPONENTS_SHEET, DELEGATION_SHEET, SIGNAL_GROUP_SHEET, SIGNAL_SHEET,
+    CompositionInput, TableRow,
+)
 
-DEFAULT_AR_RELEASE = "R19-11"
+LOGGER = logging.getLogger(__name__)
 COMPONENT_DESTINATIONS = (
     (CompositionSwComponentType, "COMPOSITION-SW-COMPONENT-TYPE"),
     (ApplicationSwComponentType, "APPLICATION-SW-COMPONENT-TYPE"),
@@ -43,33 +39,14 @@ COMPONENT_DESTINATIONS = (
     (EcuAbstractionSwComponentType, "ECU-ABSTRACTION-SW-COMPONENT-TYPE"),
     (ServiceSwComponentType, "SERVICE-SW-COMPONENT-TYPE"),
 )
+MAX_CONNECTOR_NAME = 255
 
 
 def _reference(destination: str, path: str) -> RefType:
     return RefType().setDest(destination).setValue(path)
 
 
-def _value(reference) -> str:
-    return str(reference.getValue() or "").strip() if reference is not None else ""
-
-
-def _type_value(value) -> str:
-    if hasattr(value, "getValue"):
-        value = value.getValue()
-    return "" if value is None else str(value).strip()
-
-
-def _positive_size(value, label: str) -> int:
-    try:
-        size = Decimal(_type_value(value))
-        if size.is_finite() and size > 0 and size == size.to_integral_value():
-            return int(size)
-    except InvalidOperation:
-        pass
-    raise ValueError(f"Missing or invalid {label}: {_type_value(value)}")
-
-
-class _UnresolvedDataType(ValueError):
+class _UnresolvedDataTypeError(ValueError):
     pass
 
 
@@ -133,34 +110,15 @@ class _SignalMapping:
 
 class _Resolver:
     def __init__(
-        self, document: AUTOSAR, data: CompositionInput, replace: bool,
-        interface_mismatch: str = "error",
-        interface_mappings: list[dict] | None = None,
+        self, document: AUTOSAR, data: CompositionInput, interface_mismatch: str,
+        interface_mappings: dict[tuple[str, str], dict[str, str]],
     ) -> None:
-        if interface_mismatch not in ("error", "skip", "map"):
-            raise ValueError("interfaceMismatch must be error, skip or map")
         self.document = document
         self.data = data
-        self.replace = replace
         self.interface_mismatch = interface_mismatch
-        self.interface_mapping_specs: dict[tuple[str, str], dict[str, str]] = {}
-        if interface_mappings is not None and not isinstance(interface_mappings, list):
-            raise ValueError("interfaceMappings must be a list")
-        for spec in interface_mappings or []:
-            if not isinstance(spec, dict) or set(spec) != {"providerInterface", "requesterInterface", "dataElements"}:
-                raise ValueError("interfaceMappings entries require providerInterface, requesterInterface and dataElements")
-            first, second, elements = spec["providerInterface"], spec["requesterInterface"], spec["dataElements"]
-            if not all(isinstance(path, str) and path.startswith("/") for path in (first, second)):
-                raise ValueError("interfaceMappings interface paths must be absolute AUTOSAR paths")
-            if (not isinstance(elements, dict) or not elements
-                    or not all(isinstance(key, str) and key and isinstance(value, str) and value
-                               for key, value in elements.items())):
-                raise ValueError("interfaceMappings.dataElements must map provider names to requester names")
-            key = (first, second)
-            if key in self.interface_mapping_specs:
-                raise ValueError(f"Duplicate interfaceMappings entry: {first} -> {second}")
-            self.interface_mapping_specs[key] = elements
+        self.interface_mapping_specs = interface_mappings
         self.interface_mappings: dict[str, _InterfaceMapping] = {}
+        self.type_signatures = TypeSignatures(self.lookup)
         self.signal_model = ArxmlModel(document, [], [])
         self.composition_path = data.general["Composition"].rstrip("/")
         parts = self.composition_path.split("/")
@@ -187,48 +145,50 @@ class _Resolver:
             self.objects[key] = getattr(self.document, method)(path)
         return self.objects[key]
 
-    def resolve_components(self) -> None:
-        for row in self.data.tables["Components"]:
-            values = row.values
-            if not all(values.values()):
-                raise ValueError(f"{row.location}: all component fields are required")
-            name, type_path = values["Prototype"], values["Type"]
-            action = values["Action"].lower()
-            if action not in ("add", "reference"):
-                raise ValueError(f"{row.location}: invalid Action '{values['Action']}'")
-            if "/" in name and (action == "add" or not name.startswith("/")):
-                raise ValueError(f"{row.location}: Add requires a prototype SHORT-NAME")
-            component_type = self.lookup("find", type_path)
-            destination = next((dest for kind, dest in COMPONENT_DESTINATIONS
-                                if isinstance(component_type, kind)), "")
-            if not destination:
-                raise ValueError(f"{row.location}: missing or unsupported component type '{type_path}'")
-            implementation = ""
-            if action == "add" and isinstance(component_type, AtomicSwComponentType):
-                behavior = component_type.getInternalBehavior()
-                impl = self.lookup("getImplementation", behavior.getFullName()) if behavior else None
-                if impl is not None:
-                    implementation = impl.getFullName()
-                else:
-                    raise ValueError(f"{row.location}: no implementation for {type_path}")
-            instance_path = name if name.startswith("/") else f"{self.composition_path}/{name}"
-            if instance_path.rsplit("/", 1)[0] != self.composition_path:
-                raise ValueError(f"{row.location}: prototype is outside target composition: {instance_path}")
-            existing = self.lookup("find", instance_path)
-            if action == "reference" or existing is not None:
-                if existing is None or not hasattr(existing, "getTypeTRef"):
-                    raise ValueError(f"{row.location}: Reference prototype does not exist: {instance_path}")
-                if _value(existing.getTypeTRef()) != type_path:
-                    raise ValueError(f"{row.location}: prototype type mismatch: {instance_path}")
-            name = instance_path.rsplit("/", 1)[-1]
-            component = _Component(name, type_path, destination, instance_path, implementation, action)
-            if name in self.components and self.components[name] != component:
-                raise ValueError(f"{row.location}: conflicting prototype '{name}'")
-            self.components[name] = component
-            for alias in (values["SW-C"], name, instance_path):
-                if alias in self.aliases and self.aliases[alias] != component:
-                    raise ValueError(f"{row.location}: ambiguous component alias '{alias}'")
-                self.aliases[alias] = component
+    def add_component(self, row: TableRow) -> None:
+        values = row.values
+        if not all(values.values()):
+            raise ValueError("all component fields are required")
+        name, type_path = values["Prototype"], values["Type"]
+        action = values["Action"].lower()
+        if action not in ("add", "reference"):
+            raise ValueError(f"invalid Action '{values['Action']}'")
+        if "/" in name and (action == "add" or not name.startswith("/")):
+            raise ValueError("Add requires a prototype SHORT-NAME")
+        component_type = self.lookup("find", type_path)
+        destination = next((dest for kind, dest in COMPONENT_DESTINATIONS
+                            if isinstance(component_type, kind)), "")
+        if not destination:
+            raise ValueError(f"missing or unsupported component type '{type_path}'")
+        implementation = ""
+        if action == "add" and isinstance(component_type, AtomicSwComponentType):
+            behavior = component_type.getInternalBehavior()
+            impl = self.lookup("getImplementation", behavior.getFullName()) if behavior else None
+            if impl is None:
+                raise ValueError(f"no implementation for {type_path}")
+            implementation = impl.getFullName()
+        instance_path = name if name.startswith("/") else f"{self.composition_path}/{name}"
+        if instance_path.rsplit("/", 1)[0] != self.composition_path:
+            raise ValueError(f"prototype is outside target composition: {instance_path}")
+        existing = self.lookup("find", instance_path)
+        if action == "reference" or existing is not None:
+            if existing is None or not hasattr(existing, "getTypeTRef"):
+                raise ValueError(f"Reference prototype does not exist: {instance_path}")
+            if ref_value(existing.getTypeTRef()) != type_path:
+                raise ValueError(f"prototype type mismatch: {instance_path}")
+        name = instance_path.rsplit("/", 1)[-1]
+        component = _Component(name, type_path, destination, instance_path, implementation, action)
+        if name in self.components and self.components[name] != component:
+            raise ValueError(f"conflicting prototype '{name}'")
+        self.components[name] = component
+        for alias in (values["SW-C"], name, instance_path):
+            if alias in self.aliases and self.aliases[alias] != component:
+                raise ValueError(f"ambiguous component alias '{alias}'")
+            self.aliases[alias] = component
+
+    def add_type_aliases(self) -> None:
+        """类型路径和类型短名也可引用组件，但不覆盖实例名等主别名，多个组件共用时视为歧义。"""
+
         primary_aliases = set(self.aliases)
         for component in self.components.values():
             for alias in (component.type_path, component.type_path.rsplit("/", 1)[-1]):
@@ -259,7 +219,7 @@ class _Resolver:
             else:
                 raise ValueError(f"missing or unsupported port '{port_path}'")
             self.ports[key] = _Endpoint(component, port.getFullName(), destination,
-                                        _value(interface), str(interface.getDest() or "") if interface else "")
+                                        ref_value(interface), str(interface.getDest() or "") if interface else "")
         endpoint = self.ports[key]
         if expected and endpoint.destination != expected:
             raise ValueError(f"port '{endpoint.port_path}' must be {expected}")
@@ -269,109 +229,6 @@ class _Resolver:
                 f"port '{endpoint.port_path}' has a missing or invalid interface: '{endpoint.interface_path}'")
         return endpoint
 
-    def connector_name(self, row: TableRow, default: str) -> str:
-        name = default if self.replace or not row.values["Connection"] else row.values["Connection"]
-        return name[:255]
-
-    def type_signature(self, reference, component: _Component, active: tuple[str, ...] = ()) -> tuple:
-        path = _value(reference)
-        if not path or path in active:
-            raise ValueError(f"Missing or cyclic data type reference: {' -> '.join(active + (path,))}")
-        data_type = self.lookup("find", path)
-        if data_type is None:
-            raise ValueError(f"Data type is not defined: {path}")
-        destinations = {
-            "SW-BASE-TYPE": SwBaseType,
-            "IMPLEMENTATION-DATA-TYPE": ImplementationDataType,
-            "APPLICATION-PRIMITIVE-DATA-TYPE": ApplicationPrimitiveDataType,
-            "APPLICATION-ARRAY-DATA-TYPE": ApplicationArrayDataType,
-            "APPLICATION-RECORD-DATA-TYPE": ApplicationRecordDataType,
-        }
-        destination = str(reference.getDest() or "")
-        expected = destinations.get(destination)
-        if expected is None or not isinstance(data_type, expected):
-            raise ValueError(f"Unsupported or incorrect data type DEST '{destination}': {path}")
-        active = active + (path,)
-        if isinstance(data_type, SwBaseType):
-            definition = data_type.getBaseTypeDefinition()
-            if definition is None:
-                raise ValueError(f"Missing base type definition: {path}")
-            width = _positive_size(definition.getBaseTypeSize(), f"BASE-TYPE-SIZE of {path}")
-            encoding = _type_value(definition.getBaseTypeEncoding()).upper()
-            if encoding not in {"NONE", "2C", "1C", "SM", "IEEE754", "BOOLEAN"}:
-                raise ValueError(f"Missing or unsupported BASE-TYPE-ENCODING '{encoding}': {path}")
-            return ("scalar", width, encoding, _type_value(definition.getByteOrder()))
-        if isinstance(data_type, ApplicationDataType):
-            component_type = self.lookup("find", component.type_path)
-            behavior = component_type.getInternalBehavior() if isinstance(component_type, AtomicSwComponentType) else None
-            mapped: dict[str, RefType] = {}
-            for mapping_ref in behavior.getDataTypeMappingRefs() if behavior is not None else []:
-                mapping_set = self.lookup("find", _value(mapping_ref))
-                if not isinstance(mapping_set, DataTypeMappingSet):
-                    raise ValueError(f"DataTypeMappingSet is not defined: {_value(mapping_ref)}")
-                for mapping in mapping_set.getDataTypeMaps():
-                    if _value(mapping.getApplicationDataTypeRef()) == path:
-                        implementation = mapping.getImplementationDataTypeRef()
-                        mapped[_value(implementation)] = implementation
-            if len(mapped) > 1:
-                raise ValueError(f"Ambiguous implementation type for {path} in {component.type_path}: {sorted(mapped)}")
-            if mapped:
-                return self.type_signature(next(iter(mapped.values())), component, active)
-            if not isinstance(data_type, ApplicationPrimitiveDataType):
-                raise ValueError(f"No component-scoped implementation mapping for application type: {path}")
-            return self._property_type_signature(data_type, component, active)
-        return self._implementation_signature(data_type, component, active)
-
-    def _property_type_signature(self, data_type, component: _Component, active: tuple[str, ...]) -> tuple:
-        props = data_type.getSwDataDefProps()
-        path = data_type.getFullName()
-        if props is None:
-            raise ValueError(f"Cannot resolve final data type; SW-DATA-DEF-PROPS is missing: {path}")
-        if props.getSwPointerTargetProps() is not None or props.getSwBitRepresentation() is not None:
-            raise ValueError(f"Pointer or bit-field data type is not supported for interface mapping: {path}")
-        references = [reference for reference in (props.getImplementationDataTypeRef(), props.getBaseTypeRef())
-                      if _value(reference)]
-        if not references:
-            raise ValueError(f"Cannot resolve final data type; no implementation/base type reference: {path}")
-        signatures = [self.type_signature(reference, component, active) for reference in references]
-        if any(signature != signatures[0] for signature in signatures[1:]):
-            raise ValueError(f"Conflicting implementation/base type definitions: {path}")
-        return signatures[0]
-
-    def _implementation_signature(self, data_type, component: _Component, active: tuple[str, ...]) -> tuple:
-        category = _type_value(data_type.getCategory()).upper()
-        path = data_type.getFullName()
-        if category in ("VALUE", "TYPE_REFERENCE"):
-            if data_type.getSubElements():
-                raise ValueError(f"Unexpected sub-elements on scalar/alias type: {path}")
-            return self._property_type_signature(data_type, component, active)
-        if category not in ("ARRAY", "STRUCTURE"):
-            raise ValueError(f"Unsupported implementation type category '{category}': {path}")
-        if isinstance(data_type, ImplementationDataType) and (
-                _type_value(data_type.getDynamicArraySizeProfile())
-                or _type_value(data_type.getIsStructWithOptionalElement()).lower() not in ("", "false", "0")):
-            raise ValueError(f"Dynamic or optional composite type cannot be mapped automatically: {path}")
-        elements = data_type.getSubElements()
-        if not elements or (category == "ARRAY" and len(elements) != 1):
-            raise ValueError(f"Invalid {category} data type elements: {path}")
-        signatures = []
-        for element in elements:
-            if not isinstance(element, ImplementationDataTypeElement):
-                raise ValueError(f"Unsupported data type element in {path}")
-            if _type_value(element.getIsOptional()).lower() not in ("", "false", "0"):
-                raise ValueError(f"Optional data type element cannot be mapped automatically: {element.getFullName()}")
-            if category == "ARRAY":
-                if _type_value(element.getArraySizeSemantics()) != "FIXED-SIZE":
-                    raise ValueError(f"Only fixed-size arrays support interface mapping: {path}")
-                size = _positive_size(element.getArraySize(), f"ARRAY-SIZE of {path}")
-            else:
-                if element.getArraySize() is not None:
-                    raise ValueError(f"Array dimensions require an explicit ARRAY type: {element.getFullName()}")
-                size = None
-            signature = self._implementation_signature(element, component, active)
-            signatures.append((element.getShortName() if category == "STRUCTURE" else size, signature))
-        return (category.lower(), tuple(signatures))
-
     def validate_element_types(self, first_element, second_element, provider: _Endpoint, requester: _Endpoint) -> None:
         first_type, second_type = first_element.getTypeTRef(), second_element.getTypeTRef()
         try:
@@ -379,19 +236,19 @@ class _Resolver:
                 props = element.getSwDataDefProps()
                 if props is not None and (
                         props.getSwBitRepresentation() is not None or props.getSwPointerTargetProps() is not None
-                        or _value(props.getBaseTypeRef()) or _value(props.getImplementationDataTypeRef())):
+                        or ref_value(props.getBaseTypeRef()) or ref_value(props.getImplementationDataTypeRef())):
                     raise ValueError(f"Element-level type overrides are not supported: {element.getFullName()}")
-            first_signature = self.type_signature(first_type, provider.component)
-            second_signature = self.type_signature(second_type, requester.component)
+            first_signature = self.type_signatures.signature(first_type, provider.component.type_path)
+            second_signature = self.type_signatures.signature(second_type, requester.component.type_path)
         except ValueError as exc:
-            raise _UnresolvedDataType(
+            raise _UnresolvedDataTypeError(
                 f"Cannot resolve interface data types: {first_element.getFullName()} -> "
                 f"{second_element.getFullName()}: {exc}") from exc
         if first_signature != second_signature:
             raise ValueError(
                 f"Interface final data type mismatch (bit width, encoding/signedness or shape): "
-                f"{first_element.getFullName()} ({_value(first_type)}: {first_signature}) -> "
-                f"{second_element.getFullName()} ({_value(second_type)}: {second_signature})")
+                f"{first_element.getFullName()} ({ref_value(first_type)}: {first_signature}) -> "
+                f"{second_element.getFullName()} ({ref_value(second_type)}: {second_signature})")
 
     def interface_mapping(self, provider: _Endpoint, requester: _Endpoint) -> str:
         first = self.lookup("find", provider.interface_path)
@@ -438,7 +295,7 @@ class _Resolver:
             message = (f"interface mismatch: {provider.port_path} ({provider.interface_path}) -> "
                        f"{requester.port_path} ({requester.interface_path})")
             if self.interface_mismatch == "skip":
-                logging.warning("Skip %s: %s", row.location, message)
+                LOGGER.warning("Skip %s: %s", row.location, message)
                 return
             if self.interface_mismatch == "error":
                 raise ValueError(message)
@@ -449,14 +306,14 @@ class _Resolver:
                 for element in interface.getDataElements():
                     try:
                         self.validate_element_types(element, element, provider, requester)
-                    except _UnresolvedDataType as exc:
+                    except _UnresolvedDataTypeError as exc:
                         # 同一接口无需映射，类型无法唯一解析时只提示。
-                        logging.warning("%s: %s", row.location, exc)
-        name = self.connector_name(row, f"ac_{provider.component.name}_{values['PPort']}_"
-                                   f"{requester.component.name}_{values['RPort']}")
+                        LOGGER.warning("%s: %s", row.location, exc)
+        name = (f"ac_{provider.component.name}_{values['PPort']}_"
+                f"{requester.component.name}_{values['RPort']}")[:MAX_CONNECTOR_NAME]
         connector = _Assembly(name, provider, requester, mapping_path)
         if name in self.delegations or (name in self.assemblies and self.assemblies[name] != connector):
-            raise RuntimeError(f"{row.location}: conflicting connector name '{name}'")
+            raise ValueError(f"conflicting connector name '{name}'")
         self.assemblies[name] = connector
 
     def add_delegation(self, row: TableRow) -> None:
@@ -468,7 +325,7 @@ class _Resolver:
         existing = self.outer_ports.get(outer)
         if existing and (existing.destination, existing.interface_path, existing.interface_destination) != (
                 inner.destination, inner.interface_path, inner.interface_destination):
-            raise RuntimeError(f"{row.location}: conflicting outer port '{outer}'")
+            raise ValueError(f"conflicting outer port '{outer}'")
         port = self.lookup("findPort", f"{self.composition_path}/{outer}")
         if port is not None:
             if isinstance(port, PPortPrototype):
@@ -477,21 +334,21 @@ class _Resolver:
                 current = ("R-PORT-PROTOTYPE", port.getRequiredInterfaceTRef())
             else:
                 raise ValueError(f"unsupported outer port '{self.composition_path}/{outer}'")
-            if (current[0], _value(current[1])) != (inner.destination, inner.interface_path):
+            if (current[0], ref_value(current[1])) != (inner.destination, inner.interface_path):
                 raise ValueError(
-                    f"existing outer port '{self.composition_path}/{outer}' ({current[0]}, {_value(current[1])}) "
+                    f"existing outer port '{self.composition_path}/{outer}' ({current[0]}, {ref_value(current[1])}) "
                     f"does not match inner port ({inner.destination}, {inner.interface_path})")
             self.existing_outer_ports.add(outer)
-        name = self.connector_name(row, f"dc_{outer}_{inner.component.name}{values['Inner Port']}")
+        name = f"dc_{outer}_{inner.component.name}{values['Inner Port']}"[:MAX_CONNECTOR_NAME]
         connector = _Delegation(name, inner, outer)
         if name in self.assemblies or (name in self.delegations and self.delegations[name] != connector):
-            raise RuntimeError(f"{row.location}: conflicting connector name '{name}'")
+            raise ValueError(f"conflicting connector name '{name}'")
         self.delegations[name] = connector
         self.outer_ports[outer] = inner
 
     def add_signal(self, row: TableRow) -> None:
         values = row.values
-        group = row.sheet == "SenderReceiverToSignalGroup"
+        group = row.sheet == SIGNAL_GROUP_SHEET
         direction = "" if group else values["Direction"].upper()
         if not group and direction not in ("IN", "OUT"):
             raise ValueError(f"invalid signal direction '{direction}'")
@@ -512,9 +369,9 @@ class _Resolver:
         if signal is None:
             raise ValueError(f"signal{' group' if group else ''} '{signal_path}' is not defined")
         if group:
-            type_path = _value(data_element.getTypeTRef())
+            type_path = ref_value(data_element.getTypeTRef())
             data_type = self.lookup("findImplementationDataType", type_path)
-            if data_type is None or _value(data_type.getCategory()) != "STRUCTURE":
+            if data_type is None or ref_value(data_type.getCategory()) != "STRUCTURE":
                 raise ValueError(f"signal group DataElement '{data_path}' requires a STRUCTURE implementation type")
         self.signals.append(_SignalMapping(endpoint, data_path, signal.getFullName(), direction, group))
 
@@ -524,12 +381,12 @@ class _Resolver:
         general = self.data.general
         system = self.lookup("find", general["System"]) if general["System"].startswith("/") else None
         if system is not None:
-            self.system_category = _value(system.getCategory()) or self.system_category
-            self.system_version = _type_value(system.getSystemVersion())
+            self.system_category = ref_value(system.getCategory()) or self.system_category
+            self.system_version = ref_value(system.getSystemVersion())
         root = self.lookup("find", general["RootSwCompositionPrototype"])
         if root is None or not hasattr(root, "getSoftwareCompositionTRef"):
             raise ValueError(f"RootSwCompositionPrototype is not defined: {general['RootSwCompositionPrototype']}")
-        self.root_type = _value(root.getSoftwareCompositionTRef())
+        self.root_type = ref_value(root.getSoftwareCompositionTRef())
         chains = self.composition_chains(self.root_type, ())
         if len(chains) != 1:
             raise ValueError(
@@ -545,23 +402,31 @@ class _Resolver:
             return []
         chains = []
         for prototype in composition.getComponents():
-            chains += self.composition_chains(_value(prototype.getTypeTRef()), chain + (prototype.getFullName(),))
+            chains += self.composition_chains(ref_value(prototype.getTypeTRef()), chain + (prototype.getFullName(),))
         return chains
 
     def resolve(self) -> None:
-        self.resolve_components()
+        """逐页逐行解析白表；出错的行记录 ERROR 后继续，全部处理完再统一失败。"""
+
         handlers = {
-            "AssemblySwConnection": self.add_assembly,
-            "DelegationSwConnection": self.add_delegation,
-            "SenderReceiverToSignal": self.add_signal,
-            "SenderReceiverToSignalGroup": self.add_signal,
+            COMPONENTS_SHEET: self.add_component,
+            ASSEMBLY_SHEET: self.add_assembly,
+            DELEGATION_SHEET: self.add_delegation,
+            SIGNAL_SHEET: self.add_signal,
+            SIGNAL_GROUP_SHEET: self.add_signal,
         }
+        failures = 0
         for sheet, handler in handlers.items():
             for row in self.data.tables[sheet]:
                 try:
                     handler(row)
                 except ValueError as exc:
-                    raise ValueError(f"{row.location}: {exc}") from exc
+                    LOGGER.error("%s: %s", row.location, exc)
+                    failures += 1
+            if sheet == COMPONENTS_SHEET:
+                self.add_type_aliases()
+        if failures:
+            raise ValueError(f"{failures} white table row(s) could not be resolved; see the messages above")
 
 
 def _component_iref(component: _Component, root: str, context: list[str]) -> ComponentInSystemInstanceRef:
@@ -686,14 +551,13 @@ def generate_composition_arxml(
     document: AUTOSAR,
     data: CompositionInput,
     output_file: Path,
-    system_mapping: str | None = None,
-    replace: bool = True,
-    ar_release: str = DEFAULT_AR_RELEASE,
-    interface_mismatch: str = "error",
-    interface_mappings: list[dict] | None = None,
-    generate_system: bool = True,
+    system_mapping: str,
+    ar_release: str,
+    interface_mismatch: str,
+    interface_mappings: dict[tuple[str, str], dict[str, str]],
+    generate_system: bool,
 ) -> Path:
-    resolved = _Resolver(document, data, replace, interface_mismatch, interface_mappings)
+    resolved = _Resolver(document, data, interface_mismatch, interface_mappings)
     resolved.resolve()
     if generate_system:
         resolved.resolve_system()
@@ -703,6 +567,6 @@ def generate_composition_arxml(
     _write_model(output, resolved, system_mapping, generate_system)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     _Writer().save(str(output_file), output)
-    logging.info("Composition ARXML done: %s assemblies, %s delegations, %s signal mappings -> %s",
-                 len(resolved.assemblies), len(resolved.delegations), len(resolved.signals), output_file)
+    LOGGER.info("Composition ARXML done: %s assemblies, %s delegations, %s signal mappings -> %s",
+                len(resolved.assemblies), len(resolved.delegations), len(resolved.signals), output_file)
     return output_file
