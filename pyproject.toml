@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "table-to-arxml"
+version = "0.2.0"
+description = "Excel to AUTOSAR ARXML tools: table-to-system-arxml and table-to-swc-arxml"
+requires-python = ">=3.9"
+dynamic = ["dependencies"]
+
+[project.scripts]
+table-to-system-arxml = "table_to_system_arxml.cli:main"
+table-to-swc-arxml = "table_to_swc_arxml.cli:main"
+
+[tool.setuptools]
+package-dir = { "table_to_system_arxml" = "table_to_system_arxml/table_to_system_arxml", "table_to_swc_arxml" = "table_to_swc_arxml/table_to_swc_arxml" }
+packages = ["table_to_system_arxml", "table_to_system_arxml.lib", "table_to_swc_arxml", "table_to_swc_arxml.lib"]
+include-package-data = false
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }

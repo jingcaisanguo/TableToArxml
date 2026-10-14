@@ -1,4 +1,4 @@
-name: Build table-to-system-arxml wheel
+name: Build wheel
 
 on:
   workflow_dispatch:
@@ -7,11 +7,17 @@ on:
       - '**'
     paths:
       - 'table_to_system_arxml/**'
-      - '.github/workflows/table-to-system-arxml-wheel.yml'
+      - 'table_to_swc_arxml/**'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - '.github/workflows/wheel.yml'
   pull_request:
     paths:
       - 'table_to_system_arxml/**'
-      - '.github/workflows/table-to-system-arxml-wheel.yml'
+      - 'table_to_swc_arxml/**'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - '.github/workflows/wheel.yml'
 
 permissions:
   contents: read
@@ -27,16 +33,22 @@ jobs:
       - name: Build wheel
         run: |
           python -m pip install build
-          python -m build --wheel --outdir ./table_to_system_arxml ./table_to_system_arxml
+          python -m build --wheel --outdir dist .
       - name: Install wheel
         run: |
-          python -m pip install table_to_system_arxml/*.whl
+          python -m pip install dist/*.whl
           python -m pip check
-      - name: Check installed command outside checkout
+      - name: Check installed commands outside checkout
         working-directory: ${{ runner.temp }}
         run: |
           table-to-system-arxml --help
           python -m table_to_system_arxml --help
+          table-to-swc-arxml --help
+          python -m table_to_swc_arxml --help
+          if table-to-swc-arxml --project-root . --arxml-file-list missing.lst 2>error.txt; then
+            echo "Missing workbook and log directory must fail" && exit 1
+          fi
+          grep -q -- '--workbook, --log-dir required' error.txt
           python - <<'PY'
           import json
           from pathlib import Path
@@ -64,6 +76,6 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: table-to-system-arxml-wheel
-          path: table_to_system_arxml/*.whl
+          name: table-to-arxml-wheel
+          path: dist/*.whl
           if-no-files-found: error
