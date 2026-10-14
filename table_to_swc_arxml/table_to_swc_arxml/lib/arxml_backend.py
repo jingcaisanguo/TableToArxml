@@ -123,14 +123,14 @@ DIRECTION_UNKNOWN = "?"
 
 # 数据访问点类别及其对应的 AUTOSAR 容器标签。
 ACCESS_SEND = "send"
-ACCESS_RECEIVE = "receive"
-ACCESS_RECEIVE_VALUE = "receiveByValue"
+ACCESS_RECEIVE_BY_ARGUMENT = "receive"
+ACCESS_RECEIVE_BY_VALUE = "receiveByValue"
 ACCESS_READ = "read"
 ACCESS_WRITE = "write"
 ACCESS_CONTAINERS = {
     ACCESS_SEND: "DATA-SEND-POINTS",
-    ACCESS_RECEIVE: "DATA-RECEIVE-POINT-BY-ARGUMENTS",
-    ACCESS_RECEIVE_VALUE: "DATA-RECEIVE-POINT-BY-VALUES",
+    ACCESS_RECEIVE_BY_ARGUMENT: "DATA-RECEIVE-POINT-BY-ARGUMENTS",
+    ACCESS_RECEIVE_BY_VALUE: "DATA-RECEIVE-POINT-BY-VALUES",
     ACCESS_READ: "DATA-READ-ACCESSS",
     ACCESS_WRITE: "DATA-WRITE-ACCESSS",
 }
@@ -138,8 +138,8 @@ ACCESS_CONTAINERS = {
 # 每种访问点所要求的端口方向，用于校验工作簿填写是否自洽。
 ACCESS_DIRECTIONS = {
     ACCESS_SEND: DIRECTION_PROVIDED,
-    ACCESS_RECEIVE: DIRECTION_REQUIRED,
-    ACCESS_RECEIVE_VALUE: DIRECTION_REQUIRED,
+    ACCESS_RECEIVE_BY_ARGUMENT: DIRECTION_REQUIRED,
+    ACCESS_RECEIVE_BY_VALUE: DIRECTION_REQUIRED,
     ACCESS_READ: DIRECTION_REQUIRED,
     ACCESS_WRITE: DIRECTION_PROVIDED,
 }
@@ -494,15 +494,15 @@ class ArmodelDocument:
     # 访问点类别到 armodel ``RunnableEntity`` 读写方法的映射。
     ACCESS_GETTERS = {
         ACCESS_SEND: "getDataSendPoints",
-        ACCESS_RECEIVE: "getDataReceivePointByArguments",
-        ACCESS_RECEIVE_VALUE: "getDataReceivePointByValues",
+        ACCESS_RECEIVE_BY_ARGUMENT: "getDataReceivePointByArguments",
+        ACCESS_RECEIVE_BY_VALUE: "getDataReceivePointByValues",
         ACCESS_READ: "getDataReadAccesses",
         ACCESS_WRITE: "getDataWriteAccesses",
     }
     ACCESS_CREATORS = {
         ACCESS_SEND: "createDataSendPoint",
-        ACCESS_RECEIVE: "createDataReceivePointByArgument",
-        ACCESS_RECEIVE_VALUE: "createDataReceivePointByValue",
+        ACCESS_RECEIVE_BY_ARGUMENT: "createDataReceivePointByArgument",
+        ACCESS_RECEIVE_BY_VALUE: "createDataReceivePointByValue",
         ACCESS_READ: "createDataReadAccess",
         ACCESS_WRITE: "createDataWriteAccess",
     }

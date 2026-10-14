@@ -12,9 +12,19 @@
 | [swc_arxml_template.xlsx](swc_arxml_template.xlsx) | 工作簿模板，首个工作表为填写说明；复制到项目中填写后使用 |
 | 本文 | 处理流程、检查规则、生成规则、写出与退出码 |
 
-源码：[table_to_swc_arxml.py](../../table_to_swc_arxml/table_to_swc_arxml.py) 为源码启动脚本；
-[cli.py](../../table_to_swc_arxml/table_to_swc_arxml/cli.py) 负责读取工作簿、校验和编排修改；
-[lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) 封装 `armodel` 的解析和片段生成。
+源码：[table_to_swc_arxml.py](../../table_to_swc_arxml/table_to_swc_arxml.py) 为源码启动脚本，包内模块：
+
+| 模块 | 职责 |
+| --- | --- |
+| [cli.py](../../table_to_swc_arxml/table_to_swc_arxml/cli.py) | 入口、日志和处理流程编排 |
+| [options.py](../../table_to_swc_arxml/table_to_swc_arxml/options.py) | 合并命令行与 JSON 配置，得到冻结的 `Options` |
+| [workbook.py](../../table_to_swc_arxml/table_to_swc_arxml/workbook.py) | 一次加载工作簿，逐表校验并转为待创建对象 |
+| [resolve.py](../../table_to_swc_arxml/table_to_swc_arxml/resolve.py) | 读取清单，定位组件、接口、runnable，补全端口和访问点 |
+| [apply.py](../../table_to_swc_arxml/table_to_swc_arxml/apply.py) | 生成片段、插入并重新解析验证 |
+| [xml_patch.py](../../table_to_swc_arxml/table_to_swc_arxml/xml_patch.py) | 按 AUTOSAR 路径在原始字节中定位和插入 |
+| [store.py](../../table_to_swc_arxml/table_to_swc_arxml/store.py) | 缓存待写出的字节和解析结果 |
+| [writer.py](../../table_to_swc_arxml/table_to_swc_arxml/writer.py) | 原子写出 |
+| [lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) | 封装 `armodel` 的解析和片段生成 |
 
 ## 安装与运行
 
@@ -23,7 +33,7 @@
 ```bash
 python -m pip wheel --no-deps --wheel-dir ./table_to_swc_arxml ./table_to_swc_arxml
 python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.2.0-py3-none-any.whl
-table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxml.json
+table-to-swc-arxml --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 
 - wheel 只包含 Python 代码，不含模板、配置或日志，这些由使用工具的项目提供。
@@ -282,8 +292,8 @@ Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped; 0 enu
 ## 更换解析库
 
 [lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) 集中封装了 `armodel` 的全部用法，
-`cli.py` 只依赖与库无关的抽象：`PortInfo`、`AccessInfo` 描述端口和访问点，`ArxmlDocument` 提供查询和片段生成，
+其余模块只依赖与库无关的抽象：`PortInfo`、`AccessInfo` 描述端口和访问点，`ArxmlDocument` 提供查询和片段生成，
 `ArxmlBackend` 负责加载文件并返回文档和解析诊断。
 
 更换解析库时：在该模块中新增实现 `ArxmlDocument` 的文档类和提供 `name`、`load()` 的后端类，
-注册到 `BACKENDS`，运行时用 `--backend <名称>` 选择；`cli.py` 无需改动。
+注册到 `BACKENDS`，运行时用 `--backend <名称>` 选择；其余模块无需改动。

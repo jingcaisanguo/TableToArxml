@@ -19,11 +19,11 @@ LIT 与 Horn 的端口方向互补，可用于后续测试 BCM 与 MC 组件连�
 
 ## 运行
 
-在仓库根目录安装 wheel 后执行。相对 `--config` 须同时给出 `--project-root`，该值与配置中的 `projectRoot`（`../..`）指向同一目录：
+在仓库根目录安装 wheel 后执行。命令行相对路径按当前目录解析，配置中的 `projectRoot`（`../..`）指向仓库根目录：
 
 ```powershell
 python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.2.0-py3-none-any.whl
-table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxml.json
+table-to-swc-arxml --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 
 - 预期退出码为 0，汇总为 `Validated 4 of 4 requested ports: 4 to create ...; 2 ARXML file(s) affected.`

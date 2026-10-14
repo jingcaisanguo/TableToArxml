@@ -1,6 +1,6 @@
 # 配置与命令行
 
-返回 [README.md](README.md)。工作簿格式见 [workbook-format.md](workbook-format.md)，参数处理见 [cli.py](../../table_to_swc_arxml/table_to_swc_arxml/cli.py)。
+返回 [README.md](README.md)。工作簿格式见 [workbook-format.md](workbook-format.md)，参数处理见 [options.py](../../table_to_swc_arxml/table_to_swc_arxml/options.py)。
 
 运行参数可以写在 JSON 配置文件里，也可以在命令行直接传入；两者同时出现时命令行优先。
 配置文件使用 UTF-8 JSON 对象（兼容 BOM），键名区分大小写，不支持注释。
@@ -12,9 +12,9 @@
 
 | JSON 键 | 命令行参数 | 类型 | 必填 / 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| — | `--config` | 路径 | 可选 | JSON 配置文件；绝对路径可单独使用，相对路径须同时传 `--project-root` |
+| — | `--config` | 路径 | 可选 | JSON 配置文件；相对路径按当前工作目录解析 |
 | `defaultVariant` | `--variant` | 字符串 | 可选 | 替换 JSON 路径中的 `${variant}` |
-| `projectRoot` | `--project-root` | 目录 | **必填** | 工程根目录；`Target ARXML`、清单内相对条目及命令行相对路径都以它为基准 |
+| `projectRoot` | `--project-root` | 目录 | **必填** | 工程根目录；`Target ARXML`、清单内相对条目和 `excludeArxml` 的路径都以它为基准 |
 | `arxmlFileList` | `--arxml-file-list` | 文件 | **必填** | ARXML 清单，工具只在清单列出的文件中查找组件和接口 |
 | `workbook` | `--workbook` | 文件 | **必填** | Excel 工作簿，格式见 [workbook-format.md](workbook-format.md) |
 | `logDir` | `--log-dir` | 目录 | **必填** | 日志目录，不存在时自动创建 |
@@ -43,8 +43,7 @@
 | 位置 | 相对路径基准 | 支持 `${variant}` 和 `*` |
 | --- | --- | --- |
 | JSON 中的路径（`projectRoot`、`arxmlFileList`、`workbook`、`logDir`、`outputDir`） | 配置文件所在目录 | 支持 |
-| 命令行 `--project-root` | 当前工作目录 | 不支持 |
-| 命令行其他路径（`--config`、`--arxml-file-list`、`--workbook`、`--log-dir`、`--output-dir`） | `projectRoot` | 不支持 |
+| 命令行路径（`--config`、`--project-root`、`--arxml-file-list`、`--workbook`、`--log-dir`、`--output-dir`） | 当前工作目录 | 不支持 |
 | ARXML 清单中的条目 | `projectRoot` | 不支持 |
 | 工作簿中的 `Target ARXML` | `projectRoot`，必须是相对路径，允许 `..` | 不支持 |
 
@@ -55,8 +54,7 @@ JSON 路径按以下顺序处理：
 3. 含 `*`、`?` 时按通配符匹配，必须唯一匹配一个文件（目录类参数匹配目录）；零个或多个匹配都报错，不会自动选第一个。
 4. 日志和输出目录可以尚不存在，但这时不能使用通配符。
 
-注意：命令行相对路径的基准与 `table-to-system-arxml` 不同，后者按当前工作目录解析。
-相对 `--config` 必须配合显式 `--project-root`，因为读配置前还不知道工程根目录。
+命令行相对路径的基准与 `table-to-system-arxml` 相同，都是当前工作目录。
 
 ## ARXML 清单
 
@@ -93,11 +91,11 @@ JSON 路径按以下顺序处理：
 以下使用安装 wheel 后的命令；未安装时可换成 `python table_to_swc_arxml/table_to_swc_arxml.py`，参数相同。
 
 ```powershell
-# 只用配置文件（推荐绝对路径）
+# 只用配置文件
 table-to-swc-arxml --config D:/code/project/config/swc_arxml.json
 
-# 相对配置文件需同时给出工程根目录，并切换变体
-table-to-swc-arxml --project-root . --config config/swc_arxml.json --variant zcud_m7
+# 相对当前目录的配置文件，并切换变体
+table-to-swc-arxml --config config/swc_arxml.json --variant zcud_m7
 
 # 不用配置文件，只校验
 table-to-swc-arxml --project-root . --arxml-file-list path/to/files.lst --workbook path/to/swc.xlsx --log-dir log --dry-run
@@ -128,3 +126,4 @@ table-to-swc-arxml --project-root . --arxml-file-list path/to/files.lst --workbo
 | `log_level`、`strict_list`、`in_place`、`output_dir`、`dry_run` | `logLevel`、`strictList`、`inPlace`、`outputDir`、`dryRun` |
 
 `workbook` 和 `logDir` 不再有默认值（旧版默认使用工具目录下的模板和日志），必须显式提供。
+0.2.0 起命令行相对路径按当前工作目录解析（此前按 `projectRoot`），相对 `--config` 也不再需要 `--project-root`。
