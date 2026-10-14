@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'table_to_system_arxml/**'
+      - 'table_to_swc_arxml/**'
+      - 'test/**'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    paths:
+      - 'table_to_system_arxml/**'
+      - 'table_to_swc_arxml/**'
+      - 'test/**'
+      - '.github/workflows/tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        armodel: ['1.8.7', '1.9.2']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: >-
+          python -m pip install "armodel==${{ matrix.armodel }}"
+          -r table_to_system_arxml/requirements.txt
+          -r table_to_swc_arxml/requirements.txt
+          pytest ruff
+      - name: Lint
+        run: python -m ruff check --select F,B,E9 --target-version py39 table_to_system_arxml table_to_swc_arxml test
+      - name: Run tests
+        run: python -m pytest test -q

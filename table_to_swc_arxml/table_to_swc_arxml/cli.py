@@ -42,18 +42,20 @@ from datetime import datetime
 import glob
 import json
 import logging
+import math
 import os
 import re
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Sequence, cast
 
 from openpyxl import load_workbook
 
+from . import xml_patch
 from .lib.arxml_backend import (
     ACCESS_CONTAINERS,
     ACCESS_DIRECTIONS,
@@ -65,7 +67,10 @@ from .lib.arxml_backend import (
     BACKENDS,
     AccessInfo,
     ArxmlBackend,
+    ArxmlDocument,
+    DocumentSummary,
     ImplementationTypeInfo,
+    InterfaceSummary,
     PortInfo,
     clean_message,
     get_backend,
@@ -101,16 +106,6 @@ REQUIRED_OPTIONS = ("project_dir", "list_file", "workbook", "log_dir")
 def option_flag(attribute: str) -> str:
     return "--" + re.sub(r"(?<!^)(?=[A-Z])", "-", OPTION_KEYS[attribute]).lower()
 
-# 在原始 ARXML 字节中定位组件块时使用的 AUTOSAR 元类标签。
-SWC_ELEMENT_NAMES = {
-    "APPLICATION-SW-COMPONENT-TYPE",
-    "COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE",
-    "COMPOSITION-SW-COMPONENT-TYPE",
-    "ECU-ABSTRACTION-SW-COMPONENT-TYPE",
-    "SENSOR-ACTUATOR-SW-COMPONENT-TYPE",
-    "SERVICE-SW-COMPONENT-TYPE",
-}
-
 # ``Data-Accesses`` 表 ``Access Kind`` 列的取值（比较时忽略大小写）。
 ACCESS_KIND_LABELS = {
     "send": ACCESS_SEND,
@@ -143,6 +138,7 @@ BOOLEAN_LABELS = {
     "n": False,
     "0": False,
 }
+BOOLEAN_CHOICES = "Y, N, TRUE, FALSE, YES, NO, 1, 0"
 
 # 旧工作簿列名映射到当前规范名称；解析按名称进行，不依赖列顺序。
 HEADER_ALIASES = {
@@ -697,27 +693,66 @@ def sheet_values(sheet) -> list[tuple[object, ...]]:
     return [tuple(row) for row in values]
 
 
+def load_workbook_sheets(workbook_path: Path) -> dict[str, list[tuple[object, ...]]]:
+    """一次读出工作簿全部工作表的值；需要合并区域信息，因此不能用 read_only 模式。"""
+
+    workbook = load_workbook(workbook_path, data_only=False)
+    try:
+        return {sheet.title: sheet_values(sheet) for sheet in workbook.worksheets}
+    finally:
+        workbook.close()
+
+
+def parse_flag(label: str, column: str, context: str) -> bool | None:
+    """解析布尔列；空值为否，非法取值记录 error 并返回 ``None``。"""
+
+    if not label:
+        return False
+    value = BOOLEAN_LABELS.get(label.casefold())
+    if value is None:
+        LOGGER.error(
+            "Skipped %s: unknown %s %r, expected one of %s", context, column, label, BOOLEAN_CHOICES
+        )
+    return value
+
+
+def parse_non_negative(
+    text: str, column: str, context: str, integer: bool = False
+) -> float | None:
+    """解析非负数值；非法取值记录 error 并返回 ``None``。"""
+
+    try:
+        value = float(int(text)) if integer else float(text)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value) or value < 0:
+        LOGGER.error(
+            "Skipped %s: %s must be a non-negative %s: %s",
+            context,
+            column,
+            "integer" if integer else "number",
+            text,
+        )
+        return None
+    return value
+
+
 def read_sheet_rows(
-    workbook_path: Path,
+    sheets: dict[str, list[tuple[object, ...]]],
     sheet_name: str,
     expected_headers: Sequence[str],
     optional_headers: Sequence[str] = (),
 ) -> list[dict[str, str]]:
-    """读取一张工作表，校验表头并返回非空数据行。
+    """校验一张工作表的表头并返回非空数据行。
 
     只有表头而无数据行时返回空列表，因此工作簿可以只填 P-Port 或只填 R-Port。
     ``optional_headers`` 中的列允许为空，且允许整列缺失。列顺序任意；未知列、
     重复列或缺少必填列时记录 error 并跳过整张表。
     """
-    # 需要读取合并区域信息，因此不能用 read_only 模式。
-    workbook = load_workbook(workbook_path, data_only=False)
-    try:
-        if sheet_name not in workbook.sheetnames:
-            LOGGER.error("Worksheet not found: %s", sheet_name)
-            return []
-        rows = sheet_values(workbook[sheet_name])
-    finally:
-        workbook.close()
+    if sheet_name not in sheets:
+        LOGGER.error("Worksheet not found: %s", sheet_name)
+        return []
+    rows = sheets[sheet_name]
 
     if not rows or not any(value is not None for value in rows[0]):
         return []
@@ -791,18 +826,24 @@ def read_sheet_rows(
     return records
 
 
-def resolve_target_file(listed_path: str, project_dir: Path) -> Path | None:
-    """把 ``Target ARXML`` 列转为绝对路径；文件不存在时返回 ``None``。"""
+def resolve_target_file(listed_path: str, project_dir: Path, context: str) -> Path | None:
+    """把 ``Target ARXML`` 列转为绝对路径；路径非法或文件不存在时记录 error 并返回 ``None``。"""
 
     listed = Path(listed_path.replace("\\", "/"))
     if listed.is_absolute():
+        LOGGER.error(
+            "Skipped %s: Target ARXML must be relative to projectRoot: %s", context, listed_path
+        )
         return None
     target = (project_dir / listed).resolve()
-    return target if target.is_file() else None
+    if not target.is_file():
+        LOGGER.error("Skipped %s: Target ARXML not found: %s", context, listed_path)
+        return None
+    return target
 
 
 def read_enumerations(
-    workbook_path: Path, project_dir: Path
+    sheets: dict[str, list[tuple[object, ...]]], project_dir: Path
 ) -> list[EnumerationSpec]:
     """读取 ``Enumerations`` 表，合并同一枚举类型的多个取值。
 
@@ -810,7 +851,7 @@ def read_enumerations(
     取值必须是整数且不重复，文本标签也不能重复。任何冲突只记录 error 并跳过该行。
     """
     rows = read_sheet_rows(
-        workbook_path,
+        sheets,
         ENUMERATION_SHEET,
         (
             "Type Path",
@@ -849,13 +890,8 @@ def read_enumerations(
             )
             continue
 
-        target = resolve_target_file(row["Target ARXML"], project_dir)
+        target = resolve_target_file(row["Target ARXML"], project_dir, f"enumeration {type_path}")
         if target is None:
-            LOGGER.error(
-                "Skipped enumeration %s: target ARXML not found: %s",
-                type_path,
-                row["Target ARXML"],
-            )
             continue
 
         header = {
@@ -919,12 +955,12 @@ def default_enum_path(type_path: str, package: str, prefix: str = "") -> str:
 
 
 def read_arrays(
-    workbook_path: Path, project_dir: Path
+    sheets: dict[str, list[tuple[object, ...]]], project_dir: Path
 ) -> list[ArraySpec]:
     """读取固定长度数组；每行定义一个 ``IMPLEMENTATION-DATA-TYPE``。"""
 
     rows = read_sheet_rows(
-        workbook_path,
+        sheets,
         ARRAY_SHEET,
         (
             "Type Path",
@@ -932,7 +968,6 @@ def read_arrays(
             "Element Name",
             "Element Type Ref",
             "Array Size",
-            "Target ARXML",
         ),
         optional_headers=("Array Size Semantics",),
     )
@@ -973,13 +1008,8 @@ def read_arrays(
                 semantics,
             )
             continue
-        target = resolve_target_file(row["Target ARXML"], project_dir)
+        target = resolve_target_file(row["Target ARXML"], project_dir, f"array {path}")
         if target is None:
-            LOGGER.error(
-                "Skipped array %s: Target ARXML not found: %s",
-                path,
-                row["Target ARXML"],
-            )
             continue
         seen.add(path)
         specs.append(
@@ -996,12 +1026,12 @@ def read_arrays(
 
 
 def read_structures(
-    workbook_path: Path, project_dir: Path
+    sheets: dict[str, list[tuple[object, ...]]], project_dir: Path
 ) -> list[StructureSpec]:
     """读取结构体，并按 Type Path 合并多行成员。"""
 
     rows = read_sheet_rows(
-        workbook_path,
+        sheets,
         STRUCTURE_SHEET,
         ("Type Path", "Target ARXML", "Member Name", "Member Type Ref"),
     )
@@ -1018,13 +1048,8 @@ def read_structures(
                 row["Member Type Ref"],
             )
             continue
-        target = resolve_target_file(row["Target ARXML"], project_dir)
+        target = resolve_target_file(row["Target ARXML"], project_dir, f"structure {path}")
         if target is None:
-            LOGGER.error(
-                "Skipped structure %s: Target ARXML not found: %s",
-                path,
-                row["Target ARXML"],
-            )
             continue
         if path not in grouped:
             grouped[path] = (target, [])
@@ -1048,7 +1073,7 @@ def read_structures(
 
 
 def read_sr_interfaces(
-    workbook_path: Path, project_dir: Path
+    sheets: dict[str, list[tuple[object, ...]]], project_dir: Path
 ) -> list[InterfaceSpec]:
     """读取 ``SR-Interfaces`` 表，合并同一接口的多个数据元素。
 
@@ -1056,7 +1081,7 @@ def read_sr_interfaces(
     重名都视为配置错误，只记录 error 并跳过该行。
     """
     rows = read_sheet_rows(
-        workbook_path,
+        sheets,
         "SR-Interfaces",
         ("Interface Path", "Data Element Name", "Data Type Ref", "Target ARXML"),
         optional_headers=("Is Queued", "Is Service"),
@@ -1080,40 +1105,14 @@ def read_sr_interfaces(
             )
             continue
 
-        listed = Path(row["Target ARXML"].replace("\\", "/"))
-        target = resolve_target_file(row["Target ARXML"], project_dir)
+        context = f"SR interface {interface_path} data element {row['Data Element Name']}"
+        target = resolve_target_file(row["Target ARXML"], project_dir, context)
         if target is None:
-            LOGGER.error(
-                "Skipped SR interface %s: target ARXML not found: %s",
-                interface_path,
-                listed,
-            )
             continue
 
-        label = row.get("Is Queued", "")
-        is_queued = BOOLEAN_LABELS.get(label.casefold(), None) if label else False
-        if is_queued is None:
-            LOGGER.error(
-                "Skipped SR interface %s data element %s: unknown Is Queued %r, "
-                "expected one of %s",
-                interface_path,
-                row["Data Element Name"],
-                label,
-                ", ".join(sorted(BOOLEAN_LABELS)),
-            )
-            continue
-        service_label = row.get("Is Service", "")
-        is_service = (
-            BOOLEAN_LABELS.get(service_label.casefold(), None)
-            if service_label
-            else False
-        )
-        if is_service is None:
-            LOGGER.error(
-                "Skipped SR interface %s: unknown Is Service %r, expected Y or N",
-                interface_path,
-                service_label,
-            )
+        is_queued = parse_flag(row.get("Is Queued", ""), "Is Queued", context)
+        is_service = parse_flag(row.get("Is Service", ""), "Is Service", context)
+        if is_queued is None or is_service is None:
             continue
         if interface_path not in grouped:
             grouped[interface_path] = (target, [], is_service)
@@ -1149,12 +1148,12 @@ def read_sr_interfaces(
 
 
 def read_cs_interfaces(
-    workbook_path: Path, project_dir: Path
+    sheets: dict[str, list[tuple[object, ...]]], project_dir: Path
 ) -> list[ClientServerInterfaceSpec]:
     """读取 CS 接口，并按接口和 operation 聚合参数。"""
 
     rows = read_sheet_rows(
-        workbook_path,
+        sheets,
         "CS-Interfaces",
         (
             "Interface Path",
@@ -1192,26 +1191,12 @@ def read_cs_interfaces(
                 row["Argument Name"],
             )
             continue
-        target = resolve_target_file(row["Target ARXML"], project_dir)
+        context = f"CS interface {interface_path}"
+        target = resolve_target_file(row["Target ARXML"], project_dir, context)
         if target is None:
-            LOGGER.error(
-                "Skipped CS interface %s: Target ARXML not found: %s",
-                interface_path,
-                row["Target ARXML"],
-            )
             continue
-        service_label = row.get("Is Service", "")
-        is_service = (
-            BOOLEAN_LABELS.get(service_label.casefold(), None)
-            if service_label
-            else False
-        )
+        is_service = parse_flag(row.get("Is Service", ""), "Is Service", context)
         if is_service is None:
-            LOGGER.error(
-                "Skipped CS interface %s: unknown Is Service %r, expected Y or N",
-                interface_path,
-                service_label,
-            )
             continue
         if interface_path not in grouped:
             grouped[interface_path] = (target, {}, is_service)
@@ -1254,14 +1239,16 @@ def read_cs_interfaces(
     ]
 
 
-def read_workbook(workbook_path: Path) -> tuple[dict[str, ComponentSpec], list[PortSpec]]:
+def read_workbook(
+    sheets: dict[str, list[tuple[object, ...]]],
+) -> tuple[dict[str, ComponentSpec], list[PortSpec]]:
     """读取三张表，并校验组件、端口定义之间的一致性。
 
     组件简称和路径均不允许重复；同一组件下的端口名在 P/R 两张表中合并去重，
     因为它们最终位于同一个 ``PORTS`` 容器。任何不合法的记录只记录 error 并跳过。
     """
     component_rows = read_sheet_rows(
-        workbook_path, "Components", ("SWC", "Component Path")
+        sheets, "Components", ("SWC", "Component Path")
     )
     components: dict[str, ComponentSpec] = {}
     paths: set[str] = set()
@@ -1311,7 +1298,7 @@ def read_workbook(workbook_path: Path) -> tuple[dict[str, ComponentSpec], list[P
         ),
     ):
         rows = read_sheet_rows(
-            workbook_path,
+            sheets,
             sheet_name,
             ("SWC", "Port Name", "Port Interface Ref"),
             com_spec_headers,
@@ -1338,11 +1325,9 @@ def read_workbook(workbook_path: Path) -> tuple[dict[str, ComponentSpec], list[P
             if flags is None:
                 continue
             is_update, queue_length, ack_timeout, uses_protection = flags
-            create_access = read_boolean_flag(
-                row.get("Create RTE Artifact", ""),
-                "Create RTE Artifact",
-                row["Port Name"],
-                sheet_name,
+            context = f"port {row['Port Name']} in {sheet_name}"
+            create_access = parse_flag(
+                row.get("Create RTE Artifact", ""), "Create RTE Artifact", context
             )
             if create_access is None:
                 continue
@@ -1369,23 +1354,16 @@ def read_workbook(workbook_path: Path) -> tuple[dict[str, ComponentSpec], list[P
             if direction == "P":
                 interval_text = row.get("Minimum Start Interval", "")
                 if interval_text:
-                    try:
-                        minimum_start_interval = float(interval_text)
-                    except ValueError:
-                        minimum_start_interval = -1.0
-                    if minimum_start_interval < 0:
-                        LOGGER.error(
-                            "Skipped port %s in %s: Minimum Start Interval must be a non-negative number: %s",
-                            row["Port Name"],
-                            sheet_name,
-                            interval_text,
-                        )
+                    interval = parse_non_negative(
+                        interval_text, "Minimum Start Interval", context
+                    )
+                    if interval is None:
                         continue
-                concurrent_value = read_boolean_flag(
+                    minimum_start_interval = interval
+                concurrent_value = parse_flag(
                     row.get("Can Be Invoked Concurrently", ""),
                     "Can Be Invoked Concurrently",
-                    row["Port Name"],
-                    sheet_name,
+                    context,
                 )
                 if concurrent_value is None:
                     continue
@@ -1425,133 +1403,47 @@ def read_workbook(workbook_path: Path) -> tuple[dict[str, ComponentSpec], list[P
     return components, ports
 
 
-def read_boolean_flag(
-    label: str, column: str, port_name: str, sheet_name: str
-) -> bool | None:
-    """解析简洁的 Y/N 标志；空值按 N 处理。"""
-
-    value = BOOLEAN_LABELS.get(label.casefold()) if label else False
-    if value is None:
-        LOGGER.error(
-            "Skipped port %s in %s: unknown %s %r, expected Y or N",
-            port_name,
-            sheet_name,
-            column,
-            label,
-        )
-    return value
-
-
 def read_com_spec_flags(
     row: dict[str, str], sheet_name: str, direction: str
 ) -> tuple[bool, int, float | None, bool] | None:
     """解析端口行的 ComSpec 列；取值非法时记录 error 并返回 ``None``。
 
-    P-Ports 和 R-Ports 两张表的 ComSpec 列不同，按 ``direction`` 分别解析。
+    P-Ports 只有发送确认超时和 E2E 保护；R-Ports 的 ``Enable Update`` 与 ``Queue Length`` 互斥。
     """
 
+    context = f"port {row['Port Name']} in {sheet_name}"
     if direction == "P":
-        flags = read_sender_flags(row, sheet_name)
-        return None if flags is None else (False, 0, flags[0], flags[1])
-    flags = read_receiver_flags(row, sheet_name)
-    return None if flags is None else (flags[0], flags[1], None, False)
-
-
-def read_sender_flags(
-    row: dict[str, str], sheet_name: str
-) -> tuple[float | None, bool] | None:
-    """解析 P-Port 的发送端 ComSpec 列：发送确认超时和 E2E 保护标志。"""
-
-    port_name = row["Port Name"]
-    text = row.get("Transmission Acknowledge Timeout", "")
-    ack_timeout: float | None = None
-    if text:
-        try:
-            ack_timeout = float(text)
-        except ValueError:
-            LOGGER.error(
-                "Skipped port %s in %s: Transmission Acknowledge Timeout must be a "
-                "non-negative number of seconds: %s",
-                port_name,
-                sheet_name,
-                text,
-            )
-            return None
-        if ack_timeout < 0:
-            LOGGER.error(
-                "Skipped port %s in %s: Transmission Acknowledge Timeout must be a "
-                "non-negative number of seconds: %s",
-                port_name,
-                sheet_name,
-                text,
-            )
-            return None
-
-    label = row.get("Uses End To End Protection", "")
-    uses_protection = BOOLEAN_LABELS.get(label.casefold(), None) if label else False
-    if uses_protection is None:
-        LOGGER.error(
-            "Skipped port %s in %s: unknown Uses End To End Protection %r, "
-            "expected one of %s",
-            port_name,
-            sheet_name,
-            label,
-            ", ".join(sorted(BOOLEAN_LABELS)),
+        ack_text = row.get("Transmission Acknowledge Timeout", "")
+        ack_timeout = None
+        if ack_text:
+            ack_timeout = parse_non_negative(ack_text, "Transmission Acknowledge Timeout", context)
+            if ack_timeout is None:
+                return None
+        uses_protection = parse_flag(
+            row.get("Uses End To End Protection", ""), "Uses End To End Protection", context
         )
-        return None
-    return ack_timeout, uses_protection
+        if uses_protection is None:
+            return None
+        return False, 0, ack_timeout, uses_protection
 
-
-def read_receiver_flags(
-    row: dict[str, str], sheet_name: str
-) -> tuple[bool, int] | None:
-    """解析 R-Port 的接收端 ComSpec 列；两个列互斥。"""
-
-    port_name = row["Port Name"]
-    label = row.get("Enable Update", "")
-    is_update = BOOLEAN_LABELS.get(label.casefold(), None) if label else False
+    is_update = parse_flag(row.get("Enable Update", ""), "Enable Update", context)
     if is_update is None:
-        LOGGER.error(
-            "Skipped port %s in %s: unknown Enable Update %r, expected one of %s",
-            port_name,
-            sheet_name,
-            label,
-            ", ".join(sorted(BOOLEAN_LABELS)),
-        )
         return None
-
-    text = row.get("Queue Length", "")
-    try:
-        queue_length = int(text) if text else 0
-    except ValueError:
-        LOGGER.error(
-            "Skipped port %s in %s: Queue Length must be a positive integer: %s",
-            port_name,
-            sheet_name,
-            text,
-        )
-        return None
-    if queue_length < 0:
-        LOGGER.error(
-            "Skipped port %s in %s: Queue Length must be a positive integer: %s",
-            port_name,
-            sheet_name,
-            text,
-        )
-        return None
-
+    queue_text = row.get("Queue Length", "")
+    queue_length = 0.0
+    if queue_text:
+        parsed = parse_non_negative(queue_text, "Queue Length", context, integer=True)
+        if parsed is None:
+            return None
+        queue_length = parsed
     if is_update and queue_length:
-        LOGGER.error(
-            "Skipped port %s in %s: Enable Update and Queue Length are mutually exclusive",
-            port_name,
-            sheet_name,
-        )
+        LOGGER.error("Skipped %s: Enable Update and Queue Length are mutually exclusive", context)
         return None
-    return is_update, queue_length
+    return is_update, int(queue_length), None, False
 
 
 def read_data_accesses(
-    workbook_path: Path, components: dict[str, ComponentSpec]
+    sheets: dict[str, list[tuple[object, ...]]], components: dict[str, ComponentSpec]
 ) -> list[AccessSpec]:
     """读取 ``Data-Accesses`` 表，返回逐条访问点请求。
 
@@ -1560,7 +1452,7 @@ def read_data_accesses(
     数据元素、类别和名称留空表示交由后续解析阶段推导。
     """
     rows = read_sheet_rows(
-        workbook_path,
+        sheets,
         DATA_ACCESS_SHEET,
         ("SWC", "Runnable Ref", "Port Name"),
         ("Data Element Name", "Access Kind", "Access Name"),
@@ -1690,32 +1582,49 @@ def find_definition(
     kind: str,
     store: SourceStore,
 ) -> tuple[Path, str] | None:
-    """在清单范围内定位一个 AUTOSAR 路径的唯一定义。
+    """在清单范围内定位一个 AUTOSAR 路径的唯一定义，结果在文件未修改前复用。
 
     ``kind`` 为 ``component`` 或 ``interface``；接口返回其 ``DEST``，组件返回空串。
     找不到或存在多个定义时记录 error 并返回 ``None``，由调用方跳过相关条目；
     单个候选文件的解析失败不中断流程，但会在错误信息中一并报告。
     """
+    memo_key = (kind, autosar_path)
+    if memo_key not in store.definitions:
+        store.definitions[memo_key] = _find_definition(
+            backend, arxml_files, autosar_path, kind, store
+        )
+    return store.definitions[memo_key]
+
+
+def _find_definition(
+    backend: ArxmlBackend,
+    arxml_files: Sequence[Path],
+    autosar_path: str,
+    kind: str,
+    store: SourceStore,
+) -> tuple[Path, str] | None:
     short_name = autosar_path.rsplit("/", maxsplit=1)[-1]
     matches: list[tuple[Path, str]] = []
     failures: list[str] = []
     for candidate in candidate_files(arxml_files, short_name, store):
         try:
-            document, _ = store.load(backend, candidate)
-        except Exception as error:
+            summary = store.summary(backend, candidate)
+        except (OSError, ValueError, RuntimeError, SyntaxError) as error:
             failures.append(f"{candidate}: {clean_message(error)}")
             continue
         if kind == "component":
-            if document.component_exists(autosar_path):
+            if autosar_path in summary.components:
                 matches.append((candidate, ""))
             continue
-        try:
-            dest = document.interface_dest(autosar_path)
-        except ValueError as error:
-            LOGGER.error("%s", clean_message(error))
+        interface = summary.interfaces.get(autosar_path)
+        if interface is None:
             continue
-        if dest is not None:
-            matches.append((candidate, dest))
+        if not interface.dest:
+            LOGGER.error(
+                "Unsupported port interface type at %s: %s", autosar_path, interface.type_name
+            )
+            continue
+        matches.append((candidate, interface.dest))
 
     if len(matches) == 1:
         return matches[0]
@@ -1731,6 +1640,32 @@ def find_definition(
     matched_files = ", ".join(str(path) for path, _ in matches)
     LOGGER.error("Multiple definitions found for %s: %s", autosar_path, matched_files)
     return None
+
+
+def interface_summary(
+    backend: ArxmlBackend,
+    arxml_files: Sequence[Path],
+    interface_path: str,
+    store: SourceStore,
+) -> InterfaceSummary | None:
+    """返回接口的摘要；接口无法唯一定位时返回 ``None``。"""
+
+    found = find_definition(backend, arxml_files, interface_path, "interface", store)
+    if found is None:
+        return None
+    return store.summary(backend, found[0]).interfaces[interface_path]
+
+
+def interface_elements(
+    backend: ArxmlBackend,
+    arxml_files: Sequence[Path],
+    interface_path: str,
+    store: SourceStore,
+) -> list[str]:
+    """返回接口的数据元素简称；接口不可解析时返回空列表。"""
+
+    summary = interface_summary(backend, arxml_files, interface_path, store)
+    return [] if summary is None else list(summary.data_elements)
 
 
 def resolve_components(
@@ -1770,7 +1705,7 @@ def resolve_ports(
     for component_key in {port.component_key for port in ports}:
         if component_key not in component_files:
             continue
-        document, _ = store.load(backend, component_files[component_key])
+        document = store.load(backend, component_files[component_key])
         for port in ports:
             if port.component_key != component_key:
                 continue
@@ -1793,9 +1728,8 @@ def resolve_ports(
             continue
         interface_dests[interface_path] = found[1]
         if interface_path in com_spec_interfaces:
-            document, _ = store.load(backend, found[0])
-            interface_elements[interface_path] = document.interface_data_elements(
-                interface_path
+            interface_elements[interface_path] = list(
+                store.summary(backend, found[0]).interfaces[interface_path].data_elements
             )
 
     resolved: list[ResolvedPort] = []
@@ -1888,38 +1822,6 @@ def resolve_ports(
     return resolved
 
 
-class InterfaceElementCache:
-    """按接口路径缓存数据元素列表，避免同一接口反复扫描清单。"""
-
-    def __init__(
-        self,
-        backend: ArxmlBackend,
-        arxml_files: Sequence[Path],
-        store: SourceStore,
-    ) -> None:
-        self._backend = backend
-        self._arxml_files = arxml_files
-        self._store = store
-        self._elements: dict[str, list[str]] = {}
-
-    def elements(self, interface_path: str) -> list[str]:
-        """返回接口的数据元素简称；接口不可解析时返回空列表。"""
-
-        if interface_path in self._elements:
-            return self._elements[interface_path]
-        found = find_definition(
-            self._backend, self._arxml_files, interface_path, "interface", self._store
-        )
-        if found is None:
-            self._elements[interface_path] = []
-            return []
-        document, _ = self._store.load(self._backend, found[0])
-        self._elements[interface_path] = document.interface_data_elements(
-            interface_path
-        )
-        return self._elements[interface_path]
-
-
 @dataclass(frozen=True)
 class LocatedAccess:
     """访问点请求在组件文件中定位到的信息，尚未确定数据元素和名称。"""
@@ -1953,7 +1855,6 @@ def resolve_accesses(
         backend, components, specs, resolved_ports, component_files, store
     )
 
-    interfaces = InterfaceElementCache(backend, arxml_files, store)
     resolved: list[ResolvedAccess] = []
     used_names: set[tuple[str, str]] = set()
     for item in located:
@@ -1991,7 +1892,11 @@ def resolve_accesses(
                 )
                 continue
         else:
-            data_element = resolve_data_element(item.spec, item.interface_path, interfaces)
+            data_element = resolve_data_element(
+                item.spec,
+                item.interface_path,
+                interface_elements(backend, arxml_files, item.interface_path, store),
+            )
         if data_element is None:
             continue
 
@@ -2051,7 +1956,6 @@ def expand_port_accesses(
 ) -> list[AccessSpec]:
     """把端口行上的 Y 展开为 SR 接口全部数据元素的访问点请求。"""
 
-    interfaces = InterfaceElementCache(backend, arxml_files, store)
     specs: list[AccessSpec] = []
     for port in ports:
         if not port.spec.create_access or port.interface_dest != "SENDER-RECEIVER-INTERFACE":
@@ -2062,7 +1966,7 @@ def expand_port_accesses(
                 port.port_path,
             )
             continue
-        elements = interfaces.elements(port.spec.interface_path)
+        elements = interface_elements(backend, arxml_files, port.spec.interface_path, store)
         if not elements:
             LOGGER.error(
                 "Skipped automatic data access for %s: interface has no data elements",
@@ -2123,7 +2027,7 @@ def locate_accesses(
     for component_key, component_specs in specs_by_key.items():
         component_path = components[component_key].path
         component_file = component_files[component_key]
-        document, _ = store.load(backend, component_file)
+        document = store.load(backend, component_file)
 
         for spec in component_specs:
             runnable_path = document.find_runnable(component_path, spec.runnable)
@@ -2220,11 +2124,10 @@ def generate_access_name(
 
 
 def resolve_data_element(
-    spec: AccessSpec, interface_path: str, interfaces: InterfaceElementCache
+    spec: AccessSpec, interface_path: str, elements: list[str]
 ) -> str | None:
     """确定访问点指向的数据元素；无法唯一确定时记录 error 并返回 ``None``。"""
 
-    elements = interfaces.elements(interface_path)
     if not elements:
         LOGGER.error(
             "Skipped data access for port %s: interface %s has no data elements",
@@ -2326,192 +2229,18 @@ def check_access(existing: AccessInfo | None, access: ResolvedAccess) -> None:
         )
 
 
-def local_name(tag: str) -> str:
-    """去掉 ``{namespace}`` 前缀，返回 XML 标签本地名。"""
+def load_bytes(backend: ArxmlBackend, source: bytes) -> tuple[ArxmlDocument, list[str]]:
+    """把内存中的 ARXML 字节写入临时文件后交给后端解析。"""
 
-    return tag.rsplit("}", maxsplit=1)[-1]
-
-
-def component_element_name(source: bytes, component_path: str) -> str:
-    """在目标文件中确定组件对应的 AUTOSAR 元类标签名。"""
-
-    root = ET.fromstring(source)
-    component_name = component_path.rsplit("/", maxsplit=1)[-1]
-    matches = []
-    for element in root.iter():
-        if local_name(element.tag) not in SWC_ELEMENT_NAMES:
-            continue
-        short_name = next(
-            (
-                child.text
-                for child in element
-                if local_name(child.tag) == "SHORT-NAME"
-            ),
-            None,
-        )
-        if short_name == component_name:
-            matches.append(local_name(element.tag))
-    if len(matches) != 1:
-        raise ValueError(
-            f"Expected one SWC named {component_name} in target file, found {len(matches)}"
-        )
-    return matches[0]
-
-
-def insert_at_offset(
-    source: bytes,
-    offset: int,
-    fragments: Sequence[str],
-) -> bytes:
-    """在指定结束标签偏移处按原换行和缩进插入片段。
-
-    结束标签通常独占一行，直接复用该行缩进。对形如 ``<TAG></TAG>`` 写在同一行的
-    空容器，改用行首缩进并把结束标签挪到新的一行，而不是要求容器提前展开成多行。
-    片段按 UTF-8 编码写入，因此枚举标签、端口名等允许使用中文。
-    """
-
-    line_start = source.rfind(b"\n", 0, offset) + 1
-    prefix = source[line_start:offset]
-    newline = b"\r\n" if b"\r\n" in source else b"\n"
-
-    if not prefix.strip(b" \t"):
-        base_indentation = prefix
-        insert_offset = line_start
-        trailing = b""
-    else:
-        stripped = prefix.lstrip(b" \t")
-        base_indentation = prefix[: len(prefix) - len(stripped)]
-        insert_offset = offset
-        trailing = newline + base_indentation
-
-    child_indentation = base_indentation + b"  "
-    encoded_fragments = [
-        newline.join(
-            child_indentation + line.encode("utf-8") for line in fragment.splitlines()
-        )
-        for fragment in fragments
-    ]
-    insertion = newline.join(encoded_fragments) + newline
-    return source[:insert_offset] + insertion + trailing + source[insert_offset:]
-
-
-def insert_in_container(
-    source: bytes,
-    block_pattern: re.Pattern[bytes],
-    container_tag: str,
-    fragments: Sequence[str],
-    context: str,
-) -> bytes:
-    """在指定块内的容器结束标签之前插入片段。"""
-
-    matches = list(block_pattern.finditer(source))
-    if len(matches) != 1:
-        raise ValueError(f"Expected one block for {context}, found {len(matches)}")
-    block = matches[0]
-    closing = f"</{container_tag}>".encode("ascii")
-    offset = source.find(closing, block.start(), block.end())
-    if offset < 0:
-        raise ValueError(f"{container_tag} container not found in {context}")
-    return insert_at_offset(source, offset, fragments)
-
-
-def named_block_pattern(element_name: str, short_name: str) -> re.Pattern[bytes]:
-    """构造匹配“指定标签 + 指定 SHORT-NAME”整块的字节正则。"""
-
-    encoded_element = re.escape(element_name.encode("ascii"))
-    return re.compile(
-        rb"<"
-        + encoded_element
-        + rb"\b[^>]*>\s*<SHORT-NAME>"
-        + re.escape(short_name.encode("ascii"))
-        + rb"</SHORT-NAME>.*?</"
-        + encoded_element
-        + rb">",
-        re.DOTALL,
-    )
-
-
-def insert_ports(
-    source: bytes,
-    component_path: str,
-    fragments: Sequence[str],
-) -> bytes:
-    """在组件 ``</PORTS>`` 之前按原换行和缩进插入新端口。
-
-    整文件序列化会规范化原有 ARXML，因此这里以字节为单位只插入新节点，
-    其余字节保持不变。
-    """
-    if not fragments:
-        return source
-    element_name = component_element_name(source, component_path)
-    component_name = component_path.rsplit("/", maxsplit=1)[-1]
-    return insert_in_container(
-        source,
-        named_block_pattern(element_name, component_name),
-        "PORTS",
-        fragments,
-        component_path,
-    )
-
-
-def insert_accesses(
-    source: bytes,
-    runnable_path: str,
-    container_tag: str,
-    fragments: Sequence[str],
-) -> bytes:
-    """在 runnable 的访问点容器末尾插入 VARIABLE-ACCESS。"""
-
-    if not fragments:
-        return source
-    runnable_name = runnable_path.rsplit("/", maxsplit=1)[-1]
-    return insert_in_container(
-        source,
-        named_block_pattern("RUNNABLE-ENTITY", runnable_name),
-        container_tag,
-        fragments,
-        runnable_path,
-    )
-
-
-def insert_or_create_child_container(
-    source: bytes,
-    element_name: str,
-    short_name: str,
-    container_tag: str,
-    fragments: Sequence[str],
-    following_tags: Sequence[str] = (),
-) -> bytes:
-    """向命名元素的子容器追加片段，容器缺失时在后续标签前创建。"""
-
-    pattern = named_block_pattern(element_name, short_name)
-    matches = list(pattern.finditer(source))
-    if len(matches) != 1:
-        raise ValueError(
-            f"Expected one {element_name} named {short_name}, found {len(matches)}"
-        )
-    block = matches[0]
-    closing = f"</{container_tag}>".encode("ascii")
-    offset = source.find(closing, block.start(), block.end())
-    if offset >= 0:
-        return insert_at_offset(source, offset, fragments)
-
-    candidates = [
-        source.find(f"<{tag}".encode("ascii"), block.start(), block.end())
-        for tag in following_tags
-    ]
-    candidates = [candidate for candidate in candidates if candidate >= 0]
-    offset = min(candidates) if candidates else source.rfind(
-        f"</{element_name}>".encode("ascii"), block.start(), block.end()
-    )
-    if offset < 0:
-        raise ValueError(f"Unable to insert {container_tag} in {short_name}")
-    wrapped = "\n".join(
-        [f"<{container_tag}>"]
-        + [f"  {line}" for fragment in fragments for line in fragment.splitlines()]
-        + [f"</{container_tag}>"]
-    )
-    return insert_at_offset(source, offset, [wrapped])
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".arxml", delete=False) as temporary:
+            temporary.write(source)
+            temporary_path = Path(temporary.name)
+        return backend.load(temporary_path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def apply_client_server_artifacts(
@@ -2529,13 +2258,9 @@ def apply_client_server_artifacts(
     ]
     operations_by_interface: dict[str, list[str]] = {}
     for interface_path in sorted({port.spec.interface_path for port in requested}):
-        found = find_definition(backend, arxml_files, interface_path, "interface", store)
-        if found is None:
-            operations_by_interface[interface_path] = []
-            continue
-        document, _ = store.load(backend, found[0])
-        operations_by_interface[interface_path] = document.interface_operations(
-            interface_path
+        summary = interface_summary(backend, arxml_files, interface_path, store)
+        operations_by_interface[interface_path] = (
+            [] if summary is None else list(summary.operations)
         )
 
     by_file: dict[Path, list[ResolvedPort]] = defaultdict(list)
@@ -2545,7 +2270,7 @@ def apply_client_server_artifacts(
     created = 0
     skipped = 0
     for component_file, component_ports in by_file.items():
-        document, _ = store.load(backend, component_file)
+        document = store.load(backend, component_file)
         source = store.read(component_file)
         call_fragments: dict[str, list[str]] = defaultdict(list)
         event_fragments: dict[str, list[str]] = defaultdict(list)
@@ -2657,73 +2382,30 @@ def apply_client_server_artifacts(
                 created += 1
 
         for runnable_path, fragments in call_fragments.items():
-            source = insert_or_create_child_container(
-                source,
-                "RUNNABLE-ENTITY",
-                runnable_path.rsplit("/", 1)[-1],
-                "SERVER-CALL-POINTS",
-                fragments,
-                ("SYMBOL",),
+            source = xml_patch.insert_or_create_child_container(
+                source, runnable_path, "SERVER-CALL-POINTS", fragments, ("SYMBOL",)
             )
         for behavior_path, fragments in event_fragments.items():
-            source = insert_or_create_child_container(
-                source,
-                "SWC-INTERNAL-BEHAVIOR",
-                behavior_path.rsplit("/", 1)[-1],
-                "EVENTS",
-                fragments,
-                ("EXCLUSIVE-AREAS", "RUNNABLES"),
+            source = xml_patch.insert_or_create_child_container(
+                source, behavior_path, "EVENTS", fragments, ("EXCLUSIVE-AREAS", "RUNNABLES")
             )
         for behavior_path, fragments in runnable_fragments.items():
-            source = insert_or_create_child_container(
-                source,
-                "SWC-INTERNAL-BEHAVIOR",
-                behavior_path.rsplit("/", 1)[-1],
-                "RUNNABLES",
-                fragments,
-                ("SERVICE-DEPENDENCIES",),
+            source = xml_patch.insert_or_create_child_container(
+                source, behavior_path, "RUNNABLES", fragments, ("SERVICE-DEPENDENCIES",)
             )
         if call_fragments or event_fragments or runnable_fragments:
-            with tempfile.NamedTemporaryFile(suffix=".arxml", delete=False) as temporary:
-                temporary.write(source)
-                temporary_path = Path(temporary.name)
-            try:
-                LOGGER.info("Re-parsing ARXML for validation: %s", component_file)
-                backend.load(temporary_path)
-            finally:
-                temporary_path.unlink(missing_ok=True)
+            LOGGER.info("Re-parsing ARXML for validation: %s", component_file)
+            load_bytes(backend, source)
             store.write(component_file, source)
     return created, skipped
 
 
-def container_exists(
-    source: bytes,
-    block_pattern: re.Pattern[bytes],
-    container_tag: str,
-) -> bool:
-    """判断块内是否存在目标容器，用于插入前预检。"""
-
-    matches = list(block_pattern.finditer(source))
-    if len(matches) != 1:
-        return False
-    block = matches[0]
-    closing = f"</{container_tag}>".encode("ascii")
-    return source.find(closing, block.start(), block.end()) >= 0
-
-
 def port_container_ready(source: bytes, component_path: str) -> bool:
-    """确认组件块和 ``PORTS`` 容器均可定位。"""
+    """确认组件及其 ``PORTS`` 容器均可按路径定位。"""
 
-    try:
-        element_name = component_element_name(source, component_path)
-    except ValueError as error:
-        LOGGER.error("%s", clean_message(error))
-        return False
-    component_name = component_path.rsplit("/", maxsplit=1)[-1]
-    if not container_exists(
-        source, named_block_pattern(element_name, component_name), "PORTS"
-    ):
-        LOGGER.error("PORTS container not found for %s", component_path)
+    problem = xml_patch.container_problem(source, component_path, "PORTS")
+    if problem is not None:
+        LOGGER.error("%s", problem)
         return False
     return True
 
@@ -2731,36 +2413,42 @@ def port_container_ready(source: bytes, component_path: str) -> bool:
 def access_container_ready(
     source: bytes, runnable_path: str, container_tag: str
 ) -> bool:
-    """确认 runnable 块和访问点容器均可定位。"""
+    """确认 runnable 及其访问点容器均可按路径定位。"""
 
-    runnable_name = runnable_path.rsplit("/", maxsplit=1)[-1]
-    if not container_exists(
-        source, named_block_pattern("RUNNABLE-ENTITY", runnable_name), container_tag
-    ):
-        LOGGER.error("%s container not found in %s", container_tag, runnable_path)
+    problem = xml_patch.container_problem(source, runnable_path, container_tag)
+    if problem is not None:
+        LOGGER.error("%s", problem)
         return False
     return True
 
 
 class SourceStore:
-    """保存已修改但尚未写盘的 ARXML 字节。
+    """保存已修改但尚未写盘的 ARXML 字节，并缓存解析结果。
 
     新建接口后端口阶段需要能查到它，因此后续读取和解析都走这里的缓存，
-    使 dry-run 也能验证完整链路。
+    使 dry-run 也能验证完整链路。armodel 同一时间只持有一个文档，因此只复用最近一次加载、
+    之后既未加载其他文件也未被修改的文档；组件和接口摘要按文件版本缓存。
     """
 
     def __init__(self) -> None:
         self._buffers: dict[Path, bytes] = {}
+        self._versions: dict[Path, int] = defaultdict(int)
         self._short_name_index: dict[str, list[Path]] | None = None
         self._short_name_index_key: tuple[Path, ...] | None = None
+        self._loaded: tuple[Path, int, int, ArxmlDocument] | None = None
+        self._summaries: dict[tuple[Path, int], DocumentSummary] = {}
+        self._parsed: set[tuple[Path, int]] = set()
+        self.definitions: dict[tuple[str, str], tuple[Path, str] | None] = {}
 
     def read(self, path: Path) -> bytes:
         return self._buffers.get(path, b"") or path.read_bytes()
 
     def write(self, path: Path, document: bytes) -> None:
         self._buffers[path] = document
+        self._versions[path] += 1
         self._short_name_index = None
         self._short_name_index_key = None
+        self.definitions.clear()
 
     def modified(self) -> dict[Path, bytes]:
         return dict(self._buffers)
@@ -2787,100 +2475,40 @@ class SourceStore:
         self._short_name_index_key = key
         return self._short_name_index
 
-    def load(self, backend: ArxmlBackend, path: Path):
-        """按缓存内容加载文档；未修改的文件直接从磁盘加载。"""
+    def load(self, backend: ArxmlBackend, path: Path) -> ArxmlDocument:
+        """按缓存内容加载文档；原始文件的解析诊断只在首次解析时记录一次。"""
 
-        if path not in self._buffers:
-            LOGGER.info("Parsing ARXML: %s", path)
-            return backend.load(path)
-        LOGGER.info("Parsing ARXML (with pending changes): %s", path)
-        temporary_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".arxml", delete=False) as temporary:
-                temporary.write(self._buffers[path])
-                temporary_path = Path(temporary.name)
-            return backend.load(temporary_path)
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+        version = self._versions[path]
+        if self._loaded is not None:
+            loaded_path, loaded_version, generation, document = self._loaded
+            if (
+                (loaded_path, loaded_version, generation) == (path, version, backend.generation)
+                and not document.dirty
+            ):
+                return document
 
-
-def package_elements_span(source: bytes, package_path: str) -> int | None:
-    """返回包内 ``</ELEMENTS>`` 的偏移；无法唯一定位时返回 ``None``。
-
-    AUTOSAR 要求 ``ELEMENTS`` 排在 ``AR-PACKAGES`` 之前，因此从包的 ``SHORT-NAME``
-    往后找到的第一个 ``ELEMENTS`` 就属于本包；若中间先遇到子包则说明本包没有。
-    """
-    package_name = package_path.rsplit("/", maxsplit=1)[-1]
-    anchor = f"<SHORT-NAME>{package_name}</SHORT-NAME>".encode("ascii")
-    positions = [
-        match.start() for match in re.finditer(re.escape(anchor), source)
-    ]
-    if len(positions) != 1:
-        return None
-
-    start = source.find(b"<ELEMENTS>", positions[0])
-    if start < 0:
-        return None
-    if b"<AR-PACKAGE>" in source[positions[0] : start] or b"<AR-PACKAGE " in source[
-        positions[0] : start
-    ]:
-        return None
-
-    depth = 0
-    cursor = start
-    while cursor >= 0:
-        opening = source.find(b"<ELEMENTS>", cursor)
-        closing = source.find(b"</ELEMENTS>", cursor)
-        if closing < 0:
-            return None
-        if 0 <= opening < closing:
-            depth += 1
-            cursor = opening + len(b"<ELEMENTS>")
-            continue
-        depth -= 1
-        if depth == 0:
-            return closing
-        cursor = closing + len(b"</ELEMENTS>")
-    return None
-
-
-def package_block_end(source: bytes, package_path: str) -> int | None:
-    """返回包内可追加子元素的位置：``<AR-PACKAGES>`` 之前或 ``</AR-PACKAGE>`` 之前。"""
-
-    package_name = package_path.rsplit("/", maxsplit=1)[-1]
-    anchor = f"<SHORT-NAME>{package_name}</SHORT-NAME>".encode("ascii")
-    positions = [match.start() for match in re.finditer(re.escape(anchor), source)]
-    if len(positions) != 1:
-        return None
-    start = source.rfind(b"<AR-PACKAGE", 0, positions[0])
-    if start < 0:
-        return None
-
-    # ``<AR-PACKAGES>`` 也以 ``<AR-PACKAGE`` 开头，用前瞻区分开始标签。
-    token = re.compile(rb"<AR-PACKAGE(?=[\s>])|</AR-PACKAGE>")
-    depth = 0
-    end = None
-    for match in token.finditer(source, start):
-        if match.group().startswith(b"</"):
-            depth -= 1
-            if depth == 0:
-                end = match.start()
-                break
+        key = (path, version)
+        first = key not in self._parsed
+        self._parsed.add(key)
+        pending = " (with pending changes)" if path in self._buffers else ""
+        LOGGER.log(logging.INFO if first else logging.DEBUG, "Parsing ARXML%s: %s", pending, path)
+        if path in self._buffers:
+            document, diagnostics = load_bytes(backend, self._buffers[path])
         else:
-            depth += 1
-    if end is None:
-        return None
+            document, diagnostics = backend.load(path)
+            if first:
+                for diagnostic in diagnostics:
+                    LOGGER.warning("%s: %s: %s", backend.name, path, diagnostic)
+        self._loaded = (path, version, backend.generation, document)
+        return document
 
-    children = source.find(b"<AR-PACKAGES>", start, end)
-    return children if children >= 0 else end
+    def summary(self, backend: ArxmlBackend, path: Path) -> DocumentSummary:
+        """返回文件中全部组件和端口接口的摘要，每个文件版本只解析一次。"""
 
-
-def wrap_in_elements(fragment: str) -> str:
-    """把片段包进一个新的 ``<ELEMENTS>`` 容器，供空包使用。"""
-
-    lines = ["  " + line for line in fragment.splitlines()]
-    return "\n".join(["<ELEMENTS>"] + lines + ["</ELEMENTS>"])
+        key = (path, self._versions[path])
+        if key not in self._summaries:
+            self._summaries[key] = self.load(backend, path).summarize()
+        return self._summaries[key]
 
 
 def insert_package_element(
@@ -2890,22 +2518,23 @@ def insert_package_element(
     fragment: str,
     context: str,
 ) -> bool:
-    """把元素插入包的 ``ELEMENTS`` 容器；包内还没有该容器时一并创建。"""
+    """把元素插入包的 ``ELEMENTS`` 容器；包内还没有该容器时在子包之前一并创建。"""
 
     source = store.read(target_file)
-    offset = package_elements_span(source, package_path)
-    if offset is None:
-        offset = package_block_end(source, package_path)
-        if offset is None:
-            LOGGER.error(
-                "Skipped %s: unable to locate package %s in %s",
-                context,
-                package_path,
-                target_file,
-            )
-            return False
-        fragment = wrap_in_elements(fragment)
-    store.write(target_file, insert_at_offset(source, offset, [fragment]))
+    try:
+        updated = xml_patch.insert_or_create_child_container(
+            source, package_path, "ELEMENTS", [fragment], ("AR-PACKAGES",)
+        )
+    except ValueError as error:
+        LOGGER.error(
+            "Skipped %s: unable to locate package %s in %s: %s",
+            context,
+            package_path,
+            target_file,
+            clean_message(error),
+        )
+        return False
+    store.write(target_file, updated)
     return True
 
 
@@ -2923,29 +2552,24 @@ def apply_enumerations(
     created: list[str] = []
     skipped = 0
     for spec in enumerations:
-        document, diagnostics = store.load(backend, spec.target_file)
-        for diagnostic in diagnostics:
-            LOGGER.warning("%s: %s: %s", backend.name, spec.target_file, diagnostic)
+        document = store.load(backend, spec.target_file)
 
         lower, upper = spec.limits
         elements = (
             (
                 spec.compu_method_path,
-                lambda package, name: document.add_compu_method(
-                    package, name, spec.values
-                ),
+                partial(document.add_compu_method, values=spec.values),
                 "COMPU-METHOD",
                 document.compu_method_definition,
                 ("TEXTTABLE", tuple((value, value, label) for value, label in spec.values)),
             ),
             (
                 spec.path,
-                lambda package, name: document.add_enum_data_type(
-                    package,
-                    name,
-                    spec.base_type,
-                    spec.compu_method_path,
-                    spec.data_constr_path,
+                partial(
+                    document.add_enum_data_type,
+                    base_type_path=spec.base_type,
+                    compu_method_path=spec.compu_method_path,
+                    data_constr_path=spec.data_constr_path,
                 ),
                 "IMPLEMENTATION-DATA-TYPE",
                 document.implementation_type_definition,
@@ -2956,9 +2580,7 @@ def apply_enumerations(
             ),
             (
                 spec.data_constr_path,
-                lambda package, name: document.add_data_constr(
-                    package, name, lower, upper
-                ),
+                partial(document.add_data_constr, lower_limit=lower, upper_limit=upper),
                 "DATA-CONSTR",
                 document.data_constr_definition,
                 ((lower, upper),),
@@ -3034,9 +2656,7 @@ def apply_composite_types(
             skipped += 1
             continue
         seen_paths.add(spec.path)
-        document, diagnostics = store.load(backend, spec.target_file)
-        for diagnostic in diagnostics:
-            LOGGER.warning("%s: %s: %s", backend.name, spec.target_file, diagnostic)
+        document = store.load(backend, spec.target_file)
         if document.element_exists(spec.path):
             if isinstance(spec, ArraySpec):
                 expected = ImplementationTypeInfo("ARRAY", members=((
@@ -3108,9 +2728,7 @@ def apply_interfaces(
     created: list[str] = []
     skipped = 0
     for spec in interfaces:
-        document, diagnostics = store.load(backend, spec.target_file)
-        for diagnostic in diagnostics:
-            LOGGER.warning("%s: %s: %s", backend.name, spec.target_file, diagnostic)
+        document = store.load(backend, spec.target_file)
 
         expected = list(spec.data_elements)
         if document.element_exists(spec.path):
@@ -3176,9 +2794,7 @@ def apply_cs_interfaces(
     created: list[str] = []
     skipped = 0
     for spec in interfaces:
-        document, diagnostics = store.load(backend, spec.target_file)
-        for diagnostic in diagnostics:
-            LOGGER.warning("%s: %s: %s", backend.name, spec.target_file, diagnostic)
+        document = store.load(backend, spec.target_file)
 
         expected = [
             (operation, list(arguments))
@@ -3260,9 +2876,7 @@ def build_changes(
     for source_file in list(ports_by_file) + [
         path for path in accesses_by_file if path not in ports_by_file
     ]:
-        document, diagnostics = store.load(backend, source_file)
-        for diagnostic in diagnostics:
-            LOGGER.warning("%s: %s: %s", backend.name, source_file, diagnostic)
+        document = store.load(backend, source_file)
 
         source = store.read(source_file)
         fragments_by_component: dict[str, list[str]] = defaultdict(list)
@@ -3362,10 +2976,17 @@ def build_changes(
                 access.data_path,
             )
 
-        for component_path, fragments in fragments_by_component.items():
-            source = insert_ports(source, component_path, fragments)
-        for (runnable_path, container), fragments in fragments_by_runnable.items():
-            source = insert_accesses(source, runnable_path, container, fragments)
+        source = xml_patch.insert_many(
+            source,
+            [
+                (xml_patch.container_end(source, component_path, "PORTS"), fragments)
+                for component_path, fragments in fragments_by_component.items()
+            ]
+            + [
+                (xml_patch.container_end(source, runnable_path, container), fragments)
+                for (runnable_path, container), fragments in fragments_by_runnable.items()
+            ],
+        )
         LOGGER.info("Re-parsing ARXML for validation: %s", source_file)
         validate_document(backend, source, checked_ports, checked_accesses)
         store.write(source_file, source)
@@ -3383,30 +3004,22 @@ def validate_document(
     expected_ports: Sequence[ResolvedPort],
     expected_accesses: Sequence[ResolvedAccess],
 ) -> None:
-    """把修改后的字节写入临时文件，确认后端能完整读回已处理的内容。"""
+    """把修改后的字节重新解析，确认后端能完整读回已处理的内容。"""
 
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".arxml", delete=False) as temporary:
-            temporary.write(document)
-            temporary_path = Path(temporary.name)
-        check_document, diagnostics = backend.load(temporary_path)
-        for diagnostic in diagnostics:
-            LOGGER.warning("%s validation: %s", backend.name, diagnostic)
-        for port in expected_ports:
-            check_port(
-                check_document.read_port(port.component_path, port.spec.name), port
-            )
-        for access in expected_accesses:
-            check_access(
-                check_document.read_access(
-                    access.runnable_path, access.name, access.kind
-                ),
-                access,
-            )
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    check_document, diagnostics = load_bytes(backend, document)
+    for diagnostic in diagnostics:
+        LOGGER.warning("%s validation: %s", backend.name, diagnostic)
+    for port in expected_ports:
+        check_port(
+            check_document.read_port(port.component_path, port.spec.name), port
+        )
+    for access in expected_accesses:
+        check_access(
+            check_document.read_access(
+                access.runnable_path, access.name, access.kind
+            ),
+            access,
+        )
 
 
 def output_path(source_file: Path, output_dir: Path, project_dir: Path) -> Path:
@@ -3521,13 +3134,14 @@ def run(argv: Sequence[str] | None = None) -> int:
     LOGGER.info("ARXML list: %s", list_file)
     LOGGER.info("Backend: %s", backend.name)
     LOGGER.info("Reading workbook configuration")
-    components, ports = read_workbook(workbook_path)
-    enumerations = read_enumerations(workbook_path, project_dir)
-    arrays = read_arrays(workbook_path, project_dir)
-    structures = read_structures(workbook_path, project_dir)
-    interfaces = read_sr_interfaces(workbook_path, project_dir)
-    cs_interfaces = read_cs_interfaces(workbook_path, project_dir)
-    access_specs = read_data_accesses(workbook_path, components)
+    sheets = load_workbook_sheets(workbook_path)
+    components, ports = read_workbook(sheets)
+    enumerations = read_enumerations(sheets, project_dir)
+    arrays = read_arrays(sheets, project_dir)
+    structures = read_structures(sheets, project_dir)
+    interfaces = read_sr_interfaces(sheets, project_dir)
+    cs_interfaces = read_cs_interfaces(sheets, project_dir)
+    access_specs = read_data_accesses(sheets, components)
     if not any((ports, enumerations, arrays, structures, interfaces, cs_interfaces, access_specs)):
         LOGGER.error("No usable records found in workbook")
     arxml_files = read_arxml_list(list_file, project_dir, args.strict_list, args.exclude_arxml)

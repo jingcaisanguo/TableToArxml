@@ -194,6 +194,8 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 | 内部行为的 `EVENTS` | 自动创建，放在 `EXCLUSIVE-AREAS` 或 `RUNNABLES` 之前 |
 | 内部行为的 `RUNNABLES` | 自动创建，放在 `SERVICE-DEPENDENCIES` 之前 |
 
+容器写成自闭合形式（如 `<PORTS/>`）时无法追加内容，报 `ERROR`，需改写为 `<PORTS></PORTS>`。
+
 ### 默认值和固定值
 
 | 对象 | 值 |
@@ -233,6 +235,7 @@ table-to-swc-arxml --project-root . --config test/tableToSwcArxml/TableToSwcArxm
 `armodel` 整文件重新序列化会改写原有 ARXML 的格式，产生大量无关差异。工具因此只把新元素的 XML 片段
 插入原文件字节，其余字节保持不变：
 
+- 插入位置按完整 AUTOSAR 路径（各级 `SHORT-NAME`）定位，同一文件中不同组件下同名的 runnable、内部行为互不影响。
 - 片段插入到目标容器结束标签之前，缩进取该行缩进再加两个空格。
 - 换行符沿用原文件（`CRLF` 或 `LF`）；`<TAG></TAG>` 写在同一行的空容器会被展开成多行。
 - 片段按 UTF-8 编码，名称和标签可以使用中文。

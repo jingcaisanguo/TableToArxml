@@ -106,12 +106,9 @@ class GreenWorkbookInfo:
 
 
 def norm(value: object) -> str:
-    """统一把 Excel / XML 读取到的值转换成可用字符串。"""
+    """统一把 Excel / XML 读取到的值转换成去掉首尾空白的字符串。"""
 
-    if value is None:
-        return ""
-    text = str(value).strip()
-    return "" if text.lower() == "nan" else text
+    return "" if value is None else str(value).strip()
 
 
 def load_channel_sets(model: ArxmlModel) -> dict[str, frozenset[str]]:
@@ -149,16 +146,20 @@ def _build_signal_path(
 
 
 class ComponentTypeMap(dict):
+    """名称 -> ``(实例名, 类型路径)``；有歧义的名称不在映射中，由 :meth:`resolve` 报出候选。"""
+
     def __init__(self, candidates: dict[str, set[tuple[str, str]]]) -> None:
         super().__init__((alias, next(iter(values))) for alias, values in candidates.items()
                          if len(values) == 1)
         self.ambiguous = {alias: values for alias, values in candidates.items() if len(values) > 1}
 
-    def get(self, key, default=None):
-        if key in self.ambiguous:
-            choices = ", ".join(f"{name} ({path})" for name, path in sorted(self.ambiguous[key]))
-            raise ValueError(f"Ambiguous component '{key}': {choices}; configure componentAliases")
-        return super().get(key, default)
+    def resolve(self, name: str) -> tuple[str, str] | None:
+        """返回唯一匹配；未知名称返回 ``None``，有歧义时报错并列出候选。"""
+
+        if name in self.ambiguous:
+            choices = ", ".join(f"{prototype} ({path})" for prototype, path in sorted(self.ambiguous[name]))
+            raise ValueError(f"Ambiguous component '{name}': {choices}; configure componentAliases")
+        return self.get(name)
 
 
 def build_component_type_map(
@@ -447,7 +448,7 @@ def _collect_non_app_components(
 
 def process_green_table(
     info: GreenWorkbookInfo,
-    component_type_map: dict[str, tuple[str, str]],
+    component_type_map: ComponentTypeMap,
     app_names: set[str],
     channel_sets: dict[str, frozenset[str]],
     workbook,
@@ -473,14 +474,14 @@ def process_green_table(
     existing_signal_rows = _load_existing_signal_rows(signal_ws)
 
     counters = {"components": 0, "assembly": 0, "signal": 0}
-    app_component_info = component_type_map.get(info.app_name)
+    app_component_info = component_type_map.resolve(info.app_name)
     if not app_component_info:
         raise ValueError(
             f"Cannot find the SW component type of green table '{info.app_name}' in the "
             "loaded ARXML files")
     app_prototype, app_component_type = app_component_info
     app_component_name = app_prototype
-    app_definitions = {component_type_map.get(name) for name in app_names}
+    app_definitions = {component_type_map.resolve(name) for name in app_names}
 
     if _append_component(
         components_ws,
@@ -493,7 +494,7 @@ def process_green_table(
         counters["components"] += 1
 
     for component_name in sorted(_collect_non_app_components(info, e2e_wrapper)):
-        component_info = component_type_map.get(component_name)
+        component_info = component_type_map.resolve(component_name)
         if not component_info:
             raise ValueError(f"Green table '{info.app_name}': unresolved component '{component_name}'")
         component_prototype, component_type = component_info
@@ -541,7 +542,7 @@ def process_green_table(
             continue
 
         # 非 CAN/LIN 场景：按“上游 provider -> 当前 app requester”写组件连线。
-        component_name = component_type_map.get(row.source_component)[0]
+        component_name = component_type_map[row.source_component][0]
         if _append_assembly(
             assembly_ws,
             existing_assembly_rows,
@@ -585,7 +586,7 @@ def process_green_table(
             continue
 
         # 非 CAN/LIN 场景：按“当前 app provider -> 下游 requester”写组件连线。
-        component_name = component_type_map.get(row.target_component)[0]
+        component_name = component_type_map[row.target_component][0]
         if _append_assembly(
             assembly_ws,
             existing_assembly_rows,
@@ -867,7 +868,7 @@ def collect_green_workbooks(
 
 def generate_white_table(
     model: ArxmlModel,
-    green_tables: list[tuple[str, Path]],
+    green_infos: list[GreenWorkbookInfo],
     general: dict,
     output_file: Path,
     component_aliases: dict[str, str | dict[str, str]] | None = None,
@@ -875,7 +876,7 @@ def generate_white_table(
     e2e_wrapper: str = E2E_WRAPPER_COMPONENT,
     signal_path_template: str = "/${channel}/Signal/${signal}",
 ) -> Path:
-    """基于已加载的 ARXML 模型和绿表生成白表。"""
+    """基于已加载的 ARXML 模型和已解析的绿表生成白表。"""
 
     channel_sets = load_channel_sets(model)
     component_type_map = build_component_type_map(
@@ -885,22 +886,21 @@ def generate_white_table(
 
     # 一个绿表对应一个要创建的模块，模块类型必须能在 ARXML 中找到。
     missing_components = sorted(
-        app_name for app_name, _ in green_tables if component_type_map.get(app_name) is None)
+        info.app_name for info in green_infos if component_type_map.resolve(info.app_name) is None)
     if missing_components:
         raise ValueError(
             "Cannot find the SW component type of green table(s) in the loaded ARXML files: "
             + ", ".join(missing_components))
 
     total_counters = {"components": 0, "assembly": 0, "signal": 0}
-    app_names = {app_name for app_name, _ in green_tables}
-    for app_name, green_excel in green_tables:
-        green_info = parse_green_workbook(green_excel, app_name)
+    app_names = {info.app_name for info in green_infos}
+    for green_info in green_infos:
         counters = process_green_table(
             green_info, component_type_map, app_names, channel_sets, workbook,
             e2e_wrapper, signal_path_template, model, norm(general.get("EcuInstance")))
         logging.info(
             "Processed %s: +%s Components, +%s AssemblySwConnection, +%s SenderReceiverToSignal",
-            app_name,
+            green_info.app_name,
             counters["components"],
             counters["assembly"],
             counters["signal"],

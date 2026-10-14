@@ -32,7 +32,7 @@ from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Datatype.Datatypes i
 )
 from armodel.models.M2.MSR.AsamHdo.BaseTypes import SwBaseType
 
-from .white_table_reader import CompositionInput, TableRow, read_composition_input
+from .white_table_reader import CompositionInput, TableRow
 from .arxml_model import ArxmlModel
 
 DEFAULT_AR_RELEASE = "R19-11"
@@ -684,7 +684,7 @@ def _write_model(
 
 def generate_composition_arxml(
     document: AUTOSAR,
-    white_table: Path,
+    data: CompositionInput,
     output_file: Path,
     system_mapping: str | None = None,
     replace: bool = True,
@@ -693,7 +693,6 @@ def generate_composition_arxml(
     interface_mappings: list[dict] | None = None,
     generate_system: bool = True,
 ) -> Path:
-    data = read_composition_input(white_table)
     resolved = _Resolver(document, data, replace, interface_mismatch, interface_mappings)
     resolved.resolve()
     if generate_system:

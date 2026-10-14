@@ -112,7 +112,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 - 加载集合是各配置清单的并集，并排除所有配置本次要生成的 `<outputPrefix>System.arxml`。
 - 按 `--config` 顺序依次生成；前一个配置新生成的 ARXML 会追加到模型中，因此被引用的配置要排在前面（如 Cem 引用 Mc 的 `itsMirrorWrapper`，须 Mc 在前）。
-- 各配置的 `outputPrefix` 不能重复；日志级别取命令行或第一个配置的 `logLevel`。
+- 各配置的 `outputPrefix` 不能重复；未传 `--log-level` 时，各配置写了的 `logLevel` 必须一致，否则报错。
 - 未传 `--output-dir` 或 `--log-dir` 时，每份配置必须提供对应的 `outputDir` 或 `logDir`，且各自解析后的目录必须一致。
 - 任一配置失败则全部不发布。
 

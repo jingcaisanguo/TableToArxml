@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
+from typing import TYPE_CHECKING
 
 from .lib.file_list import (
     DEFAULT_EXCLUDE_PATTERNS,
@@ -37,6 +38,10 @@ from .lib.file_list import (
     resolve_preference_files,
     tresos_project_dir,
 )
+
+if TYPE_CHECKING:
+    from .lib.green_to_white import GreenWorkbookInfo
+    from .lib.white_table_reader import CompositionInput
 
 
 # Workaround: avoid slow registry probing on some Windows setups when importing openpyxl.
@@ -69,20 +74,23 @@ def _is_armodel_record(record: logging.LogRecord) -> bool:
 
 
 class _AbortOnError(logging.Handler):
+    """收集运行期间非 armodel 的 ERROR 日志，发布产物前统一失败。
+
+    不在 ``emit`` 里抛异常：记录日志的第三方代码不会在日志调用处被打断。
+    """
+
     def __init__(self) -> None:
         super().__init__(level=logging.ERROR)
-        self.error: str | None = None
+        self.errors: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
         # armodel 的加载报错照常按 ERROR 打印，但不影响退出码。
-        if _is_armodel_record(record):
-            return
-        self.error = record.getMessage()
-        self.raise_if_failed()
+        if not _is_armodel_record(record):
+            self.errors.append(record.getMessage())
 
     def raise_if_failed(self) -> None:
-        if self.error is not None:
-            raise RuntimeError(self.error)
+        if self.errors:
+            raise RuntimeError("; ".join(self.errors))
 
 
 @contextmanager
@@ -218,7 +226,10 @@ def _setup_logging(log_level: str, log_dir: Path) -> Path:
     log_file = log_dir / f"{TOOL_NAME}_{datetime.now():%Y%m%d_%H%M%S_%f}_{os.getpid()}.log"
 
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
+    # 同一进程多次调用 run() 时关闭上一次的日志文件，避免句柄泄漏和 Windows 下文件被占用。
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+        handler.close()
     root_logger.setLevel(getattr(logging, log_level))
 
     formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
@@ -350,6 +361,9 @@ class _Job:
     mismatch_policy: str
     generate_system: bool
     green_tables: list[tuple[str, Path]] = field(default_factory=list)
+    # 加载 ARXML 前预校验时解析的输入表，生成阶段直接复用，不再重复读取 Excel。
+    green_infos: list[GreenWorkbookInfo] = field(default_factory=list)
+    white_input: CompositionInput | None = None
 
     @property
     def config_dir(self) -> Path:
@@ -448,6 +462,23 @@ def _resolve_run_directory(
     return directories[0]
 
 
+def _resolve_log_level(jobs: list[_Job], cli_value: str | None) -> str:
+    """命令行优先；否则各配置中写了的 logLevel 必须一致，都没写时为 INFO。"""
+
+    if _norm(cli_value):
+        level = _norm(cli_value).upper()
+    else:
+        levels = {_norm(job.config.get("logLevel")).upper() for job in jobs} - {""}
+        if len(levels) > 1:
+            raise ValueError(
+                f"config.logLevel differs across configs: {', '.join(sorted(levels))}; "
+                "use --log-level to override")
+        level = levels.pop() if levels else "INFO"
+    if level not in LOG_LEVELS:
+        raise ValueError(f"Invalid log level: {level}")
+    return level
+
+
 def run(
     config_paths: Path | list[Path],
     project_root: str | None = None,
@@ -478,10 +509,7 @@ def run(
     if duplicated:
         raise ValueError(f"config.outputPrefix must be unique across configs: {', '.join(duplicated)}")
 
-    resolved_log_level = (
-        _norm(log_level) or _norm(jobs[0].config.get("logLevel")) or "INFO").upper()
-    if resolved_log_level not in LOG_LEVELS:
-        raise ValueError(f"Invalid log level: {resolved_log_level}")
+    resolved_log_level = _resolve_log_level(jobs, log_level)
     resolved_log_dir = _resolve_run_directory(jobs, log_dir, "logDir", "--log-dir")
     resolved_output_dir = _resolve_run_directory(jobs, output_dir, "outputDir", "--output-dir")
     if resolved_log_dir.resolve() == resolved_output_dir.resolve():
@@ -508,14 +536,15 @@ def run(
     for job in jobs:
         logging.info("Config: %s (variant %s, project root %s)", job.config_path, job.variant, job.project_root)
         if job.white_table is not None:
-            read_composition_input(job.white_table)
+            job.white_input = read_composition_input(job.white_table)
             logging.info("Selected white table: %s", job.white_table)
         else:
             # 配置里的相对路径以配置文件所在目录为基准。
             job.green_tables = collect_green_workbooks(
                 _string_list(job.config, "greenTables", required=True), job.variant, job.config_dir)
-            for app_name, green_excel in job.green_tables:
+            job.green_infos = [
                 parse_green_workbook(green_excel, app_name)
+                for app_name, green_excel in job.green_tables]
             logging.info("Selected %s green tables", len(job.green_tables))
 
     generated_names = [f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}" for job in jobs]
@@ -545,17 +574,19 @@ def run(
             logging.info("Generating %s from %s", job.output_prefix, job.config_path)
             if job.white_table is not None:
                 white_table_path = job.white_table
+                composition_input = job.white_input
             else:
                 white_table_path = generate_white_table(
-                    model=model, green_tables=job.green_tables, general=job.general,
+                    model=model, green_infos=job.green_infos, general=job.general,
                     output_file=staging / f"{job.output_prefix}{WHITE_TABLE_SUFFIX}",
                     component_aliases=_section(job.config, "componentAliases"),
                     prototype_prefix=job.prototype_prefix, e2e_wrapper=job.e2e_wrapper,
                     signal_path_template=job.signal_template)
                 merge_green_workbooks(
                     job.green_tables, staging / f"{job.output_prefix}{MERGED_GREEN_TABLE_SUFFIX}")
+                composition_input = read_composition_input(white_table_path)
             composition_arxml = generate_composition_arxml(
-                document=model.document, white_table=white_table_path,
+                document=model.document, data=composition_input,
                 output_file=staging / f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}",
                 system_mapping=job.system_mapping, ar_release=job.ar_release,
                 interface_mismatch=job.mismatch_policy,
@@ -643,8 +674,12 @@ def main(default_config: Path | None = None) -> int:
             white_table=args.white_table,
             exclude_arxml=args.exclude_arxml,
         )
-    except Exception as exc:
+    except (OSError, ValueError, KeyError, RuntimeError) as exc:
         logging.error("%s failed; no new artifacts published: %s", TOOL_NAME, exc)
+        return 1
+    except Exception:
+        # 非预期异常多为程序缺陷，保留堆栈便于定位。
+        logging.exception("%s failed unexpectedly; no new artifacts published", TOOL_NAME)
         return 1
 
     for white_table, composition_arxml in results:

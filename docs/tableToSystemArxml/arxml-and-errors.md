@@ -78,15 +78,15 @@ build/zcud_m7.Debug/tresos/**/swcd/*.arxml
 
 ## 日志与退出码
 
-- 同时输出到控制台和日志文件；日志等级取 `--log-level`、`logLevel`、默认 `INFO` 中优先级最高者。日志目录必须通过 `--log-dir` 或配置 `logDir` 指定，命令行优先，无默认目录，与产物目录分开。缺少日志或产物目录时仅在控制台报错，返回 1，不创建文件日志。
+- 同时输出到控制台和日志文件；日志等级取 `--log-level`、`logLevel`、默认 `INFO` 中优先级最高者，多配置时各配置的 `logLevel` 须一致。日志目录必须通过 `--log-dir` 或配置 `logDir` 指定，命令行优先，无默认目录，与产物目录分开。缺少日志或产物目录时仅在控制台报错，返回 1，不创建文件日志。
 - `INFO` 可查看选中的绿表数量、加载数量、各表追加数量和产物位置。
-- ARXML parser 的 WARNING/ERROR 保留原严重级别；任何 ERROR 立即阻断，包括底层库报告的不支持元素。WARNING 仍为提示，不自动升级为错误。
+- armodel 解析器的 WARNING/ERROR 按原级别输出，不支持的元素跳过，不影响退出码。其他代码记录的 ERROR 先收集，发布产物前统一失败并列出全部消息。
 - 日志文件名包含微秒和进程号，降低冲突概率；不支持并发发布到同一产物目录。
 
 | 情况 | 退出行为 |
 | --- | --- |
 | 全部转换、写出和发布成功，无 ERROR | 返回 `0` |
-| 任意 ERROR，或配置、文件、模型、转换、写入异常 | 记录失败原因并返回 `1`，不发布本次 Excel/ARXML/lst；旧产物不变 |
+| armodel 解析器以外的任意 ERROR，或配置、文件、模型、转换、写入异常 | 记录失败原因并返回 `1`，不发布本次 Excel/ARXML/lst；旧产物不变。非预期的程序异常另记录完整堆栈 |
 | 命令行格式错误 | argparse 通常返回 `2` |
 | Python 转换依赖缺失或导入不可用 | 日志初始化后检查，在控制台及日志文件记录库名、实际异常和解释器，返回 `1` |
 
@@ -115,7 +115,7 @@ build/zcud_m7.Debug/tresos/**/swcd/*.arxml
 | `<sheet> row <n>: ...` | 无效端口、信号或 DataElement 等引用导致整次失败 |
 | `no implementation` | 新增组件缺少 SWC-IMPLEMENTATION；补齐输入后重试 |
 | `Reference prototype does not exist` / `outside target composition` | Reference 必须真实存在于目标 Composition，不能把其他组合的实例直接移到目标下 |
-| `Unsupported TransformationDescription <SOMEIP-TRANSFORMATION-DESCRIPTION>` | 当前 armodel 对该输入元素报 ERROR；需使用已确认兼容的解析库/输入，工具不会隐藏或降级该错误 |
+| `Unsupported TransformationDescription <SOMEIP-TRANSFORMATION-DESCRIPTION>` | armodel 不支持该输入元素，按 ERROR 打印后跳过，不影响退出码；生成结果依赖该元素时需改用兼容的解析库或输入 |
 | `conflicting connector name` / `conflicting outer port` / `ambiguous component alias` | 白表数据存在不同对象共用名称的冲突；任务在清空模型及写出 ARXML 前中止 |
 | Excel `PermissionError` | 检查同名产物是否被 Excel 等程序占用 |
 | 白表有连接，最终 ARXML 没有 | 检查本地生成器日志及端口、接口、信号、DataElement 引用；白表不是最终有效性证明 |

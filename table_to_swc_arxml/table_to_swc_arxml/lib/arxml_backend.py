@@ -214,11 +214,35 @@ class ImplementationTypeInfo:
     members: tuple[tuple[str, str, str, str, str], ...] = ()
 
 
-class ArxmlDocument(Protocol):
-    """单个 ARXML 文档的查询与修改能力。"""
+@dataclass(frozen=True)
+class InterfaceSummary:
+    """端口接口的元类及数据元素、operation 简称；不支持的接口类型 ``dest`` 为空。"""
 
-    def component_exists(self, component_path: str) -> bool:
-        """判断给定路径是否为软件组件类型。"""
+    dest: str
+    type_name: str
+    data_elements: tuple[str, ...] = ()
+    operations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DocumentSummary:
+    """一个 ARXML 中全部软件组件与端口接口的完整路径。"""
+
+    components: frozenset[str]
+    interfaces: dict[str, InterfaceSummary]
+
+
+class ArxmlDocument(Protocol):
+    """单个 ARXML 文档的查询与修改能力。
+
+    后端再次加载任意文件后文档即失效，继续使用会报错；``add_*`` 修改过的文档
+    ``dirty`` 为真，不能再作为未修改的缓存复用。
+    """
+
+    dirty: bool
+
+    def summarize(self) -> DocumentSummary:
+        """一次性列出文档中的全部组件和端口接口。"""
         ...
 
     def interface_dest(self, interface_path: str) -> str | None:
@@ -248,18 +272,10 @@ class ArxmlDocument(Protocol):
         """
         ...
 
-    def interface_data_elements(self, interface_path: str) -> list[str]:
-        """返回接口中全部数据元素的简称。"""
-        ...
-
     def sender_receiver_definition(
         self, interface_path: str
     ) -> list[tuple[str, str, bool]]:
         """返回 SR 接口的数据元素名称、类型引用和队列标志。"""
-        ...
-
-    def interface_operations(self, interface_path: str) -> list[str]:
-        """返回 Client-Server 接口中全部 operation 的简称。"""
         ...
 
     def client_server_definition(
@@ -446,9 +462,13 @@ class ArxmlDocument(Protocol):
 
 
 class ArxmlBackend(Protocol):
-    """把 ARXML 文件加载为 :class:`ArxmlDocument` 的后端。"""
+    """把 ARXML 文件加载为 :class:`ArxmlDocument` 的后端。
+
+    ``generation`` 在每次加载时递增，调用方据此判断手中的文档是否仍然有效。
+    """
 
     name: str
+    generation: int
 
     def load(self, arxml_file: Path) -> tuple[ArxmlDocument, list[str]]:
         """加载单个 ARXML，返回文档对象和解析诊断。"""
@@ -487,11 +507,39 @@ class ArmodelDocument:
         ACCESS_WRITE: "createDataWriteAccess",
     }
 
-    def __init__(self, document: AUTOSAR):
-        self._document = document
+    def __init__(self, document: AUTOSAR, generation: int):
+        self._model = document
+        self._generation = generation
+        self.dirty = False
 
-    def component_exists(self, component_path: str) -> bool:
-        return isinstance(self._document.find(component_path), SwComponentType)
+    @property
+    def _document(self) -> AUTOSAR:
+        if self._generation != _LOAD_GENERATION:
+            raise RuntimeError(
+                "ARXML document is stale because another file was loaded; reload it before use"
+            )
+        return self._model
+
+    def summarize(self) -> DocumentSummary:
+        components: set[str] = set()
+        interfaces: dict[str, InterfaceSummary] = {}
+        packages: list[ARPackage] = list(self._document.getARPackages())
+        while packages:
+            package = packages.pop()
+            packages.extend(package.getARPackages())
+            for element in package.getElements():
+                if isinstance(element, SwComponentType):
+                    components.add(element.getFullName())
+                elif isinstance(element, PortInterface):
+                    interfaces[element.getFullName()] = InterfaceSummary(
+                        next((dest for kind, dest in INTERFACE_DESTS if isinstance(element, kind)), ""),
+                        type(element).__name__,
+                        tuple(item.getShortName() for item in element.getDataElements())
+                        if isinstance(element, SenderReceiverInterface) else (),
+                        tuple(item.getShortName() for item in element.getOperations())
+                        if isinstance(element, ClientServerInterface) else (),
+                    )
+        return DocumentSummary(frozenset(components), interfaces)
 
     def interface_dest(self, interface_path: str) -> str | None:
         interface = self._document.find(interface_path)
@@ -604,6 +652,7 @@ class ArmodelDocument:
     ) -> str:
         component = self._require_component(component_path)
         reference = TRefType().setDest(interface_dest).setValue(interface_path)
+        self.dirty = True
         parent = ET.Element("PORTS")
         writer = ARXMLWriter()
         if direction == DIRECTION_PROVIDED:
@@ -681,12 +730,6 @@ class ArmodelDocument:
         com_spec.setUsesEndToEndProtection(ARBoolean().setValue(uses_protection))
         return com_spec
 
-    def interface_data_elements(self, interface_path: str) -> list[str]:
-        interface = self._document.find(interface_path)
-        if not isinstance(interface, SenderReceiverInterface):
-            return []
-        return [element.getShortName() for element in interface.getDataElements()]
-
     def sender_receiver_definition(
         self, interface_path: str
     ) -> list[tuple[str, str, bool]]:
@@ -706,12 +749,6 @@ class ArmodelDocument:
                 )
             )
         return definition
-
-    def interface_operations(self, interface_path: str) -> list[str]:
-        interface = self._document.find(interface_path)
-        if not isinstance(interface, ClientServerInterface):
-            return []
-        return [operation.getShortName() for operation in interface.getOperations()]
 
     def client_server_definition(
         self, interface_path: str
@@ -825,6 +862,7 @@ class ArmodelDocument:
         creator = self.ACCESS_CREATORS.get(kind)
         if creator is None:
             raise ValueError(f"Unsupported access kind: {kind}")
+        self.dirty = True
         access = getattr(runnable, creator)(access_name)
         port_dest = (
             "P-PORT-PROTOTYPE"
@@ -881,6 +919,7 @@ class ArmodelDocument:
         operation_path: str,
     ) -> str:
         runnable = self._require_runnable(runnable_path)
+        self.dirty = True
         call = runnable.createSynchronousServerCallPoint(call_name)
         call.setOperationIRef(
             ROperationInAtomicSwcInstanceRef()
@@ -926,6 +965,7 @@ class ArmodelDocument:
         can_be_invoked_concurrently: bool,
     ) -> str:
         behavior = self._require_behavior(behavior_path)
+        self.dirty = True
         runnable = behavior.createRunnableEntity(runnable_name)
         runnable.setMinimumStartInterval(ARFloat().setValue(minimum_start_interval))
         runnable.setCanBeInvokedConcurrently(
@@ -943,6 +983,7 @@ class ArmodelDocument:
         operation_path: str,
     ) -> str:
         behavior = self._require_behavior(behavior_path)
+        self.dirty = True
         event = behavior.createOperationInvokedEvent(event_name)
         event.setStartOnEventRef(
             RefType().setDest("RUNNABLE-ENTITY").setValue(runnable_path)
@@ -1056,6 +1097,7 @@ class ArmodelDocument:
         is_service: bool = False,
     ) -> str:
         package = self._require_package(package_path)
+        self.dirty = True
         interface = package.createSenderReceiverInterface(interface_name)
         interface.setIsService(ARBoolean().setValue(is_service))
         for element_name, data_type, is_queued in data_elements:
@@ -1078,6 +1120,7 @@ class ArmodelDocument:
         is_service: bool = False,
     ) -> str:
         package = self._require_package(package_path)
+        self.dirty = True
         interface = package.createClientServerInterface(interface_name)
         interface.setIsService(ARBoolean().setValue(is_service))
         for operation_name, arguments in operations:
@@ -1102,6 +1145,7 @@ class ArmodelDocument:
         values: Sequence[tuple[str, str]],
     ) -> str:
         package = self._require_package(package_path)
+        self.dirty = True
         compu_method = package.createCompuMethod(compu_method_name)
         compu_method.setCategory("TEXTTABLE")
 
@@ -1132,6 +1176,7 @@ class ArmodelDocument:
         data_constr_path: str,
     ) -> str:
         package = self._require_package(package_path)
+        self.dirty = True
         data_type = package.createImplementationDataType(type_name)
         data_type.setCategory("TYPE_REFERENCE")
 
@@ -1169,6 +1214,7 @@ class ArmodelDocument:
         array_size_semantics: str = "FIXED-SIZE",
     ) -> str:
         package = self._require_package(package_path)
+        self.dirty = True
         data_type = package.createImplementationDataType(type_name)
         data_type.setCategory("ARRAY")
         element = data_type.createImplementationDataTypeElement(element_name)
@@ -1185,6 +1231,7 @@ class ArmodelDocument:
         members: Sequence[tuple[str, str]],
     ) -> str:
         package = self._require_package(package_path)
+        self.dirty = True
         data_type = package.createImplementationDataType(type_name)
         data_type.setCategory("STRUCTURE")
         for member_name, member_type_ref in members:
@@ -1201,6 +1248,7 @@ class ArmodelDocument:
         upper_limit: str,
     ) -> str:
         package = self._require_package(package_path)
+        self.dirty = True
         constr = package.createDataConstr(constr_name)
         rule = DataConstrRule()
         phys = PhysConstrs()
@@ -1244,14 +1292,20 @@ class ArmodelBackend:
 
     name = "armodel"
 
+    @property
+    def generation(self) -> int:
+        return _LOAD_GENERATION
+
     def load(self, arxml_file: Path) -> tuple[ArxmlDocument, list[str]]:
         """加载单个 ARXML，返回文档对象和解析诊断。
 
         ``AUTOSAR`` 在 armodel 中是全局单例，因此每次加载前必须清空，避免上一
-        个文件的包和元素污染本次查找结果。
+        个文件的包和元素污染本次查找结果；此前返回的文档随之失效。
         """
 
+        global _LOAD_GENERATION
         with _ARMODEL_LOCK:
+            _LOAD_GENERATION += 1
             document = AUTOSAR.getInstance()
             if document is None:
                 raise RuntimeError("armodel failed to create the AUTOSAR singleton")
@@ -1263,11 +1317,12 @@ class ArmodelBackend:
             parser = ARXMLParser(options={"warning": True})
             parser.logger = parser_logger
             parser.load(str(arxml_file), document)
-            return ArmodelDocument(document), diagnostics
+            return ArmodelDocument(document, _LOAD_GENERATION), diagnostics
 
 
 BACKENDS: dict[str, type[ArxmlBackend]] = {ArmodelBackend.name: ArmodelBackend}
 _ARMODEL_LOCK = threading.RLock()
+_LOAD_GENERATION = 0
 
 
 def get_backend(name: str) -> ArxmlBackend:
