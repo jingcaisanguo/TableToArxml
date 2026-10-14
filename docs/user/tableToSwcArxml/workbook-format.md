@@ -1,6 +1,6 @@
 # 工作簿（Excel）格式
 
-返回 [README.md](README.md)。运行参数见 [configuration.md](configuration.md)，模板见 [swc_arxml_template.xlsx](swc_arxml_template.xlsx)（首个工作表为填写说明）。
+返回 [README.md](README.md)。运行参数见 [configuration.md](configuration.md)。
 
 ## 通用规则
 

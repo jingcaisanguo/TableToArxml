@@ -9,12 +9,14 @@ on:
       - 'table_to_system_arxml/**'
       - 'table_to_swc_arxml/**'
       - 'test/**'
+      - 'requirements.txt'
       - '.github/workflows/tests.yml'
   pull_request:
     paths:
       - 'table_to_system_arxml/**'
       - 'table_to_swc_arxml/**'
       - 'test/**'
+      - 'requirements.txt'
       - '.github/workflows/tests.yml'
 
 permissions:
@@ -36,8 +38,7 @@ jobs:
       - name: Install dependencies
         run: >-
           python -m pip install "armodel==${{ matrix.armodel }}"
-          -r table_to_system_arxml/requirements.txt
-          -r table_to_swc_arxml/requirements.txt
+          -r requirements.txt
           pytest ruff
       - name: Lint
         run: python -m ruff check --select F,B,E9 --target-version py39 table_to_system_arxml table_to_swc_arxml test

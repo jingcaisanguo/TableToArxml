@@ -18,7 +18,7 @@ test/
 
 ## 自动测试
 
-在装好两个工具依赖和 `pytest` 的环境中，从仓库根目录执行：
+在装好根目录 `requirements.txt` 依赖和 `pytest` 的环境中，从仓库根目录执行：
 
 ```powershell
 python -m pytest test

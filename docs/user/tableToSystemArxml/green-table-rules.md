@@ -1,6 +1,6 @@
 # 绿表转换规则
 
-返回 [README.md](README.md)。以下规则对应 [green_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_table.py)（读取）和 [green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py)（转换）当前实现，不是通用 Excel 或 AUTOSAR 模板规范。
+返回 [README.md](README.md)。以下规则对应当前实现，不是通用 Excel 或 AUTOSAR 模板规范。
 
 ## 文件、模块与页签
 
@@ -41,7 +41,7 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 
 ## 模块与 Components
 
-在处理连接之前，工具建立组件查询表并检查全部绿表文件名；任一文件名在查询表中无法解析，会一次性列出缺失模块并抛出异常，主入口返回 1。
+在处理连接之前，工具建立组件查询表并检查全部绿表文件名；任一文件名在查询表中无法解析，会一次性列出缺失模块并报错退出，返回 1。
 
 查询表来自已加载 ARXML：仅使用目标 `general.Composition` 中已有的 prototype 及类型引用，其他 Composition 的实例不参与。类型按完整路径索引，默认 prototype 为 `prototypePrefix` + 类型短名。短名有歧义时失败，可通过 `componentAliases` 指向完整类型路径或目标 prototype 路径消歧，详见 [configuration.md](configuration.md)。
 
@@ -65,7 +65,7 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 | INPUT | I：上游组件 | J：上游 P-port | 当前绿表模块 | B：当前 R-port |
 | OUTPUT | 当前绿表模块 | B：当前 P-port | I：下游组件 | J：下游 R-port |
 
-最终连接名由本地生成器取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`，最长 255 字符；同名但端点不同的连接会报错退出，避免截断碰撞。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
+最终连接名由工具取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`，最长 255 字符；同名但端点不同的连接会报错退出，避免截断碰撞。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
 
 装配连接强制要求 `P-port -> R-port`；端口引用的 interface 必须存在，默认两端必须是同一完整接口引用。`interfaceMismatch` 仅在 config 中设置，可选 `error`（缺省报错）、`skip`（WARNING 后跳过该连接）、`map`（生成明确的接口映射再连接），不提供命令行参数。映射支持 SenderReceiverInterface 的完整一一数据元素配对，并沿类型引用解析最终位宽、编码/符号性与形状；uint8/uint16、uint8/sint8 均拒绝，相同接口也检查组件各自的应用类型实现。详情见 [configuration.md](configuration.md)。委托连接按内端口生成同方向外端口，不套用装配连接的 P/R 两端规则。
 
@@ -116,7 +116,7 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 
 白表每次重新创建 6 个页签：`General`、`Components`、`AssemblySwConnection`、`DelegationSwConnection`、`SenderReceiverToSignal`、`SenderReceiverToSignalGroup`。其中 `DelegationSwConnection` 和 `SenderReceiverToSignalGroup` 当前只创建表头，绿表转换不填充这两类记录。
 
-本地白表读取器按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成器也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，命名为 `dc_<外端口>_<内prototype><内端口>`；信号组要求 DataElement 的 ImplementationDataType 为 STRUCTURE，输出组引用，不自动展开字段级类型映射。主入口仍会重新生成白表，不提供手工编辑白表后继续执行的 CLI 模式。
+读取白表时按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成 ARXML 时也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，命名为 `dc_<外端口>_<内prototype><内端口>`；信号组要求 DataElement 的 ImplementationDataType 为 STRUCTURE，输出组引用，不自动展开字段级类型映射。绿表模式每次都重新生成白表；手工修改后的白表可用白表模式（配置 `whiteTable` 或命令行 `--white-table`）直接生成 ARXML。
 
 合并绿表输出保留 INPUT/OUTPUT 的单元格内容、主要样式和工作表格式，以 `<模块>_INPUT`、`<模块>_OUTPUT` 命名页签并截断到 31 字符；重复或截断冲突可能由 openpyxl 自动调整名称。它不保证复制图片、图表等所有 Excel 对象，也不改变源绿表。白表则只保留转换所需的值，不复制绿表格式。
 

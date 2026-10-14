@@ -1,7 +1,7 @@
 # table-to-swc-arxml 命令测试
 
 返回 [../README.md](../README.md)。配置为 [TableToSwcArxml.json](TableToSwcArxml.json)，工作簿为 [SwcTestPorts.xlsx](SwcTestPorts.xlsx)，
-使用共享清单 [../common/arxml.lst](../common/arxml.lst)。工作簿格式见 [workbook-format.md](../../docs/tableToSwcArxml/workbook-format.md)。
+使用共享清单 [../common/arxml.lst](../common/arxml.lst)。工作簿格式见 [workbook-format.md](../../docs/user/tableToSwcArxml/workbook-format.md)。
 
 ## 测试端口
 
@@ -19,10 +19,10 @@ LIT 与 Horn 的端口方向互补，可用于后续测试 BCM 与 MC 组件连�
 
 ## 运行
 
-在仓库根目录安装 wheel 后执行。命令行相对路径按当前目录解析，配置中的 `projectRoot`（`../..`）指向仓库根目录：
+在仓库根目录安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../docs/dev/release.md)）后执行。命令行相对路径按当前目录解析，配置中的 `projectRoot`（`../..`）指向仓库根目录：
 
 ```powershell
-python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.2.0-py3-none-any.whl
+python -m pip install ./dist/table_to_arxml-0.2.0-py3-none-any.whl
 table-to-swc-arxml --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 

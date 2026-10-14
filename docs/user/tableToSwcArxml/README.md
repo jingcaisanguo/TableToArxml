@@ -1,6 +1,6 @@
-# 表格转 SWC ARXML 工具（table_to_swc_arxml）
+# table-to-swc-arxml 使用说明
 
-根据 Excel 工作簿，向已有 ARXML 中的软件组件**增量**添加端口、接口、数据类型及 RTE 访问对象。
+返回 [../README.md](../README.md)。根据 Excel 工作簿，向已有 ARXML 中的软件组件**增量**添加端口、接口、数据类型及 RTE 访问对象。
 工具只新增，不修改、不删除已有内容；已存在的同名对象按下文“同名对象检查”处理。
 
 ## 文档索引
@@ -9,37 +9,18 @@
 | --- | --- |
 | [configuration.md](configuration.md) | JSON 配置、命令行参数、路径规则、ARXML 清单、命令示例 |
 | [workbook-format.md](workbook-format.md) | 工作簿各工作表、列定义、取值范围及生成的 XML 示例 |
-| [swc_arxml_template.xlsx](swc_arxml_template.xlsx) | 工作簿模板，首个工作表为填写说明；复制到项目中填写后使用 |
 | 本文 | 处理流程、检查规则、生成规则、写出与退出码 |
-
-源码：[table_to_swc_arxml.py](../../table_to_swc_arxml/table_to_swc_arxml.py) 为源码启动脚本，包内模块：
-
-| 模块 | 职责 |
-| --- | --- |
-| [cli.py](../../table_to_swc_arxml/table_to_swc_arxml/cli.py) | 入口、日志和处理流程编排 |
-| [options.py](../../table_to_swc_arxml/table_to_swc_arxml/options.py) | 合并命令行与 JSON 配置，得到冻结的 `Options` |
-| [workbook.py](../../table_to_swc_arxml/table_to_swc_arxml/workbook.py) | 一次加载工作簿，逐表校验并转为待创建对象 |
-| [resolve.py](../../table_to_swc_arxml/table_to_swc_arxml/resolve.py) | 读取清单，定位组件、接口、runnable，补全端口和访问点 |
-| [apply.py](../../table_to_swc_arxml/table_to_swc_arxml/apply.py) | 生成片段、插入并重新解析验证 |
-| [xml_patch.py](../../table_to_swc_arxml/table_to_swc_arxml/xml_patch.py) | 按 AUTOSAR 路径在原始字节中定位和插入 |
-| [store.py](../../table_to_swc_arxml/table_to_swc_arxml/store.py) | 缓存待写出的字节和解析结果 |
-| [writer.py](../../table_to_swc_arxml/table_to_swc_arxml/writer.py) | 原子写出 |
-| [lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) | 封装 `armodel` 的解析和片段生成 |
 
 ## 安装与运行
 
-在仓库根目录打包并安装，安装后提供 `table-to-swc-arxml` 命令（等同 `python -m table_to_swc_arxml`）：
+安装方式见 [../README.md](../README.md)，安装后提供 `table-to-swc-arxml` 命令（等同 `python -m table_to_swc_arxml`）：
 
 ```bash
-python -m pip wheel --no-deps --wheel-dir ./table_to_swc_arxml ./table_to_swc_arxml
-python -m pip install ./table_to_swc_arxml/table_to_swc_arxml-0.2.0-py3-none-any.whl
-table-to-swc-arxml --config test/tableToSwcArxml/TableToSwcArxml.json
+table-to-swc-arxml --config ./config/swc.json
 ```
 
-- wheel 只包含 Python 代码，不含模板、配置或日志，这些由使用工具的项目提供。
 - 依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，安装了范围外的版本时工具启动即报版本错误。
-- 与 `table-to-system-arxml` 共用同一 `armodel` 版本，两个工具可装在同一环境。
-- 发布新版本前修改 `table_to_swc_arxml/pyproject.toml` 中的 `version`。
+- 配置、工作簿、清单和日志由使用工具的项目提供。
 
 参数和路径规则见 [configuration.md](configuration.md)。
 
@@ -288,12 +269,3 @@ Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped; 0 enu
 - CS 接口不生成 `POSSIBLE-ERRORS`、`POSSIBLE-ERROR-REFS`、`ERROR-CODE`；服务器调用点超时固定为 `0.0`。
 - ModeSwitch、NvData、Parameter、Trigger 接口的端口可以创建，但不生成 ComSpec 以外的 RTE 访问对象。
 - 不执行 RTE 代码生成，ARXML 更新后需运行项目自己的生成命令。
-
-## 更换解析库
-
-[lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) 集中封装了 `armodel` 的全部用法，
-其余模块只依赖与库无关的抽象：`PortInfo`、`AccessInfo` 描述端口和访问点，`ArxmlDocument` 提供查询和片段生成，
-`ArxmlBackend` 负责加载文件并返回文档和解析诊断。
-
-更换解析库时：在该模块中新增实现 `ArxmlDocument` 的文档类和提供 `name`、`load()` 的后端类，
-注册到 `BACKENDS`，运行时用 `--backend <名称>` 选择；其余模块无需改动。

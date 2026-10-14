@@ -1,12 +1,12 @@
 # ARXML 清单与排错
 
-返回 [README.md](README.md)。清单实现见 [../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py](../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py)。
+返回 [README.md](README.md)。
 
 ## 两种输入模式
 
 ### EB 生成模式
 
-未指定 `--arxml-file-list` 且 config 中没有 `arxmlFileList` 字段时，读取必填的 `tresosPreferenceFiles`，使用与 [../../../scripts/gen_ab_project.py](../../../scripts/gen_ab_project.py) 相同的 EB 工具调用方式：
+未指定 `--arxml-file-list` 且 config 中没有 `arxmlFileList` 字段时，读取必填的 `tresosPreferenceFiles`，使用与生成 Autosar Builder 工程相同的 EB 工具调用方式：
 
 ```text
 PrefSystemImporter --file-list --base-path <tresos工程目录>
@@ -34,11 +34,11 @@ PrefSystemImporter --file-list --base-path <tresos工程目录>
 ```text
 # 每行一个文件路径，也可以是 glob。
 app/common/swc/Lamp.arxml
-build/zcud_m7.Debug/tresos/**/swcd/*.arxml
+build/variantA.Debug/tresos/**/swcd/*.arxml
 ```
 
 1. 使用 UTF-8 文本，去除每行首尾空白，跳过空行及以 `#` 开头的行。路径有空格无需加引号；不支持行尾注释、嵌套 `@其他清单` 或在行中展开 `${variant}`。
-2. 规范化目录分隔符；仅 EB 模式下，条目包含构建基目录的末级名称时，若下一层不是 `tresos`，就在其后补一层 `tresos`。例如 `build/zcud_m7.Debug/bswm/swcd/a.arxml` 会补成 `build/zcud_m7.Debug/tresos/bswm/swcd/a.arxml`。复用清单不做此补齐，须直接提供真实路径。
+2. 规范化目录分隔符；仅 EB 模式下，条目包含构建基目录的末级名称时，若下一层不是 `tresos`，就在其后补一层 `tresos`。例如 `build/variantA.Debug/bswm/swcd/a.arxml` 会补成 `build/variantA.Debug/tresos/bswm/swcd/a.arxml`。复用清单不做此补齐，须直接提供真实路径。
 3. 绝对路径直接使用。EB 模式的相对路径分别尝试 `projectRoot` 和从 XDM 推导出的 tresos 工程目录，**如果两处都存在，会都收集，不是只取第一处。** 复用清单的相对路径只基于 `projectRoot`。
 4. 支持 `*`、`?`、字符集合和递归 `**` 等 glob。只保留存在且扩展名为 `.arxml`（不区分大小写）的文件；单写目录不会递归扫描，需写 glob。
 5. 具体文件不存在时记录 `WARNING` 并跳过；glob 无匹配直接跳过。过滤后没有任何 ARXML 会报错。
@@ -70,11 +70,11 @@ build/zcud_m7.Debug/tresos/**/swcd/*.arxml
 
 ## 模型与生成边界
 
-本次路径集合只调用一次 `ArxmlModel.load`。模型用于解析 General、组件、prototype 和通道；随后本地白表读取器读取数据，本地生成器在同一个模型上解析并缓存组件、端口、信号等引用。所有引用解析完成后才调用 `document.new()`，再用 armodel 创建输出文档并写出 ARXML，不重新加载输入文件。因此不会将输入的全部包和元素原样导出，也不会从绿表生成缺失的 SWC 类型。
+本次涉及的 ARXML 只加载一次。模型用于解析 General、组件、prototype 和通道；随后读取白表，在同一个模型上解析组件、端口、信号等引用。所有引用解析完成后才创建独立的输出文档并写出 ARXML，不重新加载输入文件。因此不会将输入的全部包和元素原样导出，也不会从绿表生成缺失的 SWC 类型。
 
-本地生成器支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、Composition 类型；其他类型明确报错。引用组件不新增实例，必须在目标 Composition 中存在且类型一致。新增 Atomic 组件缺少内部行为或实现时整次失败，不发布缺失实现映射的产物。嵌套 Composition 不生成实现映射。自有逻辑不是整套 pya4a 功能的拷贝，例如不提供 Rhapsody XML 导出。
+生成时支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、Composition 类型；其他类型明确报错。引用组件不新增实例，必须在目标 Composition 中存在且类型一致。新增 Atomic 组件缺少内部行为或实现时整次失败，不发布缺失实现映射的产物。嵌套 Composition 不生成实现映射。不提供 Rhapsody XML 等其他格式导出。
 
-底层 `AUTOSAR` 使用全局单例，不支持在同一进程中并行保有多个独立的转换模型。不同配置/变体应串行运行或使用独立进程，并避免写入相同产物路径。
+底层 armodel 模型是进程内全局单例，不支持在同一进程中并行运行多个转换。不同配置/变体应串行运行或使用独立进程，并避免写入相同产物路径。
 
 ## 日志与退出码
 
@@ -95,7 +95,7 @@ build/zcud_m7.Debug/tresos/**/swcd/*.arxml
 | 日志/现象 | 含义与检查方向 |
 | --- | --- |
 | `Python dependencies are missing or unusable` / `Cannot load conversion dependencies` | 使用日志中指定的解释器检查或修复库和传递依赖；完整列表见 [README.md](README.md) |
-| `PrefSystemImporter was not found in PATH` | 进入有 EB 工具的构建环境，或用已有 lst；不能以普通终端的 PATH 推断 CMB 环境 |
+| `PrefSystemImporter was not found in PATH` | 进入有 EB 工具的构建环境，或用已有 lst；不能以普通终端的 PATH 推断构建环境 |
 | `tresos preference file does not exist` | 仅 EB 模式会检查；确认路径相对配置目录。已指定 lst 时不应出现此项检查 |
 | `No ARXML files were resolved` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
 | `No green tables were selected` | 检查 glob、变体及相对配置目录的文件位置 |
@@ -118,7 +118,7 @@ build/zcud_m7.Debug/tresos/**/swcd/*.arxml
 | `Unsupported TransformationDescription <SOMEIP-TRANSFORMATION-DESCRIPTION>` | armodel 不支持该输入元素，按 ERROR 打印后跳过，不影响退出码；生成结果依赖该元素时需改用兼容的解析库或输入 |
 | `conflicting connector name` / `conflicting outer port` / `ambiguous component alias` | 白表数据存在不同对象共用名称的冲突；任务在清空模型及写出 ARXML 前中止 |
 | Excel `PermissionError` | 检查同名产物是否被 Excel 等程序占用 |
-| 白表有连接，最终 ARXML 没有 | 检查本地生成器日志及端口、接口、信号、DataElement 引用；白表不是最终有效性证明 |
+| 白表有连接，最终 ARXML 没有 | 检查日志及端口、接口、信号、DataElement 引用；白表不是最终有效性证明 |
 
 ## 交付前检查
 

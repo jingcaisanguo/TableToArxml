@@ -1,6 +1,6 @@
 # 配置与命令行
 
-返回 [README.md](README.md)。工作簿格式见 [workbook-format.md](workbook-format.md)，参数处理见 [options.py](../../table_to_swc_arxml/table_to_swc_arxml/options.py)。
+返回 [README.md](README.md)。工作簿格式见 [workbook-format.md](workbook-format.md)。
 
 运行参数可以写在 JSON 配置文件里，也可以在命令行直接传入；两者同时出现时命令行优先。
 配置文件使用 UTF-8 JSON 对象（兼容 BOM），键名区分大小写，不支持注释。
@@ -33,8 +33,8 @@
 
 ## 路径规则
 
-排除示例：`"excludeArxml": ["Unused.arxml", "test/common/arxml/BcmArxml/TUR.arxml"]`。
-命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml test/common/arxml/BcmArxml/TUR.arxml`。
+排除示例：`"excludeArxml": ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
+命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml arxml/Bcm/TUR.arxml`。
 只写文件名会排除所有同名文件（文件名不区分大小写）；带目录则精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
 排除发生在文件存在性检查之前，日志记录 `Exclude ARXML file`，不修改 lst。
 全部排除时报错退出；被排除文件里的组件和接口无法通过清单查找。
@@ -73,9 +73,9 @@ JSON 路径按以下顺序处理：
 
 ```json
 {
-  "defaultVariant": "zcud_m7",
-  "projectRoot": "../../..",
-  "arxmlFileList": "../arxml_integration/cfg/${variant}.lst",
+  "defaultVariant": "variantA",
+  "projectRoot": "..",
+  "arxmlFileList": "../cfg/${variant}.lst",
   "workbook": "excel/swc_arxml_config.xlsx",
   "logDir": "../log",
   "outputDir": "../output/swc",
@@ -83,19 +83,16 @@ JSON 路径按以下顺序处理：
 }
 ```
 
-本仓库的测试配置见 [TableToSwcArxml.json](../../test/tableToSwcArxml/TableToSwcArxml.json)，它向共享模型的 LIT、Horn 组件添加测试端口，
-结果写到 `test/tableToSwcArxml/output/SwcTest/`，不修改源模型；运行方式见 [test/tableToSwcArxml/README.md](../../test/tableToSwcArxml/README.md)。
-
 ## 命令示例
 
-以下使用安装 wheel 后的命令；未安装时可换成 `python table_to_swc_arxml/table_to_swc_arxml.py`，参数相同。
+命令不在 `PATH` 时可换成同一虚拟环境的 `python -m table_to_swc_arxml`，参数相同。
 
 ```powershell
 # 只用配置文件
 table-to-swc-arxml --config D:/code/project/config/swc_arxml.json
 
 # 相对当前目录的配置文件，并切换变体
-table-to-swc-arxml --config config/swc_arxml.json --variant zcud_m7
+table-to-swc-arxml --config config/swc_arxml.json --variant variantA
 
 # 不用配置文件，只校验
 table-to-swc-arxml --project-root . --arxml-file-list path/to/files.lst --workbook path/to/swc.xlsx --log-dir log --dry-run
@@ -112,18 +109,3 @@ table-to-swc-arxml --project-root . --arxml-file-list path/to/files.lst --workbo
 把 wheel 安装到项目的虚拟环境，配置、工作簿和清单随项目维护，通过绝对路径 `--config` 选择项目。
 升级工具只需重新安装 wheel，配置无需修改；项目整体移动时只需改启动命令中的配置路径。
 移动 JSON 文件本身会改变其中相对路径的含义。
-
-## 旧配置迁移
-
-参数已与 `table-to-system-arxml` 统一：
-
-| 旧写法 | 新写法 |
-| --- | --- |
-| `default_variant` | `defaultVariant` |
-| `project_dir` / `--project-dir` | `projectRoot` / `--project-root` |
-| `list_file` / `--list-file` | `arxmlFileList` / `--arxml-file-list` |
-| `log_file` / `--log-file`（日志文件） | `logDir` / `--log-dir`（日志目录） |
-| `log_level`、`strict_list`、`in_place`、`output_dir`、`dry_run` | `logLevel`、`strictList`、`inPlace`、`outputDir`、`dryRun` |
-
-`workbook` 和 `logDir` 不再有默认值（旧版默认使用工具目录下的模板和日志），必须显式提供。
-0.2.0 起命令行相对路径按当前工作目录解析（此前按 `projectRoot`），相对 `--config` 也不再需要 `--project-root`。

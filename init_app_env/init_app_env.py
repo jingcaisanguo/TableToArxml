@@ -18,8 +18,7 @@ def install_pip_packages(package_path: str):
         "armodel": ("1.9.2", "armodel-1.9.2-py3-none-any.whl"),
         # Not used by the tools here; kept for external tools.
         "py_eb_model": ("1.3.1", "py_eb_model-1.3.1-py3-none-any.whl"),
-        "table_to_system_arxml": ("0.2.0", "table_to_system_arxml-0.2.0-py3-none-any.whl"),
-        "table_to_swc_arxml": ("0.2.0", "table_to_swc_arxml-0.2.0-py3-none-any.whl"),
+        "table_to_arxml": ("0.2.0", "table_to_arxml-0.2.0-py3-none-any.whl"),
     }
 
     for package_name, (required_version, whl_name) in pip_packages.items():
