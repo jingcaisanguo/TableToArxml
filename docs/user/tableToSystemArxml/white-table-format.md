@@ -1,6 +1,6 @@
 # 白表文件格式
 
-返回 [README.md](README.md)。布局与读取实现见 [../../table_to_system_arxml/table_to_system_arxml/lib/white_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table.py)，生成实现见 [../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py)。
+返回 [README.md](README.md)。
 
 白表（`<outputPrefix>WhiteTable.xlsx`）是 Composition/System ARXML 的直接输入：绿表模式下由工具生成，白表模式（config 写 `whiteTable` 或命令行传 `--white-table`）下由用户提供。本文描述两种模式共用的格式与语义。
 
@@ -30,10 +30,10 @@
 
 | Key | 值 | 说明 |
 | --- | --- | --- |
-| `Composition` | 完整路径，如 `/SwComponentType/ZCUP5` | 目标 `COMPOSITION-SW-COMPONENT-TYPE`，新组件实例和连接写入其中 |
-| `System` | 完整路径或短名，如 `/ECUExtractZCUP/VehicleProject/SDB326300` | 生成的 SYSTEM；与已加载 System 同路径时沿用其 CATEGORY、SYSTEM-VERSION，并按拆分合并到该 System |
-| `RootSwCompositionPrototype` | 完整路径，如 `.../SDB326300/TopLevelComposition` | System 的根组合原型；`Composition` 必须在其下被唯一地逐层实例化 |
-| `EcuInstance` | 完整路径，如 `/EcuInstances/ZCUP5` | SwcToEcuMapping 及信号方向校验使用的 ECU |
+| `Composition` | 完整路径，如 `/SwComponentTypes/TopComposition` | 目标 `COMPOSITION-SW-COMPONENT-TYPE`，新组件实例和连接写入其中 |
+| `System` | 完整路径或短名，如 `/VehicleProject/MySystem` | 生成的 SYSTEM；与已加载 System 同路径时沿用其 CATEGORY、SYSTEM-VERSION，并按拆分合并到该 System |
+| `RootSwCompositionPrototype` | 完整路径，如 `/VehicleProject/MySystem/TopLevelComposition` | System 的根组合原型；`Composition` 必须在其下被唯一地逐层实例化 |
+| `EcuInstance` | 完整路径，如 `/EcuInstances/MyEcu` | SwcToEcuMapping 及信号方向校验使用的 ECU |
 
 绿表模式下这些值来自 config `general`（未填的项按 [configuration.md](configuration.md) 推导）；白表模式下只使用白表中的值，不读取 config `general` 的这 4 项（`systemMapping` 仍取自 config）。
 
@@ -43,9 +43,9 @@
 
 | 列 | 说明 |
 | --- | --- |
-| `Prototype` | 实例 SHORT-NAME，如 `itsCCMWrapper`；`Reference` 时也可写目标 Composition 下的完整路径 |
+| `Prototype` | 实例 SHORT-NAME，如 `itsLampCtrl`；`Reference` 时也可写目标 Composition 下的完整路径 |
 | `SW-C` | 组件别名，供连接页的 `SW-C` 列引用；通常与 `Prototype` 相同 |
-| `Type` | 组件类型完整路径，如 `/CCMWrapper/CCMWrapper`；支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、Composition 类型 |
+| `Type` | 组件类型完整路径，如 `/LampCtrl/LampCtrl`；支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、Composition 类型 |
 | `Action` | `Add` 或 `Reference`（不区分大小写） |
 
 - `Add`：在 `Composition` 中新建该实例，并生成 SwcToEcuMapping；原子组件还需能找到其实现，生成 SwcToImplMapping。实例已存在时要求类型一致。
@@ -108,22 +108,22 @@
 
 | Key | Value |
 | --- | --- |
-| Composition | /SwComponentType/ZCUP5 |
-| System | /ECUExtractZCUP/VehicleProject/SDB326300 |
-| RootSwCompositionPrototype | /ECUExtractZCUP/VehicleProject/SDB326300/TopLevelComposition |
-| EcuInstance | /EcuInstances/ZCUP5 |
+| Composition | /SwComponentTypes/TopComposition |
+| System | /VehicleProject/MySystem |
+| RootSwCompositionPrototype | /VehicleProject/MySystem/TopLevelComposition |
+| EcuInstance | /EcuInstances/MyEcu |
 
 `Components`：
 
 | Prototype | SW-C | Type | Action |
 | --- | --- | --- | --- |
-| itsCCMWrapper | itsCCMWrapper | /CCMWrapper/CCMWrapper | Add |
-| itsIoHwAb_ProxyMgr_OsApplication_C1_P0 | itsIoHwAb_ProxyMgr_OsApplication_C1_P0 | /IoHwAb_ProxyMgr_OsApplication_C1_P0/SwComponentTypes/IoHwAb_ProxyMgr_OsApplication_C1_P0 | Reference |
+| itsLampCtrl | itsLampCtrl | /LampCtrl/LampCtrl | Add |
+| itsIoHwAb | itsIoHwAb | /IoHwAb/SwComponentTypes/IoHwAb | Reference |
 
 `AssemblySwConnection`：
 
 | Provider SW-C | PPort | Requester SW-C | RPort |
 | --- | --- | --- | --- |
-| itsIoHwAb_ProxyMgr_OsApplication_C1_P0 | AI_FBLW_LPM_DIAG | itsCCMWrapper | R_AI_FBLW_LPM_DIAG |
+| itsIoHwAb | AI_LAMP_DIAG | itsLampCtrl | R_AI_LAMP_DIAG |
 
-生成结果：在 `/SwComponentType/ZCUP5` 中新增 `itsCCMWrapper` 实例及连接 `ac_itsIoHwAb_ProxyMgr_OsApplication_C1_P0_AI_FBLW_LPM_DIAG_itsCCMWrapper_R_AI_FBLW_LPM_DIAG`，并在 System `SDB326300` 中生成 `itsCCMWrapper` 的 SwcToEcuMapping 与 SwcToImplMapping。
+生成结果：在 `/SwComponentTypes/TopComposition` 中新增 `itsLampCtrl` 实例及连接 `ac_itsIoHwAb_AI_LAMP_DIAG_itsLampCtrl_R_AI_LAMP_DIAG`，并在 System `MySystem` 中生成 `itsLampCtrl` 的 SwcToEcuMapping 与 SwcToImplMapping。

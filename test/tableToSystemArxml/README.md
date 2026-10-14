@@ -27,11 +27,11 @@ MC 白表声明 `itsAUXL`、`itsHorn` 两个 `Add` 实例，测试以下两条�
 
 ## 准备
 
-使用 Python 3.9 或更新版本，在独立虚拟环境中安装 wheel，依赖为 wheel 声明的 `armodel>=1.8.7,<1.9.4`。
+使用 Python 3.9 或更新版本，在独立虚拟环境中安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../docs/dev/release.md)），依赖为 wheel 声明的 `armodel>=1.8.7,<1.9.4`。
 以下命令都从**仓库根目录**执行；命令行相对路径按当前工作目录解析，JSON 中的路径按配置文件所在目录解析。
 
 ```powershell
-python -m pip install ./table_to_system_arxml/table_to_system_arxml-0.2.0-py3-none-any.whl
+python -m pip install ./dist/table_to_arxml-0.2.0-py3-none-any.whl
 ```
 
 ## BCM 绿表

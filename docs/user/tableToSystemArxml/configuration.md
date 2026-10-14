@@ -1,8 +1,8 @@
 # 配置参数
 
-返回 [README.md](README.md)。工程示例见 [BcmTableToSystemArxmlConfig.json](../../test/tableToSystemArxml/BcmTableToSystemArxmlConfig.json) 和 [McTableToSystemArxmlConfig.json](../../test/tableToSystemArxml/McTableToSystemArxmlConfig.json)，参数处理见 [../../table_to_system_arxml/table_to_system_arxml/cli.py](../../table_to_system_arxml/table_to_system_arxml/cli.py)。
+返回 [README.md](README.md)。
 
-配置使用 UTF-8 JSON 对象，兼容 UTF-8 BOM，字段名区分大小写，不支持 JSON 注释。下例路径按配置文件放在工具根目录编写；换工程时应替换路径及 AUTOSAR 标识。
+配置使用 UTF-8 JSON 对象，兼容 UTF-8 BOM，字段名区分大小写，不支持 JSON 注释。下例路径和 AUTOSAR 标识均为示意，使用时替换为工程实际值。
 
 ## 完整示例
 
@@ -10,26 +10,26 @@
 
 ```json
 {
-    "project": "HMG_ZCU_MONO",
-    "defaultVariant": "zcud_m7",
+    "project": "MY_PROJECT",
+    "defaultVariant": "variantA",
     "buildType": "Debug",
-    "projectRoot": "../../..",
+    "projectRoot": "..",
     "logLevel": "INFO",
     "outputDir": "output",
     "logDir": "log",
     "outputPrefix": "Bcm",
     "interfaceMismatch": "error",
     "greenTables": [
-        "file/common/Bcm/*.xlsx",
-        "file/${variant}/Bcm/*.xlsx"
+        "tables/common/Bcm/*.xlsx",
+        "tables/${variant}/Bcm/*.xlsx"
     ],
     "tresosPreferenceFiles": [
-        "../../../app/variants/${variant}/tresos/.prefs/pref_imp_exp_Bsw__Importer.xdm",
-        "../../../app/variants/${variant}/tresos/.prefs/pref_imp_exp_SysD.xdm"
+        "../app/variants/${variant}/tresos/.prefs/pref_imp_exp_Bsw__Importer.xdm",
+        "../app/variants/${variant}/tresos/.prefs/pref_imp_exp_SysD.xdm"
     ],
     "general": {
         "Composition": "/ARDesign/SystemDesign/TopLevelComposition",
-        "System": "ZCUPrototypeSystem",
+        "System": "PrototypeSystem",
         "EcuInstance": "/ARDesign/TopologyDesign/FLZCU"
     }
 }
@@ -66,13 +66,13 @@
 
 字符串数组参数也可写单个字符串；空字符串条目会被忽略。配置中出现上表以外的键，或 `general` 中出现下文 General 表以外的键时，直接报错退出并列出支持的键，避免拼错的字段被静默忽略。
 
-排除示例：`"excludeArxml": ["Unused.arxml", "test/common/arxml/BcmArxml/TUR.arxml"]`。
-命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml test/common/arxml/BcmArxml/TUR.arxml`。
+排除示例：`"excludeArxml": ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
+命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml arxml/Bcm/TUR.arxml`。
 文件名匹配所有同名文件（不区分大小写）；带目录的值精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
 该规则与 `excludeArxmlPatterns`、内置排除规则叠加，日志记录 `Exclude ARXML file`，不修改 lst。
 全部排除时报错退出；被排除模型中的组件、接口等不能参与生成。多配置运行时命令行列表对所有配置生效，配置列表只对各自清单生效，最终仍合并各清单的保留文件。
 
-旧字段 `name`、`xdm`、`arxml`、`output`、`generatedComponents` 已不用于当前流程；不提供自动迁移。产物名称统一由 `outputPrefix` 推导，要创建的组件由绿表文件名确定。
+产物名称统一由 `outputPrefix` 推导，要创建的组件由绿表文件名确定。
 
 ## 路径基准与占位符
 
@@ -89,15 +89,15 @@
 
 上述文件系统路径均可使用本机绝对路径，相对路径兼容 `/` 和 `\`。JSON 推荐使用 `/`；Windows 的 `\` 在 JSON 字符串中需要写成 `\\`。POSIX 平台拒绝 Windows 盘符/UNC 路径，迁移时应使用相对路径或本机绝对路径。未展开的 `${...}` 会报错；不自动展开 `~`、`%ENV%` 或任意环境变量。`general` 中 `/ARDesign/...` 是 AUTOSAR 模型引用路径，不做文件系统分隔符替换。
 
-例如配置仍在工具根目录时，复用现有清单可将 `arxmlFileList` 设置为 `../arxml_integration/cfg/${variant}.lst`。此路径指向 lst 本身；lst 内部条目不会因此改成相对 lst 所在目录解析。
+例如清单位于配置目录上一级的 `cfg/` 下时，可将 `arxmlFileList` 设置为 `../cfg/${variant}.lst`。此路径指向 lst 本身；lst 内部条目不会因此改成相对 lst 所在目录解析。
 
 优先级为：`--arxml-file-list` > config 中存在的 `arxmlFileList` > EB 生成 `output/<variant>.lst`。选定的 lst 不存在时直接报错，不检查 XDM，也不回退 EB。CLI `--arxml-file-list` 的已有覆盖行为保持不变；要使用 XDM，既不能传该参数，也不能在 config 中写 `arxmlFileList`。
 
-当前工具自带配置采用清单模式，只需：
+使用清单模式只需：
 
 ```json
 {
-    "arxmlFileList": "../arxml_integration/cfg/${variant}.lst"
+    "arxmlFileList": "../cfg/${variant}.lst"
 }
 ```
 
@@ -201,7 +201,7 @@ AUTOSAR 允许不同包下存在相同 SHORT-NAME 的组件类型，它们是独
 - `outputPrefix=Bcm` 推导 `BcmWhiteTable.xlsx`、`BcmGreenTables.xlsx`、`BcmSystem.arxml`，与变体名称无关。
 - 产物目录必须通过 `--output-dir` 或 `outputDir` 指定；日志目录必须通过 `--log-dir` 或 `logDir` 指定。命令行优先，脚本和安装命令都没有默认目录；缺失、空值或类型错误在创建日志前报错并退出 1。日志目录与产物目录不能相同。
 - 多配置仍共用一组产物和日志目录。未传对应命令行参数时，每份配置必须提供对应目录，且相对各自配置目录解析后必须一致；有冲突时可通过命令行统一覆盖。
-- 连接名由本地生成器按 prototype 和端口固定生成（见 [white-table-format.md](white-table-format.md)）；输出 release 由 `arRelease` 配置，默认 `R19-11`。
+- 连接名由工具按 prototype 和端口固定生成（见 [white-table-format.md](white-table-format.md)）；输出 release 由 `arRelease` 配置，默认 `R19-11`。
 - 转换及写出先在临时目录完成，全部成功后才发布 Excel、ARXML 及 EB 生成的 lst。任何 ERROR/异常均退出 1，不发布本次产物；原有产物保留不变，失败日志保留。发布时普通 I/O 异常会回滚已替换文件；断电、进程强制终止或回滚期间存储故障不属于可保证的事务范围。
 - `outputPrefix` 不会展开到 `greenTables` 或 `general` 中。改变产物前缀不会自动改变 AUTOSAR 包路径、System 或 ECU。
 - `buildType` 没有单独的命令行覆盖选项；EB 模式下需在配置中与实际构建目录保持一致。
