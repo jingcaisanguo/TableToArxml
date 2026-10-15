@@ -280,6 +280,53 @@ def _com_spec_paths(
     return data_paths
 
 
+def _warn_ignored_port_fields(port: PortSpec, interface_dest: str) -> None:
+    """Warn about filled port columns that do not apply to this artifact/interface combination."""
+
+    provided = port.provided_fields
+    ignored: list[str] = []
+    data_interface = interface_dest == "SENDER-RECEIVER-INTERFACE"
+    if not port.create_rte_artifact:
+        artifact_fields = (
+            ("Runnable Name",)
+            if port.direction == "R"
+            else (
+                "Runnable Name",
+                "Runnable Symbol",
+                "Minimum Start Interval",
+                "Can Be Invoked Concurrently",
+            )
+        )
+        ignored.extend(name for name in artifact_fields if name in provided)
+        if "Access Kind" in provided:
+            ignored.append("Access Kind")
+    else:
+        if interface_dest != "CLIENT-SERVER-INTERFACE":
+            ignored.extend(
+                name
+                for name in (
+                    "Runnable Symbol",
+                    "Minimum Start Interval",
+                    "Can Be Invoked Concurrently",
+                )
+                if name in provided
+            )
+        if not data_interface and interface_dest != "CLIENT-SERVER-INTERFACE":
+            if "Runnable Name" in provided:
+                ignored.append("Runnable Name")
+        if not data_interface and "Access Kind" in provided:
+            ignored.append("Access Kind")
+
+    if ignored:
+        LOGGER.warning(
+            "Port %s: column(s) %s do not apply to %s %s and will be ignored",
+            port.name,
+            ", ".join(ignored),
+            "P-Port" if port.direction == "P" else "R-Port",
+            interface_dest,
+        )
+
+
 def resolve_ports(
     backend: ArxmlBackend,
     components: dict[str, ComponentSpec],
@@ -322,6 +369,7 @@ def resolve_ports(
             LOGGER.error("Skipped port %s: interface %s is unresolved", port.name, port.interface_path)
             continue
         interface_dest = interface_dests[port.interface_path]
+        _warn_ignored_port_fields(port, interface_dest)
         if (
             port.create_rte_artifact
             and port.direction == "P"
@@ -375,7 +423,10 @@ def expand_port_accesses(
     arxml_files: Sequence[Path],
     store: SourceStore,
 ) -> list[AccessSpec]:
-    """把端口行上的 Y 展开为 SR 接口全部数据元素的访问点请求。"""
+    """把端口行上的 Y 展开为 SR 接口全部数据元素的访问点请求。
+
+    ``Access Kind`` 留空时 P-Port 取 Send、R-Port 取 ReceiveByArgument；方向匹配已在读表时校验。
+    """
 
     specs: list[AccessSpec] = []
     for port in ports:
@@ -391,12 +442,7 @@ def expand_port_accesses(
                 "Skipped automatic data access for %s: interface has no data elements", port.port_path
             )
             continue
-        if port.spec.direction == "P":
-            kind = ACCESS_SEND
-        elif port.spec.receive_by_value:
-            kind = ACCESS_RECEIVE_BY_VALUE
-        else:
-            kind = ACCESS_RECEIVE_BY_ARGUMENT
+        kind = port.spec.access_kind or DEFAULT_ACCESS_KINDS[port.spec.direction]
         specs.extend(
             AccessSpec(
                 component_key=port.spec.component_key,

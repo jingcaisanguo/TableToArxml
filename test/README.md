@@ -27,6 +27,8 @@ python -m pytest test
 - [e2e/test_samples.py](e2e/test_samples.py) 直接运行源码中的两个工具，产物写到临时目录，不覆盖本目录。
 - ARXML 统一换行符后与 `expected/` 逐字节比对；Excel 按单元格值比对。有意改变输出时，用新产物替换对应基线并在提交说明中写明原因。
 - 另有一个 SWC 场景：同一文件中两个组件的 runnable 同名，验证新增内容只写入指定组件。
+- SWC 回归还覆盖新旧表头、可省略的工作表、无参数 CS operation、访问类型、错误阻止写出，以及样例和空白模板的布局/样式/数据验证。
+- 工作簿通过 [tableToSwcArxml/generate_workbooks.py](tableToSwcArxml/generate_workbooks.py) 再生成；修改格式后应运行相关回归测试。
 - CI（[tests.yml](../.github/workflows/tests.yml)）在 Ubuntu 和 Windows 上分别用 armodel 1.8.7、1.9.2 运行 ruff 和上述测试。
 
 ## 共享模型
