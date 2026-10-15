@@ -9,6 +9,7 @@
 | --- | --- |
 | [configuration.md](configuration.md) | JSON 配置、命令行参数、路径规则、ARXML 清单、命令示例 |
 | [workbook-format.md](workbook-format.md) | 工作簿各工作表、列定义、取值范围及生成的 XML 示例 |
+| [SwcTemplate.xlsx](SwcTemplate.xlsx) | 不含测试数据的空白模板，自带填写流程、字段批注、默认值和输入验证 |
 | 本文 | 处理流程、检查规则、生成规则、写出与退出码 |
 
 ## 安装与运行
@@ -34,7 +35,7 @@ table-to-swc-arxml --config ./config/swc.json
 5. 新建数据类型    Enumerations → Arrays / Structures
 6. 新建接口        SR-Interfaces → CS-Interfaces
 7. 定位组件和端口接口，生成端口及 ComSpec
-8. 生成 SR 数据访问点（Create RTE Artifact 展开 + Data-Accesses）
+8. 生成 SR 数据访问点（Create RTE Artifact 展开 + Data Accesses）
 9. 生成 CS 对象（服务器调用点、runnable、operation 事件）
 10. 输出汇总；无 ERROR 且指定了写出方式时写文件
 ```
@@ -66,7 +67,7 @@ table-to-swc-arxml --config ./config/swc.json
 
 | 检查项 | 不满足时 |
 | --- | --- |
-| 9 个工作表都存在（可以只有表头） | `ERROR`，该表按空表处理 |
+| 未使用的工作表可省略；端口/访问点引用的 `SW-C` 必须有 Components 映射 | 缺少映射记录 `ERROR` |
 | 整本工作簿至少有一条有效记录（端口、类型、接口、访问点任一种） | `ERROR`，退出码 `1` |
 | 表头无未知列、无重复列、必填列齐全（列名不区分大小写，旧列名可识别） | `ERROR`，跳过整张表 |
 | 单元格为文本、数字或布尔值 | `ERROR`，跳过该行 |
@@ -82,22 +83,25 @@ table-to-swc-arxml --config ./config/swc.json
 | 布尔列为 `Y/N/TRUE/FALSE/YES/NO/1/0` 或空 | 所有布尔列 |
 | `Value` 为整数；`Array Size` 为正整数；`Queue Length` 为非负整数 | 对应列 |
 | `Minimum Start Interval`、`Transmission Acknowledge Timeout` 为非负数 | `P-Ports` |
-| `Direction` 为 `IN`/`OUT`/`INOUT`；`Receive Mode` 为 `Argument`/`Value`；`Array Size Semantics` 为 `FIXED-SIZE`/`VARIABLE-SIZE`；`Access Kind` 为五种类别之一 | 对应列 |
+| `Direction` 为 `IN`/`OUT`/`INOUT`；`Access Kind` 为 `Send`/`ReceiveByArgument`/`ReceiveByValue`/`Read`/`Write`；`Array Size Semantics` 为 `FIXED-SIZE`/`VARIABLE-SIZE` | 对应列 |
 | `Enable Update=Y` 与正数 `Queue Length` 不同时出现 | `R-Ports` |
-| SR P-Port 在 `Create RTE Artifact=Y` 时填写 `Runnable Name`；R-Port 填写 `Runnable Ref` | 端口页 |
+| `Create RTE Artifact=Y` 时，SR P-Port 和所有 R-Port 填写 `Runnable Name` | 端口页 |
+| 端口页 `Access Kind` 与端口方向匹配（P：`Send`/`Write`；R：`ReceiveByArgument`/`ReceiveByValue`/`Read`） | 端口页 |
+| 合法但在当前接口或 `Create RTE Artifact` 设置下不生效的 Runnable/RTE 列 | `WARNING`，列值忽略；非法值仍 `ERROR` |
+| CS 参数名、方向、类型全填或全空（全空代表无参数 operation） | `CS-Interfaces` |
 
 唯一性和一致性检查：
 
 | 范围 | 不能重复 / 必须一致 |
 | --- | --- |
-| `Components` | `SWC` 不重复，`Component Path` 不重复 |
-| 端口页 | 同一组件的端口名在 `P-Ports`、`R-Ports` 两页之间不重复；`SWC` 必须在 `Components` 中定义 |
+| `Components` | `SW-C` 不重复，`Component Path` 不重复 |
+| 端口页 | 同一组件的端口名在 `P-Ports`、`R-Ports` 两页之间不重复；`SW-C` 必须在 `Components` 中定义 |
 | `Enumerations` | 同一枚举的 `Value`、`Label` 不重复；各行的 `Target ARXML`、底层类型、计算方法和约束路径一致 |
 | `Arrays` | `Type Path` 不重复 |
 | `Structures` | 同一结构体的成员名不重复，`Target ARXML` 一致 |
 | `SR-Interfaces` | 同一接口的数据元素名不重复，`Target ARXML`、`Is Service` 一致 |
-| `CS-Interfaces` | 同一 operation 的参数名不重复，同一接口的 `Target ARXML`、`Is Service` 一致 |
-| `Data-Accesses` | `SWC` + `Runnable Ref` + `Port Name` + `Data Element Name` 组合不重复；手写的 `Access Name` 在同一 runnable 内不重复 |
+| `CS-Interfaces` | 同一 operation 的参数名不重复；无参数声明不能重复或与参数行混用；同一接口的 `Target ARXML`、`Is Service` 一致 |
+| `Data Accesses` | `SW-C` + `Runnable Name` + `Port Name` + `Data Element Name` 组合不重复；手写的 `Access Name` 在同一 runnable 内不重复 |
 
 ### 模型定位检查
 
@@ -170,7 +174,7 @@ table-to-swc-arxml --config ./config/swc.json
 | 端口 `Create RTE Artifact=Y`（SR） | 每个数据元素一个 `VARIABLE-ACCESS` | runnable 中对应的访问点容器末尾 |
 | 端口 `Create RTE Artifact=Y`（CS R-Port） | 每个 operation 一个 `SYNCHRONOUS-SERVER-CALL-POINT` | runnable 的 `SERVER-CALL-POINTS` |
 | 端口 `Create RTE Artifact=Y`（CS P-Port） | 每个 operation 一个 `RUNNABLE-ENTITY` 和一个 `OPERATION-INVOKED-EVENT` | 内部行为的 `RUNNABLES`、`EVENTS` |
-| `Data-Accesses` | 每行一个 `VARIABLE-ACCESS` | runnable 中对应的访问点容器末尾 |
+| `Data Accesses` | 每行一个 `VARIABLE-ACCESS` | runnable 中对应的访问点容器末尾 |
 
 各元素的完整 XML 结构见 [workbook-format.md](workbook-format.md)。
 

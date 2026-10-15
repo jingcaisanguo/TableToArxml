@@ -9,6 +9,7 @@ on:
       - 'table_to_system_arxml/**'
       - 'table_to_swc_arxml/**'
       - 'test/**'
+      - 'docs/user/tableToSwcArxml/*.xlsx'
       - 'requirements.txt'
       - '.github/workflows/tests.yml'
   pull_request:
@@ -16,6 +17,7 @@ on:
       - 'table_to_system_arxml/**'
       - 'table_to_swc_arxml/**'
       - 'test/**'
+      - 'docs/user/tableToSwcArxml/*.xlsx'
       - 'requirements.txt'
       - '.github/workflows/tests.yml'
 

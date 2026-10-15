@@ -3,6 +3,20 @@
 返回 [../README.md](../README.md)。配置为 [TableToSwcArxml.json](TableToSwcArxml.json)，工作簿为 [SwcTestPorts.xlsx](SwcTestPorts.xlsx)，
 使用共享清单 [../common/arxml.lst](../common/arxml.lst)。工作簿格式见 [workbook-format.md](../../docs/user/tableToSwcArxml/workbook-format.md)。
 
+## 空白模板与格式维护
+
+实际项目请使用不含样例行的 [SwcTemplate.xlsx](../../docs/user/tableToSwcArxml/SwcTemplate.xlsx)。
+本目录的 [SwcTestPorts.xlsx](SwcTestPorts.xlsx) 保留 LIT/Horn 数据，用于比较生成结果。
+两者的列定义、README、批注、下拉验证和样式由 [generate_workbooks.py](generate_workbooks.py) 统一生成：
+
+```powershell
+python test\tableToSwcArxml\generate_workbooks.py
+```
+
+该命令会重建仓库内两份工作簿；不要直接修改生成文件中的布局。验证生成器时可用
+`--output-dir <临时目录>` 输出到其他位置，不覆盖仓库文件。
+模板使用 Excel 表格自动扩展筛选范围，保留旧工作簿列名/页名兼容；运行时仍由解析器完整校验。
+
 ## 测试端口
 
 工作簿只在 `P-Ports`、`R-Ports` 中添加端口，接口使用 `System.arxml` 中已有的 `/BcmTest/PowerModeInterface`（uint8）

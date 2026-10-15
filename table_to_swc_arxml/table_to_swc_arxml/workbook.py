@@ -15,6 +15,7 @@ from typing import Callable, Sequence, cast
 from openpyxl import load_workbook
 
 from .lib.arxml_backend import (
+    ACCESS_DIRECTIONS,
     ACCESS_READ,
     ACCESS_RECEIVE_BY_ARGUMENT,
     ACCESS_RECEIVE_BY_VALUE,
@@ -30,7 +31,7 @@ Sheets = dict[str, list[tuple[object, ...]]]
 COMPONENTS_SHEET = "Components"
 P_PORTS_SHEET = "P-Ports"
 R_PORTS_SHEET = "R-Ports"
-DATA_ACCESS_SHEET = "Data-Accesses"
+DATA_ACCESS_SHEET = "Data Accesses"
 SR_INTERFACE_SHEET = "SR-Interfaces"
 CS_INTERFACE_SHEET = "CS-Interfaces"
 ENUMERATION_SHEET = "Enumerations"
@@ -40,21 +41,22 @@ STRUCTURE_SHEET = "Structures"
 P_PORT_OPTIONAL_HEADERS = (
     "Create RTE Artifact",
     "Runnable Name",
+    "Access Kind",
+    "Transmission Acknowledge Timeout",
+    "Uses End To End Protection",
     "Runnable Symbol",
     "Minimum Start Interval",
     "Can Be Invoked Concurrently",
-    "Transmission Acknowledge Timeout",
-    "Uses End To End Protection",
 )
 R_PORT_OPTIONAL_HEADERS = (
     "Create RTE Artifact",
-    "Runnable Ref",
-    "Receive Mode",
+    "Runnable Name",
+    "Access Kind",
     "Enable Update",
     "Queue Length",
 )
 
-# ``Data-Accesses`` 表 ``Access Kind`` 列的取值（比较时忽略大小写）。
+# ``Access Kind`` 列的取值（比较时忽略大小写）。
 ACCESS_KIND_LABELS = {
     "send": ACCESS_SEND,
     "receivebyargument": ACCESS_RECEIVE_BY_ARGUMENT,
@@ -77,12 +79,26 @@ BOOLEAN_LABELS = {
 BOOLEAN_CHOICES = "Y, N, TRUE, FALSE, YES, NO, 1, 0"
 ARRAY_SIZE_SEMANTICS = ("FIXED-SIZE", "VARIABLE-SIZE")
 CS_ARGUMENT_DIRECTIONS = ("IN", "OUT", "INOUT")
-RECEIVE_MODES = ("argument", "value")
+ACCESS_KIND_CHOICES = (
+    "Send",
+    "ReceiveByArgument",
+    "ReceiveByValue",
+    "Read",
+    "Write",
+)
+ACCESS_KIND_ALIASES = {
+    "argument": ACCESS_RECEIVE_BY_ARGUMENT,
+    "value": ACCESS_RECEIVE_BY_VALUE,
+}
 
 # 旧工作簿列名映射到当前规范名称；解析按名称进行，不依赖列顺序。
 HEADER_ALIASES = {
     "create access": "Create RTE Artifact",
     "runnable": "Runnable Name",
+    "runnable ref": "Runnable Name",
+    "swc": "SW-C",
+    "receive mode": "Access Kind",
+    "base type ref": "Implementation Data Type Ref",
     "transmission acknowledge": "Transmission Acknowledge Timeout",
     "queuelength": "Queue Length",
     "data element": "Data Element Name",
@@ -182,8 +198,9 @@ class PortSpec:
 
     ComSpec 列按 AUTOSAR 规则分方向取值：``enable_update`` 和 ``queue_length`` 只存在于
     R-Port（且互斥），``ack_timeout`` 和 ``uses_protection`` 只存在于 P-Port。
-    ``runnable_name`` 来自 P-Ports 的 ``Runnable Name``：SR 接口为已有 runnable，CS 接口为新建
-    runnable 的名称；``runnable_ref`` 来自 R-Ports 的 ``Runnable Ref``，总是已有 runnable。
+    ``runnable_name`` 在 P-Ports 中表示 SR 接口的已有 runnable 或 CS 接口的新建 runnable 名称；
+    在 R-Ports 中表示已有 runnable 的简称。``provided_fields`` 记录用户显式填写的可选列，
+    供后续在某些设置不适用时给出警告。
     """
 
     component_key: str
@@ -197,10 +214,11 @@ class PortSpec:
     runnable_name: str = ""
     runnable_ref: str = ""
     create_rte_artifact: bool = False
-    receive_by_value: bool = False
+    access_kind: str = ""
     runnable_symbol: str = ""
     minimum_start_interval: float = 0.0
     can_be_invoked_concurrently: bool = False
+    provided_fields: frozenset[str] = frozenset()
 
     @property
     def element_name(self) -> str:
@@ -217,14 +235,14 @@ class PortSpec:
 
     @property
     def access_runnable(self) -> str:
-        """SR 数据访问点所在的已有 runnable：P-Port 取 Runnable Name，R-Port 取 Runnable Ref。"""
+        """SR 数据访问点所在的已有 runnable 名称。"""
 
-        return self.runnable_name if self.direction == "P" else self.runnable_ref
+        return self.runnable_name
 
 
 @dataclass(frozen=True)
 class AccessSpec:
-    """``Data-Accesses`` 表中的一条数据访问点请求；``data_element``、``kind``、``name`` 为空表示交由脚本推导。"""
+    """``Data Accesses`` 表中的一条数据访问点请求；``data_element``、``kind``、``name`` 为空表示交由脚本推导。"""
 
     component_key: str
     runnable_ref: str
@@ -277,6 +295,15 @@ def load_workbook_sheets(workbook_path: Path) -> Sheets:
         workbook.close()
 
 
+def _sheet_matches(sheets: Sheets, sheet_name: str) -> list[str]:
+    aliases = {
+        DATA_ACCESS_SHEET: ("Data-Accesses",),
+    }
+    accepted_names = {sheet_name.casefold()}
+    accepted_names.update(alias.casefold() for alias in aliases.get(sheet_name, ()))
+    return [name for name in sheets if name.casefold() in accepted_names]
+
+
 def parse_flag(label: str, column: str, context: str) -> bool | None:
     """解析布尔列；空值为否，非法取值记录 error 并返回 ``None``。"""
 
@@ -319,14 +346,18 @@ def read_sheet_rows(
 ) -> list[dict[str, str]]:
     """校验一张工作表的表头并返回非空数据行。
 
-    只有表头而无数据行时返回空列表，因此工作簿可以只填 P-Port 或只填 R-Port。
+    未使用的工作表可省略；只有表头而无数据行时也返回空列表。
     ``optional_headers`` 中的列允许为空，且允许整列缺失。列顺序任意；未知列、
     重复列或缺少必填列时记录 error 并跳过整张表。
     """
-    if sheet_name not in sheets:
-        LOGGER.error("Worksheet not found: %s", sheet_name)
+    matches = _sheet_matches(sheets, sheet_name)
+    if not matches:
+        LOGGER.debug("Optional worksheet not present: %s", sheet_name)
         return []
-    rows = sheets[sheet_name]
+    if len(matches) > 1:
+        LOGGER.error("Multiple worksheets match %s: %s", sheet_name, ", ".join(matches))
+        return []
+    rows = sheets[matches[0]]
 
     if not rows or not any(value is not None for value in rows[0]):
         return []
@@ -347,11 +378,6 @@ def read_sheet_rows(
     headers = []
     for header in raw_headers:
         alias = HEADER_ALIASES.get(header.casefold(), header)
-        if header.casefold() == "runnable" and alias.casefold() not in canonical:
-            alias = next(
-                (name for name in required + optional if name.startswith("Runnable ")),
-                alias,
-            )
         headers.append(canonical.get(alias.casefold(), alias))
     folded = [header.casefold() for header in headers]
     duplicates = sorted(
@@ -640,24 +666,33 @@ def read_sr_interfaces(sheets: Sheets, project_root: Path) -> list[InterfaceSpec
 
 
 def read_cs_interfaces(sheets: Sheets, project_root: Path) -> list[ClientServerInterfaceSpec]:
-    """读取 CS 接口，并按接口和 operation 聚合参数。"""
+    """读取 CS 接口；参数三列全空表示无参数 operation，不能与有参数的同名定义混用。"""
 
     rows = read_sheet_rows(
         sheets,
         CS_INTERFACE_SHEET,
-        ("Interface Path", "Operation Name", "Argument Name", "Direction", "Data Type Ref", "Target ARXML"),
-        ("Is Service",),
+        ("Interface Path", "Operation Name", "Target ARXML"),
+        ("Argument Name", "Direction", "Data Type Ref", "Is Service"),
     )
     groups: dict[str, tuple[dict[str, object], dict[str, list[tuple[str, str, str]]]]] = {}
     for row in rows:
         path = row["Interface Path"]
         context = f"CS interface {path}"
-        if not _check_type_path(path, "CS interface") or not _check_reference(
-            row["Data Type Ref"], "Data Type Ref", context
-        ):
+        if not _check_type_path(path, "CS interface"):
+            continue
+        argument_columns = ("Argument Name", "Direction", "Data Type Ref")
+        has_argument = any(row[name] for name in argument_columns)
+        if has_argument and not all(row[name] for name in argument_columns):
+            LOGGER.error(
+                "Skipped %s operation %s: Argument Name, Direction and Data Type Ref "
+                "must be all filled or all empty",
+                context, row["Operation Name"],
+            )
+            continue
+        if has_argument and not _check_reference(row["Data Type Ref"], "Data Type Ref", context):
             continue
         direction = row["Direction"].upper()
-        if direction not in CS_ARGUMENT_DIRECTIONS:
+        if has_argument and direction not in CS_ARGUMENT_DIRECTIONS:
             LOGGER.error(
                 "Skipped %s argument %s: Direction must be IN, OUT or INOUT", context, row["Argument Name"]
             )
@@ -673,7 +708,16 @@ def read_cs_interfaces(sheets: Sheets, project_root: Path) -> list[ClientServerI
         )
         if operations is None:
             continue
-        arguments = operations.setdefault(row["Operation Name"], [])
+        operation = row["Operation Name"]
+        if operation in operations and (not has_argument or not operations[operation]):
+            LOGGER.error(
+                "Skipped %s operation %s: duplicate or conflicting zero-argument declaration",
+                context, operation,
+            )
+            continue
+        arguments = operations.setdefault(operation, [])
+        if not has_argument:
+            continue
         if _is_duplicate(arguments, row["Argument Name"], "argument", f"CS operation {path}/{row['Operation Name']}"):
             continue
         arguments.append((row["Argument Name"], row["Data Type Ref"], direction))
@@ -734,12 +778,12 @@ def _read_port(
     """把端口页的一行转为 :class:`PortSpec`；不合法时记录 error 并返回 ``None``。"""
 
     port_name = row["Port Name"]
-    if row["SWC"] not in components:
+    if row["SW-C"] not in components:
         LOGGER.error(
-            "Skipped port %s in %s: SWC %s is not defined in the Components sheet",
+            "Skipped port %s in %s: SW-C %s is not defined in the Components sheet",
             port_name,
             sheet_name,
-            row["SWC"],
+            row["SW-C"],
         )
         return None
     if not row["Port Interface Ref"].startswith("/"):
@@ -760,18 +804,32 @@ def _read_port(
     )
     if create_rte_artifact is None:
         return None
-    receive_mode = row.get("Receive Mode", "")
-    if receive_mode and receive_mode.casefold() not in RECEIVE_MODES:
+    access_kind_label = row.get("Access Kind", "")
+    access_kind = (
+        ACCESS_KIND_LABELS.get(access_kind_label.casefold())
+        or ACCESS_KIND_ALIASES.get(access_kind_label.casefold(), "")
+    )
+    if access_kind_label and not access_kind:
         LOGGER.error(
-            "Skipped port %s in %s: Receive Mode must be Argument or Value: %s",
+            "Skipped port %s in %s: Access Kind must be one of %s: %s",
             port_name,
             sheet_name,
-            receive_mode,
+            ", ".join(ACCESS_KIND_CHOICES),
+            access_kind_label,
         )
         return None
-    if create_rte_artifact and direction == "R" and not row.get("Runnable Ref", ""):
+    if access_kind and ACCESS_DIRECTIONS[access_kind] != direction:
         LOGGER.error(
-            "Skipped port %s in %s: Runnable Ref is required when Create RTE Artifact is Y",
+            "Skipped port %s in %s: Access Kind %s requires a %s-Port",
+            port_name,
+            sheet_name,
+            access_kind_label,
+            ACCESS_DIRECTIONS[access_kind],
+        )
+        return None
+    if create_rte_artifact and direction == "R" and not row.get("Runnable Name", ""):
+        LOGGER.error(
+            "Skipped port %s in %s: Runnable Name is required when Create RTE Artifact is Y",
             port_name,
             sheet_name,
         )
@@ -792,7 +850,7 @@ def _read_port(
             return None
         concurrent = concurrent_value
     return PortSpec(
-        component_key=row["SWC"],
+        component_key=row["SW-C"],
         name=port_name,
         interface_path=row["Port Interface Ref"],
         direction=direction,
@@ -801,12 +859,23 @@ def _read_port(
         ack_timeout=ack_timeout,
         uses_protection=uses_protection,
         runnable_name=row.get("Runnable Name", ""),
-        runnable_ref=row.get("Runnable Ref", ""),
+        runnable_ref=row.get("Runnable Name", ""),
         create_rte_artifact=create_rte_artifact,
-        receive_by_value=receive_mode.casefold() == "value",
+        access_kind=access_kind,
         runnable_symbol=row.get("Runnable Symbol", ""),
         minimum_start_interval=minimum_start_interval,
         can_be_invoked_concurrently=concurrent,
+        provided_fields=frozenset(
+            name
+            for name in (
+                "Runnable Name",
+                "Runnable Symbol",
+                "Minimum Start Interval",
+                "Can Be Invoked Concurrently",
+                "Access Kind",
+            )
+            if row.get(name, "")
+        ),
     )
 
 
@@ -818,8 +887,8 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
     """
     components: dict[str, ComponentSpec] = {}
     paths: set[str] = set()
-    for row in read_sheet_rows(sheets, COMPONENTS_SHEET, ("SWC", "Component Path")):
-        key = row["SWC"]
+    for row in read_sheet_rows(sheets, COMPONENTS_SHEET, ("SW-C", "Component Path")):
+        key = row["SW-C"]
         path = row["Component Path"]
         if not path.startswith("/"):
             LOGGER.error("Skipped component %s: path must be absolute: %s", key, path)
@@ -840,7 +909,7 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
         (R_PORTS_SHEET, "R", R_PORT_OPTIONAL_HEADERS),
     ):
         rows = read_sheet_rows(
-            sheets, sheet_name, ("SWC", "Port Name", "Port Interface Ref"), optional_headers
+            sheets, sheet_name, ("SW-C", "Port Name", "Port Interface Ref"), optional_headers
         )
         for row in rows:
             port = _read_port(row, sheet_name, direction, components)
@@ -861,7 +930,7 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
 
 
 def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> list[AccessSpec]:
-    """读取 ``Data-Accesses`` 表，返回逐条访问点请求。
+    """读取 ``Data Accesses`` 表，返回逐条访问点请求。
 
     只做与 ARXML 无关的静态校验：组件必须在 ``Components`` 表中出现、
     ``Access Kind`` 必须是已知取值、同一端口的同一数据元素不能重复。
@@ -869,17 +938,17 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
     rows = read_sheet_rows(
         sheets,
         DATA_ACCESS_SHEET,
-        ("SWC", "Runnable Ref", "Port Name"),
+        ("SW-C", "Runnable Name", "Port Name"),
         ("Data Element Name", "Access Kind", "Access Name"),
     )
 
     specs: list[AccessSpec] = []
     seen: set[tuple[str, str, str, str]] = set()
     for row in rows:
-        component_key = row["SWC"]
+        component_key = row["SW-C"]
         if component_key not in components:
             LOGGER.error(
-                "Skipped data access for port %s: SWC %s is not defined in the Components sheet",
+                "Skipped data access for port %s: SW-C %s is not defined in the Components sheet",
                 row["Port Name"],
                 component_key,
             )
@@ -890,14 +959,19 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
         if label and not kind:
             LOGGER.error(
                 "Skipped data access %s/%s: unknown Access Kind %r, expected one of %s",
-                row["Runnable Ref"],
+                row["Runnable Name"],
                 row["Port Name"],
                 label,
                 ", ".join(sorted(ACCESS_KIND_LABELS)),
             )
             continue
 
-        unique = (component_key, row["Runnable Ref"], row["Port Name"], row.get("Data Element Name", ""))
+        unique = (
+            component_key,
+            row["Runnable Name"],
+            row["Port Name"],
+            row.get("Data Element Name", ""),
+        )
         if unique in seen:
             LOGGER.error("Skipped duplicate data access row: %s / %s / %s / %s", *unique)
             continue
@@ -905,7 +979,7 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
         specs.append(
             AccessSpec(
                 component_key=component_key,
-                runnable_ref=row["Runnable Ref"],
+                runnable_ref=row["Runnable Name"],
                 port_name=row["Port Name"],
                 data_element=row.get("Data Element Name", ""),
                 kind=kind,
