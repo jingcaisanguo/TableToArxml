@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from helpers import ROOT, SWC, run_python, run_tool
 
-CONFIG = ROOT / "test/tableToSwcArxml/TableToSwcArxml.json"
+CONFIG = ROOT / "test/samples/swc/TableToSwcArxml.json"
 
 
 def test_help_and_option_parsing_do_not_import_armodel():

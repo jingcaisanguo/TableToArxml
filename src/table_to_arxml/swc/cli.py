@@ -68,7 +68,10 @@ def run(options: Options) -> int:
         LOGGER.error("Validation failed with %d error(s); no ARXML files were written", errors.count)
         return 1
     if options.in_place or options.output_dir is not None:
-        write_changes(store.modified(), options.in_place, options.output_dir, options.project_root)
+        write_changes(
+            store.modified(), options.in_place, options.output_dir, options.project_root,
+            tuple(store.source_files),
+        )
     else:
         LOGGER.info("Dry run successful; use --in-place or --output-dir to write ARXML")
     return 0

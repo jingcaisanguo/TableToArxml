@@ -1,0 +1,62 @@
+"""Filesystem path matching and output identity checks shared by both tools."""
+
+from __future__ import annotations
+
+import glob
+import os
+from pathlib import Path, PureWindowsPath
+from typing import Iterable
+
+
+def filesystem_path(value: str) -> Path:
+    if os.name != "nt" and PureWindowsPath(value).drive:
+        raise ValueError(f"Windows drive/UNC path cannot be used on this platform: {value}")
+    if "${" in value:
+        raise ValueError(f"Unresolved placeholder in filesystem path: {value}")
+    path = Path(value.replace("\\", os.sep).replace("/", os.sep))
+    if not path.is_absolute() and (path.drive or path.root):
+        raise ValueError(f"Path must be absolute or relative to the working directory: {value}")
+    return path
+
+
+def expand_path(entry: Path, base_dir: Path) -> list[Path]:
+    """Prefer an existing literal path; expand only the caller's path expression."""
+
+    candidate = entry if entry.is_absolute() else base_dir / entry
+    if candidate.exists() or not glob.has_magic(str(entry)):
+        return [candidate]
+    # Existing directory names (including brackets) are literals, not glob syntax.
+    parent = candidate
+    tail: list[str] = []
+    while not parent.is_dir() and parent != parent.parent:
+        tail.append(parent.name)
+        parent = parent.parent
+    pattern = str(Path(glob.escape(str(parent))).joinpath(*reversed(tail)))
+    return sorted((Path(match) for match in glob.glob(pattern, recursive=True)),
+                  key=lambda path: str(path).casefold())
+
+
+def same_file(first: Path, second: Path) -> bool:
+    if first.resolve() == second.resolve():
+        return True
+    return first.exists() and second.exists() and first.samefile(second)
+
+
+def validate_output_paths(destinations: Iterable[Path], protected: Iterable[Path] = ()) -> None:
+    """Reject duplicate outputs and aliases of protected input files before writing."""
+
+    seen: list[Path] = []
+    keys: set[str] = set()
+    sources = tuple(protected)
+    for destination in destinations:
+        key = str(destination.resolve()).casefold()
+        if key in keys or any(same_file(destination, previous) for previous in seen):
+            raise ValueError(f"Conflicting output path: {destination}")
+        for source in sources:
+            if same_file(destination, source):
+                raise ValueError(
+                    f"Output path overlaps an input file: {destination} -> {source}; "
+                    "use --in-place explicitly to overwrite source ARXML"
+                )
+        keys.add(key)
+        seen.append(destination)

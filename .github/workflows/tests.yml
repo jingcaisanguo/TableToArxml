@@ -1,6 +1,7 @@
 name: Tests
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches:
@@ -9,19 +10,27 @@ on:
       - 'src/**'
       - 'test/**'
       - 'tools/**'
+      - 'docs/user/swc/*.xlsx'
+      - 'docs/**/*.md'
       - 'docs/user/tableToSwcArxml/*.xlsx'
+      - 'README.md'
+      - 'init_venv.sh'
       - 'pyproject.toml'
       - 'requirements.txt'
-      - '.github/workflows/tests.yml'
+      - '.github/workflows/**'
   pull_request:
     paths:
       - 'src/**'
       - 'test/**'
       - 'tools/**'
+      - 'docs/user/swc/*.xlsx'
+      - 'docs/**/*.md'
       - 'docs/user/tableToSwcArxml/*.xlsx'
+      - 'README.md'
+      - 'init_venv.sh'
       - 'pyproject.toml'
       - 'requirements.txt'
-      - '.github/workflows/tests.yml'
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -33,12 +42,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         armodel: ['1.8.7', '1.9.2']
+        python: ['3.9', '3.13']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: ${{ matrix.python }}
       - name: Install dependencies
         run: >-
           python -m pip install "armodel==${{ matrix.armodel }}"
@@ -49,3 +59,6 @@ jobs:
         run: python -m ruff check
       - name: Run tests
         run: python -m pytest -q
+      - name: Check environment script syntax
+        shell: bash
+        run: bash -n init_venv.sh

@@ -54,7 +54,7 @@ def test_merge_green_workbooks_with_colliding_names(tmp_path):
 
 
 def test_sample_green_tables_merge(tmp_path):
-    tables = sorted((ROOT / "test/tableToSystemArxml/GreenTable/Bcm").glob("*.xlsx"))
+    tables = sorted((ROOT / "test/samples/system/GreenTable/Bcm").glob("*.xlsx"))
     merged = merge_green_workbooks([(path.stem, path) for path in tables], tmp_path / "merged.xlsx")
     result = load_workbook(merged, read_only=True)
     try:

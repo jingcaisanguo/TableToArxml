@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Sequence
 
 from ..common.output import write_files_atomically
+from ..common.messages import clean_message
+from ..common.paths import validate_output_paths
 from .arxml_model import ArxmlDocument, DocumentSummary, load_document, load_generation
 
 LOGGER = logging.getLogger(__name__)
@@ -22,8 +24,8 @@ def load_bytes(source: bytes) -> tuple[ArxmlDocument, list[str]]:
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".arxml", delete=False) as temporary:
-            temporary.write(source)
             temporary_path = Path(temporary.name)
+            temporary.write(source)
         return load_document(temporary_path)
     finally:
         if temporary_path is not None:
@@ -38,7 +40,8 @@ class SourceStore:
     之后既未加载其他文件也未被修改的文档；组件和接口摘要按文件版本缓存。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, source_files: Sequence[Path] = ()) -> None:
+        self.source_files = set(source_files)
         self._buffers: dict[Path, bytes] = {}
         self._versions: dict[Path, int] = defaultdict(int)
         self._short_name_index: dict[str, list[Path]] | None = None
@@ -49,9 +52,11 @@ class SourceStore:
         self.definitions: dict[tuple[str, str], tuple[Path, str] | None] = {}
 
     def read(self, path: Path) -> bytes:
-        return self._buffers.get(path, b"") or path.read_bytes()
+        self.source_files.add(path)
+        return self._buffers[path] if path in self._buffers else path.read_bytes()
 
     def write(self, path: Path, document: bytes) -> None:
+        self.source_files.add(path)
         self._buffers[path] = document
         self._versions[path] += 1
         self._short_name_index = None
@@ -71,7 +76,8 @@ class SourceStore:
         for arxml_file in arxml_files:
             try:
                 text = self.read(arxml_file).decode("utf-8-sig")
-            except UnicodeDecodeError:
+            except UnicodeDecodeError as error:
+                LOGGER.error("Cannot read UTF-8 ARXML %s: %s", arxml_file, clean_message(error))
                 continue
             # 同一文件里重复出现的简称只记一次，否则同一个定义会被误报为多个定义。
             for short_name in {match.group(1) for match in SHORT_NAME_PATTERN.finditer(text)}:
@@ -79,6 +85,34 @@ class SourceStore:
         self._short_name_index = dict(index)
         self._short_name_index_key = key
         return self._short_name_index
+
+    def check_definition_target(self, element_paths: Sequence[str], target_file: Path) -> bool:
+        """A package element must not duplicate a definition in another input or target."""
+
+        self.source_files.add(target_file)
+        index = self.short_name_index(sorted(self.source_files))
+        valid = True
+        for element_path in element_paths:
+            name = element_path.rsplit("/", 1)[-1]
+            for candidate in index.get(name, ()):
+                if candidate == target_file:
+                    continue
+                try:
+                    exists = self.load(candidate).element_exists(element_path)
+                except (OSError, ValueError, RuntimeError, SyntaxError) as error:
+                    LOGGER.error(
+                        "Cannot check definition %s in %s: %s", element_path, candidate, clean_message(error)
+                    )
+                    valid = False
+                    continue
+                if exists:
+                    LOGGER.error(
+                        "Definition %s already exists in another file: %s; "
+                        "Target ARXML %s would duplicate it; use the existing file or a different name",
+                        element_path, candidate, target_file,
+                    )
+                    valid = False
+        return valid
 
     def load(self, path: Path) -> ArxmlDocument:
         """按缓存内容加载文档；原始文件的解析诊断只在首次解析时记录一次。"""
@@ -117,7 +151,7 @@ def output_path(source_file: Path, output_dir: Path, project_root: Path) -> Path
     """把工程内的源文件映射到输出目录下的相同相对路径。"""
 
     try:
-        relative_path = source_file.relative_to(project_root)
+        relative_path = source_file.resolve().relative_to(project_root.resolve())
     except ValueError as error:
         raise ValueError(f"Target ARXML is outside projectRoot: {source_file}") from error
     return output_dir / relative_path
@@ -128,6 +162,7 @@ def write_changes(
     in_place: bool,
     output_dir: Path | None,
     project_root: Path,
+    source_files: Sequence[Path] = (),
 ) -> list[Path]:
     """原子写出字节发生变化的文件并返回写出的路径；无实际修改时不触碰任何文件。"""
 
@@ -138,6 +173,11 @@ def write_changes(
         for source_file, document in modified.items()
         if document != source_file.read_bytes()
     ]
+    if not in_place:
+        validate_output_paths(
+            (destination for destination, _document in contents),
+            {*modified, *source_files},
+        )
     write_files_atomically(contents)
     for destination, _document in contents:
         LOGGER.info("ARXML written to: %s", destination)

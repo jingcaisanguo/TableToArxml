@@ -11,7 +11,5 @@ dist/
 log/
 output/
 
-# 本地构建的 wheel 输出到 dist/
-
 # Excel 打开时生成的锁文件
 ~$*

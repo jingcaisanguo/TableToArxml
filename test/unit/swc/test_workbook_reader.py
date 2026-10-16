@@ -95,3 +95,43 @@ def test_invalid_queue_length_still_fails(reader, queue, caplog):
     })
     assert not ports
     assert "Queue Length must be a non-negative integer" in caplog.text
+
+
+def test_blank_header_does_not_shift_optional_flags(reader, caplog):
+    _, ports = reader.read_workbook({
+        "Components": [("SW-C", "Component Path"), ("A", "/Pkg/A")],
+        "P-Ports": [
+            ("SW-C", "Port Name", "Port Interface Ref", None, "Create RTE Artifact"),
+            ("A", "p_Test", "/Pkg/If", None, "Y"),
+        ],
+    })
+    assert ports == []
+    assert "Skipped worksheet P-Ports" in caplog.text
+
+
+def test_data_beyond_last_header_is_rejected(reader, caplog):
+    records = reader.read_sheet_rows({
+        "Components": [("SW-C", "Component Path", None), ("A", "/Pkg/A", "unexpected")],
+    }, "Components")
+    assert records == []
+    assert "data under a blank header" in caplog.text
+
+
+@pytest.mark.parametrize("name", ["bad/name", "bad name", "1port", "_port", "P" * 129])
+def test_invalid_new_port_names_are_rejected(reader, caplog, name):
+    _, ports = reader.read_workbook({
+        "Components": [("SW-C", "Component Path"), ("A", "/Pkg/A")],
+        "P-Ports": [("SW-C", "Port Name", "Port Interface Ref"), ("A", name, "/Pkg/If")],
+    })
+    assert ports == []
+    assert "AUTOSAR SHORT-NAME" in caplog.text
+
+
+@pytest.mark.parametrize("path", ["/Pkg//If", "/Pkg/If/", "/Pkg/bad-name", "Pkg/If"])
+def test_malformed_autosar_references_are_rejected(reader, caplog, path):
+    _, ports = reader.read_workbook({
+        "Components": [("SW-C", "Component Path"), ("A", "/Pkg/A")],
+        "P-Ports": [("SW-C", "Port Name", "Port Interface Ref"), ("A", "port", path)],
+    })
+    assert ports == []
+    assert "Port Interface Ref" in caplog.text

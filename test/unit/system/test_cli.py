@@ -61,3 +61,51 @@ def test_strict_list_option_fails_on_missing_entries(tmp_path):
     assert strict.returncode == 1
     assert "Listed ARXML not found" in strict.stderr
     assert not (tmp_path / "strict").exists()
+
+
+def test_case_only_output_prefixes_are_rejected(tmp_path):
+    write_model(tmp_path)
+    write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
+    first = write_config(tmp_path, outputPrefix="Pair")
+    first.rename(tmp_path / "first.json")
+    second = write_config(tmp_path, outputPrefix="pair")
+    result = run_tool(SYSTEM, "--config", tmp_path / "first.json", "--config", second)
+    assert result.returncode == 2, result.stderr
+    assert "Conflicting output path" in result.stderr
+    assert not (tmp_path / "out").exists()
+    assert not (tmp_path / "log").exists()
+
+
+@pytest.mark.parametrize("unused", [
+    {"tresosPreferenceFiles": {"unused": True}},
+    {"tresosOutputBaseDir": "${notUsed}", "buildType": ["unused"]},
+])
+def test_list_mode_ignores_all_unused_eb_options(tmp_path, unused):
+    write_model(tmp_path)
+    write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
+    result = run_tool(SYSTEM, "--config", write_config(tmp_path, **unused))
+    assert result.returncode == 0, result.stderr
+
+
+def test_cli_overrides_are_applied_before_json_value_validation(tmp_path):
+    write_model(tmp_path)
+    white = write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
+    config = write_config(
+        tmp_path, outputDir="", logDir=[], arxmlFileList=None, whiteTable=42,
+        strictList="invalid", logLevel="invalid", excludeArxml=42, projectRoot=None,
+    )
+    result = run_tool(
+        SYSTEM, "--config", config, "--output-dir", tmp_path / "out",
+        "--log-dir", tmp_path / "log", "--project-root", tmp_path,
+        "--arxml-file-list", tmp_path / "model.lst", "--white-table", white,
+        "--strict-list", "--log-level", "INFO", "--exclude-arxml", "unused.arxml",
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_cli_list_override_ignores_eb_configuration(tmp_path):
+    write_model(tmp_path)
+    write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
+    config = write_config(tmp_path, tresosPreferenceFiles={"unused": True}, arxmlFileList=None)
+    result = run_tool(SYSTEM, "--config", config, "--arxml-file-list", tmp_path / "model.lst")
+    assert result.returncode == 0, result.stderr

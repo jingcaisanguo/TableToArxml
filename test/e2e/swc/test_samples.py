@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import subprocess
 import xml.etree.ElementTree as ET
 
 import pytest
 from openpyxl import load_workbook
 
 from helpers import NS, ROOT, SWC, assert_matches_baseline, run_tool
+from swc_fixtures import TWINS, run_twins
 
 def test_swc_sample(tmp_path):
-    workbook = load_workbook(ROOT / "test/tableToSwcArxml/SwcTestPorts.xlsx")
+    workbook = load_workbook(ROOT / "test/samples/swc/SwcTestPorts.xlsx")
     try:
         assert workbook.sheetnames == [
             "README", "Components", "Enumerations", "Arrays", "Structures",
@@ -33,18 +33,18 @@ def test_swc_sample(tmp_path):
         workbook.close()
 
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/tableToSwcArxml/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
         "--output-dir", tmp_path / "out", "--log-dir", tmp_path / "log",
     )
     assert result.returncode == 0, result.stderr
     produced = sorted((tmp_path / "out").rglob("*.arxml"))
     assert sorted(path.name for path in produced) == ["Horn.arxml", "LIT.arxml"]
     for path in produced:
-        assert_matches_baseline(path, ROOT / "test/tableToSwcArxml/expected" / path.name)
+        assert_matches_baseline(path, ROOT / "test/samples/swc/expected" / path.name)
 
 
 def test_swc_warns_for_ignored_port_columns(tmp_path):
-    workbook = load_workbook(ROOT / "test/tableToSwcArxml/SwcTestPorts.xlsx")
+    workbook = load_workbook(ROOT / "test/samples/swc/SwcTestPorts.xlsx")
     for sheet_name, row_number, values in (
         (
             "P-Ports",
@@ -70,7 +70,7 @@ def test_swc_warns_for_ignored_port_columns(tmp_path):
     workbook.close()
 
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/tableToSwcArxml/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
         "--workbook", tmp_path / "ports.xlsx", "--output-dir", tmp_path / "out",
         "--log-dir", tmp_path / "log",
     )
@@ -78,11 +78,11 @@ def test_swc_warns_for_ignored_port_columns(tmp_path):
     assert "do not apply to P-Port" in result.stderr
     assert "do not apply to R-Port" in result.stderr
     for path in (tmp_path / "out").rglob("*.arxml"):
-        assert_matches_baseline(path, ROOT / "test/tableToSwcArxml/expected" / path.name)
+        assert_matches_baseline(path, ROOT / "test/samples/swc/expected" / path.name)
 
 
 def test_swc_accepts_legacy_headers_and_case_insensitive_sheet_names(tmp_path):
-    workbook = load_workbook(ROOT / "test/tableToSwcArxml/SwcTestPorts.xlsx")
+    workbook = load_workbook(ROOT / "test/samples/swc/SwcTestPorts.xlsx")
     final_titles = {}
     for sheet in workbook.worksheets:
         for cell in sheet[1]:
@@ -105,67 +105,13 @@ def test_swc_accepts_legacy_headers_and_case_insensitive_sheet_names(tmp_path):
     workbook.close()
 
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/tableToSwcArxml/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
         "--workbook", tmp_path / "legacy-ports.xlsx", "--output-dir", tmp_path / "out",
         "--log-dir", tmp_path / "log",
     )
     assert result.returncode == 0, result.stderr
     for path in (tmp_path / "out").rglob("*.arxml"):
-        assert_matches_baseline(path, ROOT / "test/tableToSwcArxml/expected" / path.name)
-
-
-COMPONENT = """        <APPLICATION-SW-COMPONENT-TYPE>
-          <SHORT-NAME>{name}</SHORT-NAME>
-          <PORTS></PORTS>
-          <INTERNAL-BEHAVIORS>
-            <SWC-INTERNAL-BEHAVIOR>
-              <SHORT-NAME>IB</SHORT-NAME>
-              <RUNNABLES>
-                <RUNNABLE-ENTITY>
-                  <SHORT-NAME>Run</SHORT-NAME>
-                  <MINIMUM-START-INTERVAL>0.0</MINIMUM-START-INTERVAL>
-                  <CAN-BE-INVOKED-CONCURRENTLY>false</CAN-BE-INVOKED-CONCURRENTLY>
-                  <DATA-SEND-POINTS></DATA-SEND-POINTS>
-                  <DATA-READ-ACCESSS></DATA-READ-ACCESSS>
-                  <DATA-WRITE-ACCESSS></DATA-WRITE-ACCESSS>
-                  <SYMBOL>{name}_Run</SYMBOL>
-                </RUNNABLE-ENTITY>
-              </RUNNABLES>
-            </SWC-INTERNAL-BEHAVIOR>
-          </INTERNAL-BEHAVIORS>
-        </APPLICATION-SW-COMPONENT-TYPE>
-"""
-
-TWINS = """<?xml version="1.0" encoding="UTF-8"?>
-<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-3-0.xsd">
-  <AR-PACKAGES>
-    <AR-PACKAGE>
-      <SHORT-NAME>Pkg</SHORT-NAME>
-      <ELEMENTS>
-        <SENDER-RECEIVER-INTERFACE>
-          <SHORT-NAME>If</SHORT-NAME>
-          <IS-SERVICE>false</IS-SERVICE>
-          <DATA-ELEMENTS>
-            <VARIABLE-DATA-PROTOTYPE>
-              <SHORT-NAME>If</SHORT-NAME>
-              <TYPE-TREF DEST="IMPLEMENTATION-DATA-TYPE">/Pkg/uint8</TYPE-TREF>
-            </VARIABLE-DATA-PROTOTYPE>
-          </DATA-ELEMENTS>
-        </SENDER-RECEIVER-INTERFACE>
-        <CLIENT-SERVER-INTERFACE>
-          <SHORT-NAME>CsIf</SHORT-NAME>
-          <IS-SERVICE>false</IS-SERVICE>
-          <OPERATIONS>
-            <CLIENT-SERVER-OPERATION>
-              <SHORT-NAME>Op</SHORT-NAME>
-            </CLIENT-SERVER-OPERATION>
-          </OPERATIONS>
-        </CLIENT-SERVER-INTERFACE>
-""" + COMPONENT.format(name="A") + COMPONENT.format(name="B") + """      </ELEMENTS>
-    </AR-PACKAGE>
-  </AR-PACKAGES>
-</AUTOSAR>
-"""
+        assert_matches_baseline(path, ROOT / "test/samples/swc/expected" / path.name)
 
 
 def component_block(data: bytes, name: str) -> bytes:
@@ -187,7 +133,7 @@ def test_swc_same_named_runnables_in_one_file(tmp_path):
     source.write_text(TWINS, encoding="utf-8")
     (tmp_path / "arxml.lst").write_text("twins.arxml\n", encoding="utf-8")
 
-    workbook = load_workbook(ROOT / "test/tableToSwcArxml/SwcTestPorts.xlsx")
+    workbook = load_workbook(ROOT / "test/samples/swc/SwcTestPorts.xlsx")
     for sheet in workbook.worksheets[1:]:
         sheet.delete_rows(2, sheet.max_row)
 
@@ -227,37 +173,6 @@ def test_swc_same_named_runnables_in_one_file(tmp_path):
     assert short_names(runnable, "ar:SERVER-CALL-POINTS/*") == ["scp_r_Cs_Op"]
 
 
-
-
-def run_twins(
-    tmp_path, rows: dict[str, list[dict[str, str]]], *, minimal: bool = False
-) -> subprocess.CompletedProcess:
-    """在 TWINS 模型上按 ``rows`` 填写工作簿并运行 SWC 工具；键名中的空格和连字符写成下划线。"""
-
-    (tmp_path / "twins.arxml").write_text(TWINS, encoding="utf-8")
-    (tmp_path / "arxml.lst").write_text("twins.arxml\n", encoding="utf-8")
-    workbook = load_workbook(ROOT / "test/tableToSwcArxml/SwcTestPorts.xlsx")
-    for sheet in workbook.worksheets[1:]:
-        sheet.delete_rows(2, sheet.max_row)
-    if minimal:
-        for sheet in list(workbook):
-            if sheet.title not in rows:
-                workbook.remove(sheet)
-    for sheet_name, sheet_rows in rows.items():
-        sheet = workbook[sheet_name]
-        for values in sheet_rows:
-            sheet.append([
-                values.get(str(cell.value).replace(" ", "_").replace("-", "_")) for cell in sheet[1]
-            ])
-    workbook.save(tmp_path / "ports.xlsx")
-    workbook.close()
-    return run_tool(
-        SWC, "--project-root", tmp_path, "--arxml-file-list", tmp_path / "arxml.lst",
-        "--workbook", tmp_path / "ports.xlsx", "--log-dir", tmp_path / "log",
-        "--output-dir", tmp_path / "out",
-    )
-
-
 def test_swc_port_access_kind_creates_implicit_sr_accesses(tmp_path):
     result = run_twins(tmp_path, {
         "Components": [{"SW_C": "B", "Component_Path": "/Pkg/B"}],
@@ -290,7 +205,7 @@ def test_swc_port_access_kind_must_match_direction(tmp_path):
 
 
 def test_swc_only_required_sheets_and_reordered_columns(tmp_path):
-    workbook = load_workbook(ROOT / "test/tableToSwcArxml/SwcTestPorts.xlsx")
+    workbook = load_workbook(ROOT / "test/samples/swc/SwcTestPorts.xlsx")
     for sheet in list(workbook):
         if sheet.title not in ("Components", "P-Ports", "R-Ports"):
             workbook.remove(sheet)
@@ -304,7 +219,7 @@ def test_swc_only_required_sheets_and_reordered_columns(tmp_path):
     workbook.save(tmp_path / "minimal.xlsx")
     workbook.close()
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/tableToSwcArxml/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
         "--workbook", tmp_path / "minimal.xlsx", "--output-dir", tmp_path / "out",
         "--log-dir", tmp_path / "log",
     )
@@ -312,7 +227,7 @@ def test_swc_only_required_sheets_and_reordered_columns(tmp_path):
     produced = sorted((tmp_path / "out").rglob("*.arxml"))
     assert [path.name for path in produced] == ["LIT.arxml", "Horn.arxml"]
     for path in produced:
-        assert_matches_baseline(path, ROOT / "test/tableToSwcArxml/expected" / path.name)
+        assert_matches_baseline(path, ROOT / "test/samples/swc/expected" / path.name)
 
 
 @pytest.mark.parametrize("sheet", ["P-Ports", "Data Accesses"])

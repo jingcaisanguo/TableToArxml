@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 用法（Git Bash）：source ./init_venv.sh
-# 在工程根目录创建或复用 Python 3.9.6 的 .venv 并激活；可用 PYTHON_3_9_6 指定解释器路径。
+# 创建或复用 Python >=3.9 的 .venv 并激活；新环境优先 Python 3.13，可用 TTA_PYTHON 指定解释器。
 
 if [ -z "${BASH_VERSION:-}" ]; then
     echo "[ERROR] 请在 Git Bash 中执行：source ./init_venv.sh" >&2
@@ -16,41 +16,44 @@ _init_venv_version() {
     "$@" -c 'import platform; print(platform.python_version())' 2>/dev/null | tr -d '\r'
 }
 
-_init_venv_find_python() {
-    local required="$1" candidate default_python=""
+_init_venv_supported() {
+    "$@" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1
+}
 
-    if [ -n "${PYTHON_3_9_6:-}" ]; then
-        if [ "$(_init_venv_version "$PYTHON_3_9_6")" = "$required" ]; then
-            python_cmd=("$PYTHON_3_9_6")
+_init_venv_find_python() {
+    local candidate requested="${TTA_PYTHON:-${PYTHON_3_9_6:-}}"
+
+    if [ -n "${PYTHON_3_9_6:-}" ] && [ -z "${TTA_PYTHON:-}" ]; then
+        echo "[WARNING] PYTHON_3_9_6 已废弃，请改用 TTA_PYTHON" >&2
+    fi
+    if [ -n "$requested" ]; then
+        if _init_venv_supported "$requested"; then
+            python_cmd=("$requested")
             return 0
         fi
-        echo "[ERROR] PYTHON_3_9_6 指向的不是 Python $required：$PYTHON_3_9_6" >&2
+        echo "[ERROR] 指定解释器不可用或版本低于 Python 3.9：$requested" >&2
         return 1
     fi
-
-    if command -v py >/dev/null 2>&1 && [ "$(_init_venv_version py -3.9)" = "$required" ]; then
-        python_cmd=(py -3.9)
-        return 0
+    if command -v py >/dev/null 2>&1; then
+        for candidate in -3.13 -3; do
+            if _init_venv_supported py "$candidate"; then
+                python_cmd=(py "$candidate")
+                return 0
+            fi
+        done
     fi
-
-    if [ -n "${LOCALAPPDATA:-}" ] && command -v cygpath >/dev/null 2>&1; then
-        default_python="$(cygpath -u "$LOCALAPPDATA")/Programs/Python/Python39/python.exe"
-    fi
-    for candidate in python3.9 python python3 "$default_python"; do
-        [ -n "$candidate" ] || continue
-        command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ] || continue
-        if [ "$(_init_venv_version "$candidate")" = "$required" ]; then
+    for candidate in python3.13 python3 python; do
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        if _init_venv_supported "$candidate"; then
             python_cmd=("$candidate")
             return 0
         fi
     done
-
-    echo "[ERROR] 未找到 Python $required，请先安装，或设置 PYTHON_3_9_6=<python.exe 路径> 后重试" >&2
+    echo "[ERROR] 未找到 Python >=3.9，请先安装，或设置 TTA_PYTHON=<解释器路径> 后重试" >&2
     return 1
 }
 
 _init_venv() {
-    local required="3.9.6"
     local root venv_dir bin_dir venv_python version
     local -a python_cmd=()
 
@@ -67,13 +70,13 @@ _init_venv() {
             return 1
         fi
         version="$(_init_venv_version "$venv_python")"
-        if [ "$version" != "$required" ]; then
-            echo "[ERROR] 现有 .venv 的 Python 版本为 ${version:-未知}，不是 $required；请确认后删除 $venv_dir 再重试" >&2
+        if ! _init_venv_supported "$venv_python"; then
+            echo "[ERROR] 现有 .venv 的 Python 版本为 ${version:-未知}，要求 >=3.9；请确认后重新创建 $venv_dir" >&2
             return 1
         fi
         echo "[INFO] 复用已有虚拟环境：$venv_dir"
     else
-        _init_venv_find_python "$required" || return 1
+        _init_venv_find_python || return 1
         echo "[INFO] 使用 ${python_cmd[*]} 创建虚拟环境：$venv_dir"
         "${python_cmd[@]}" -m venv "$venv_dir" || {
             echo "[ERROR] 创建虚拟环境失败：$venv_dir" >&2
@@ -102,9 +105,9 @@ _init_venv() {
 }
 
 if _init_venv; then
-    unset -f _init_venv _init_venv_find_python _init_venv_version
+    unset -f _init_venv _init_venv_find_python _init_venv_version _init_venv_supported
     return 0
 else
-    unset -f _init_venv _init_venv_find_python _init_venv_version
+    unset -f _init_venv _init_venv_find_python _init_venv_version _init_venv_supported
     return 1
 fi

@@ -11,6 +11,7 @@ from typing import Sequence, Union
 
 from . import xml_patch
 from ..common.messages import clean_message
+from ..common.names import generated_name
 from .arxml_model import AccessInfo, ImplementationTypeInfo, PortInfo
 from .constants import CLIENT_SERVER_INTERFACE, DIRECTION_REQUIRED, SENDER_RECEIVER_INTERFACE
 from .resolve import ResolvedAccess, ResolvedPort, interface_summary
@@ -145,6 +146,11 @@ def apply_enumerations(
     """
     result = StepResult()
     for spec in enumerations:
+        if not store.check_definition_target(
+            (spec.compu_method_path, spec.path, spec.data_constr_path), spec.target_file
+        ):
+            result.skipped += 1
+            continue
         document = store.load(spec.target_file)
 
         lower, upper = spec.limits
@@ -242,6 +248,9 @@ def apply_composite_types(
             result.skipped += 1
             continue
         seen_paths.add(spec.path)
+        if not store.check_definition_target((spec.path,), spec.target_file):
+            result.skipped += 1
+            continue
         document = store.load(spec.target_file)
         if document.element_exists(spec.path):
             if isinstance(spec, ArraySpec):
@@ -308,6 +317,9 @@ def apply_interfaces(
     """
     result = StepResult()
     for spec in interfaces:
+        if not store.check_definition_target((spec.path,), spec.target_file):
+            result.skipped += 1
+            continue
         document = store.load(spec.target_file)
         if isinstance(spec, InterfaceSpec):
             label, dest, members = "SR interface", SENDER_RECEIVER_INTERFACE, spec.data_elements
@@ -413,7 +425,7 @@ def apply_client_server_artifacts(
                         )
                         result.skipped += 1
                         continue
-                    name = f"scp_{port.spec.name}_{operation}"
+                    name = generated_name(f"scp_{port.spec.name}_{operation}")
                     existing = document.read_server_call(runnable_path, name)
                     if document.element_exists(f"{runnable_path}/{name}"):
                         definition = None if existing is None else (
@@ -434,6 +446,7 @@ def apply_client_server_artifacts(
                 runnable_name = port.spec.runnable_name or f"RE_{port.spec.name}_{operation}"
                 if port.spec.runnable_name and len(operations) > 1:
                     runnable_name = f"{port.spec.runnable_name}_{operation}"
+                runnable_name = generated_name(runnable_name)
                 runnable_symbol = port.spec.runnable_symbol or runnable_name
                 if port.spec.runnable_symbol and len(operations) > 1:
                     runnable_symbol = f"{port.spec.runnable_symbol}_{operation}"
@@ -459,7 +472,7 @@ def apply_client_server_artifacts(
                     )
                     result.created.append(runnable_path)
 
-                event_name = f"oie_{port.spec.name}_{operation}"
+                event_name = generated_name(f"oie_{port.spec.name}_{operation}")
                 existing_event = document.read_operation_event(behavior_path, event_name)
                 if document.element_exists(f"{behavior_path}/{event_name}"):
                     definition = None if existing_event is None else (

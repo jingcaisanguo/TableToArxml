@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ..common.messages import clean_message
+from ..common.names import generated_name
 from .arxml_model import AccessInfo, InterfaceSummary, PortInfo
 from .constants import (
     ACCESS_CONTAINERS,
@@ -138,6 +139,12 @@ def _find_definition(
             continue
         matches.append((candidate, interface.dest))
 
+    if failures:
+        LOGGER.error(
+            "Cannot establish a unique %s at %s; parser failures: %s",
+            kind, autosar_path, "; ".join(failures),
+        )
+        return None
     if len(matches) == 1:
         return matches[0]
     if not matches:
@@ -508,7 +515,8 @@ def generate_access_name(
     base = f"{ACCESS_NAME_PREFIXES[kind]}{port_name}"
     candidates = [base, f"{base}_{data_element}"]
     candidates += [f"{base}_{data_element}{index}" for index in range(2, 100)]
-    for candidate in candidates:
+    for raw_candidate in candidates:
+        candidate = generated_name(raw_candidate)
         if (runnable_path, candidate) in used_names:
             continue
         existing = taken.get(candidate)

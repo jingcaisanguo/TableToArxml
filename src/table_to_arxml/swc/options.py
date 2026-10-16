@@ -18,6 +18,7 @@ from typing import Sequence
 from ..common.errors import ConfigError
 from ..common.logs import LOG_LEVELS
 from ..common.messages import clean_message
+from ..common.paths import expand_path, filesystem_path
 
 # 解析库固定为 armodel；``backend`` 只为兼容旧配置保留，不影响运行。
 SUPPORTED_BACKENDS = ("armodel",)
@@ -81,15 +82,16 @@ def resolve_config_path(value: object, key: str, variant: str | None, config_dir
         if variant is None:
             raise ConfigError(f"Config option {key} uses ${{variant}}; provide --variant or config defaultVariant")
         value = value.replace("${variant}", variant)
-    path = Path(value.replace("\\", "/"))
-    if not path.is_absolute():
-        path = config_dir / path
-    if glob.has_magic(str(path)):
+    try:
+        entry = filesystem_path(value)
+    except ValueError as error:
+        raise ConfigError(f"Config option {key}: {error}") from error
+    path = entry if entry.is_absolute() else config_dir / entry
+    if not path.exists() and glob.has_magic(str(entry)):
         directory = key in DIRECTORY_KEYS
         matches = sorted({
             candidate.resolve()
-            for match in glob.glob(str(path))
-            for candidate in (Path(match),)
+            for candidate in expand_path(entry, config_dir)
             if (candidate.is_dir() if directory else candidate.is_file())
         })
         if not matches:
@@ -108,9 +110,12 @@ def resolve_cli_path(value: str, option: str) -> Path:
 
     if any(token in value for token in ("*", "?", "${")):
         raise ConfigError(f"{option} must be a literal path; templates and wildcards are only supported in JSON")
-    path = Path(value)
-    if not path.is_absolute() and (path.drive or path.root):
-        raise ConfigError(f"{option} must be absolute or relative to the working directory: {value}")
+    if not value.strip():
+        raise ConfigError(f"{option} must be a non-empty path")
+    try:
+        path = filesystem_path(value)
+    except ValueError as error:
+        raise ConfigError(f"{option}: {error}") from error
     return (Path.cwd() / path).resolve()
 
 
