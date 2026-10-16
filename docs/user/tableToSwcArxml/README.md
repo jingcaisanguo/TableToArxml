@@ -20,7 +20,7 @@
 table-to-swc-arxml --config ./config/swc.json
 ```
 
-- 依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，安装了范围外的版本时工具启动即报版本错误。
+- 依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，安装了范围外的版本时工具启动即报版本错误。
 - 配置、工作簿、清单和日志由使用工具的项目提供。
 
 参数和路径规则见 [configuration.md](configuration.md)。
