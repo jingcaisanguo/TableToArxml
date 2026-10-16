@@ -1,17 +1,18 @@
 {
-    "project": "MC_COMMAND_TEST",
-    "defaultVariant": "McTest",
-    "projectRoot": "../..",
+    "defaultVariant": "BcmTest",
+    "projectRoot": "../../..",
     "logLevel": "INFO",
-    "outputDir": "output/McTest",
-    "logDir": "log/McTest",
+    "outputDir": "output/BcmTest",
+    "logDir": "log/BcmTest",
 
-    "outputPrefix": "Mc",
+    "outputPrefix": "Bcm",
     "interfaceMismatch": "error",
 
-    "whiteTable": "WhiteTable/McWhiteTable.xlsx",
+    "greenTables": [
+        "GreenTable/Bcm/*.xlsx"
+    ],
 
-    "arxmlFileList": "../common/arxml.lst",
+    "arxmlFileList": "../../data/common/arxml.lst",
 
     "general": {
         "Composition": "/ARDesign/SystemDesign/TopLevelComposition",

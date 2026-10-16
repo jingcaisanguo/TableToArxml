@@ -7,15 +7,24 @@ import tempfile
 from pathlib import Path
 from typing import Sequence
 
+from .paths import validate_output_paths
+
 
 def _write_temporary(destination: Path, content: bytes, suffix: str) -> Path:
-    with tempfile.NamedTemporaryFile(
-        dir=destination.parent, prefix=f".{destination.name}.", suffix=suffix, delete=False
-    ) as temporary:
-        temporary.write(content)
-        temporary.flush()
-        os.fsync(temporary.fileno())
-        return Path(temporary.name)
+    path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent, prefix=f".{destination.name}.", suffix=suffix, delete=False
+        ) as temporary:
+            path = Path(temporary.name)
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        return path
+    except OSError:
+        if path is not None:
+            path.unlink(missing_ok=True)
+        raise
 
 
 def _create_directories(directory: Path, created: list[Path]) -> None:
@@ -34,6 +43,7 @@ def write_files_atomically(contents: Sequence[tuple[Path, bytes]]) -> None:
     已存在的目标必须是普通文件。失败时恢复原内容、删除新建文件，并删除本次新建且已为空的目录。
     """
 
+    validate_output_paths(destination for destination, _content in contents)
     pending: list[tuple[Path, bytes, bytes | None]] = []
     for destination, content in contents:
         if destination.exists() and not destination.is_file():

@@ -1,10 +1,12 @@
-"""SWC 命令行：参数错误退出码 2、已废弃的 backend、不在依赖检查前导入 armodel。"""
+"""SWC 命令行：参数错误退出码 2、不在依赖检查前导入 armodel。"""
 
 from __future__ import annotations
 
+import json
+
 from helpers import ROOT, SWC, run_python, run_tool
 
-CONFIG = ROOT / "test/tableToSwcArxml/TableToSwcArxml.json"
+CONFIG = ROOT / "test/samples/swc/TableToSwcArxml.json"
 
 
 def test_help_and_option_parsing_do_not_import_armodel():
@@ -27,19 +29,20 @@ def test_missing_required_options_exit_with_code_2(tmp_path):
     assert "--arxml-file-list, --workbook, --log-dir required" in result.stderr
 
 
-def test_unknown_backend_is_a_configuration_error(tmp_path):
-    result = run_tool(SWC, "--config", CONFIG, "--backend", "other", "--log-dir", tmp_path / "log")
+def test_removed_backend_flag_is_rejected(tmp_path):
+    result = run_tool(SWC, "--config", CONFIG, "--backend", "armodel", "--log-dir", tmp_path / "log")
     assert result.returncode == 2
-    assert "invalid choice" in result.stderr
+    assert "unrecognized arguments: --backend armodel" in result.stderr
+    assert not (tmp_path / "log").exists()
 
 
-def test_deprecated_backend_is_reported_and_ignored(tmp_path):
-    result = run_tool(
-        SWC, "--config", CONFIG, "--backend", "armodel", "--dry-run", "--log-dir", tmp_path / "log",
-    )
-    assert result.returncode == 0, result.stderr
-    assert "backend is deprecated and ignored" in result.stderr
-    assert "Dry run successful" in result.stdout
+def test_removed_backend_config_key_is_rejected(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"backend": "armodel"}), encoding="utf-8")
+    result = run_tool(SWC, "--config", config, "--log-dir", tmp_path / "log")
+    assert result.returncode == 2
+    assert "Unknown config option(s)" in result.stderr and "backend" in result.stderr
+    assert not (tmp_path / "log").exists()
 
 
 def test_cli_output_choice_replaces_config_output_choice(tmp_path):

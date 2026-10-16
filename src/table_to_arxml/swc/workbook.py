@@ -15,99 +15,37 @@ from typing import Callable, Sequence, cast
 from openpyxl import load_workbook
 
 from ..common.messages import clean_message
+from ..common.names import autosar_path, c_identifier, generated_name, short_name
+from ..common.paths import filesystem_path
 from .constants import (
     ACCESS_DIRECTIONS,
-    ACCESS_READ,
-    ACCESS_RECEIVE_BY_ARGUMENT,
-    ACCESS_RECEIVE_BY_VALUE,
-    ACCESS_SEND,
-    ACCESS_WRITE,
     DIRECTION_PROVIDED,
     DIRECTION_REQUIRED,
     PORT_ELEMENTS,
 )
 
+from .schema import (
+    COMPONENTS_SHEET,
+    P_PORTS_SHEET,
+    R_PORTS_SHEET,
+    DATA_ACCESS_SHEET,
+    SR_INTERFACE_SHEET,
+    CS_INTERFACE_SHEET,
+    ENUMERATION_SHEET,
+    ARRAY_SHEET,
+    STRUCTURE_SHEET,
+    ACCESS_KIND_LABELS,
+    BOOLEAN_LABELS,
+    BOOLEAN_CHOICES,
+    ARRAY_SIZE_SEMANTICS,
+    CS_ARGUMENT_DIRECTIONS,
+    ACCESS_KIND_CHOICES,
+    SHEET_HEADERS,
+)
+
 LOGGER = logging.getLogger(__name__)
 
 Sheets = dict[str, list[tuple[object, ...]]]
-
-COMPONENTS_SHEET = "Components"
-P_PORTS_SHEET = "P-Ports"
-R_PORTS_SHEET = "R-Ports"
-DATA_ACCESS_SHEET = "Data Accesses"
-SR_INTERFACE_SHEET = "SR-Interfaces"
-CS_INTERFACE_SHEET = "CS-Interfaces"
-ENUMERATION_SHEET = "Enumerations"
-ARRAY_SHEET = "Arrays"
-STRUCTURE_SHEET = "Structures"
-
-P_PORT_OPTIONAL_HEADERS = (
-    "Create RTE Artifact",
-    "Runnable Name",
-    "Access Kind",
-    "Transmission Acknowledge Timeout",
-    "Uses End To End Protection",
-    "Runnable Symbol",
-    "Minimum Start Interval",
-    "Can Be Invoked Concurrently",
-)
-R_PORT_OPTIONAL_HEADERS = (
-    "Create RTE Artifact",
-    "Runnable Name",
-    "Access Kind",
-    "Enable Update",
-    "Queue Length",
-)
-
-# ``Access Kind`` 列的取值（比较时忽略大小写）。
-ACCESS_KIND_LABELS = {
-    "send": ACCESS_SEND,
-    "receivebyargument": ACCESS_RECEIVE_BY_ARGUMENT,
-    "receivebyvalue": ACCESS_RECEIVE_BY_VALUE,
-    "read": ACCESS_READ,
-    "write": ACCESS_WRITE,
-}
-
-# 布尔标志列的取值（比较时忽略大小写）；留空视为否。
-BOOLEAN_LABELS = {
-    "true": True,
-    "yes": True,
-    "y": True,
-    "1": True,
-    "false": False,
-    "no": False,
-    "n": False,
-    "0": False,
-}
-BOOLEAN_CHOICES = "Y, N, TRUE, FALSE, YES, NO, 1, 0"
-ARRAY_SIZE_SEMANTICS = ("FIXED-SIZE", "VARIABLE-SIZE")
-CS_ARGUMENT_DIRECTIONS = ("IN", "OUT", "INOUT")
-ACCESS_KIND_CHOICES = (
-    "Send",
-    "ReceiveByArgument",
-    "ReceiveByValue",
-    "Read",
-    "Write",
-)
-ACCESS_KIND_ALIASES = {
-    "argument": ACCESS_RECEIVE_BY_ARGUMENT,
-    "value": ACCESS_RECEIVE_BY_VALUE,
-}
-
-# 旧工作簿列名映射到当前规范名称；解析按名称进行，不依赖列顺序。
-HEADER_ALIASES = {
-    "create access": "Create RTE Artifact",
-    "runnable": "Runnable Name",
-    "runnable ref": "Runnable Name",
-    "swc": "SW-C",
-    "receive mode": "Access Kind",
-    "base type ref": "Implementation Data Type Ref",
-    "transmission acknowledge": "Transmission Acknowledge Timeout",
-    "queuelength": "Queue Length",
-    "data element": "Data Element Name",
-    "operation": "Operation Name",
-    "argument": "Argument Name",
-}
 
 # ``Enumerations`` 表留空时，计算方法和数据约束放在数据类型包的同级包里。
 ENUM_COMPU_METHOD_PACKAGE = "CompuMethods"
@@ -286,18 +224,21 @@ def load_workbook_sheets(workbook_path: Path) -> Sheets:
 
     workbook = load_workbook(workbook_path, data_only=False)
     try:
-        return {sheet.title: sheet_values(sheet) for sheet in workbook.worksheets}
+        supported = {name.casefold() for name in SHEET_HEADERS}
+        sheets: Sheets = {}
+        for sheet in workbook.worksheets:
+            if sheet.title.casefold() == "readme":
+                continue
+            if sheet.title.casefold() not in supported:
+                LOGGER.error(
+                    "Unknown worksheet %s; supported: %s, README",
+                    sheet.title, ", ".join(SHEET_HEADERS),
+                )
+                continue
+            sheets[sheet.title] = sheet_values(sheet)
+        return sheets
     finally:
         workbook.close()
-
-
-def _sheet_matches(sheets: Sheets, sheet_name: str) -> list[str]:
-    aliases = {
-        DATA_ACCESS_SHEET: ("Data-Accesses",),
-    }
-    accepted_names = {sheet_name.casefold()}
-    accepted_names.update(alias.casefold() for alias in aliases.get(sheet_name, ()))
-    return [name for name in sheets if name.casefold() in accepted_names]
 
 
 def parse_flag(label: str, column: str, context: str) -> bool | None:
@@ -337,16 +278,14 @@ def parse_non_negative(
 def read_sheet_rows(
     sheets: Sheets,
     sheet_name: str,
-    expected_headers: Sequence[str],
-    optional_headers: Sequence[str] = (),
 ) -> list[dict[str, str]]:
     """校验一张工作表的表头并返回非空数据行。
 
     未使用的工作表可省略；只有表头而无数据行时也返回空列表。
-    ``optional_headers`` 中的列允许为空，且允许整列缺失。列顺序任意；未知列、
+    schema 中的可选列允许为空，且允许整列缺失。列顺序任意；未知列、
     重复列或缺少必填列时记录 error 并跳过整张表。
     """
-    matches = _sheet_matches(sheets, sheet_name)
+    matches = [name for name in sheets if name.casefold() == sheet_name.casefold()]
     if not matches:
         LOGGER.debug("Optional worksheet not present: %s", sheet_name)
         return []
@@ -356,25 +295,27 @@ def read_sheet_rows(
     rows = sheets[matches[0]]
 
     if not rows or not any(value is not None for value in rows[0]):
+        if any(any(value is not None for value in row) for row in rows[1:]):
+            LOGGER.error("Skipped worksheet %s: missing header row", sheet_name)
         return []
 
-    required = list(expected_headers)
+    required_headers, optional_headers = SHEET_HEADERS[sheet_name]
+    required = list(required_headers)
     optional = list(optional_headers)
     try:
+        header_values = list(rows[0])
+        while header_values and header_values[-1] is None:
+            header_values.pop()
         raw_headers = [
             normalized_cell(value, f"{sheet_name} header")
-            for value in rows[0]
-            if value is not None
+            for value in header_values
         ]
     except ValueError as error:
         LOGGER.error("%s", clean_message(error))
         return []
 
     canonical = {name.casefold(): name for name in required + optional}
-    headers = []
-    for header in raw_headers:
-        alias = HEADER_ALIASES.get(header.casefold(), header)
-        headers.append(canonical.get(alias.casefold(), alias))
+    headers = [canonical.get(header.casefold(), header) for header in raw_headers]
     folded = [header.casefold() for header in headers]
     duplicates = sorted(
         {header for header in headers if folded.count(header.casefold()) > 1}
@@ -394,6 +335,11 @@ def read_sheet_rows(
 
     records: list[dict[str, str]] = []
     for row_number, values in enumerate(rows[1:], start=2):
+        if any(value is not None and str(value).strip() for value in values[len(headers):]):
+            LOGGER.error(
+                "Skipped %s row %d: data under a blank header", sheet_name, row_number
+            )
+            continue
         # openpyxl 对尾部空列可能返回更短的元组，补齐后再按列取值。
         padded = tuple(values) + (None,) * (len(headers) - len(values))
         try:
@@ -418,6 +364,19 @@ def read_sheet_rows(
             continue
         for name in optional:
             record.setdefault(name, "")
+        try:
+            for name, value in record.items():
+                if not value:
+                    continue
+                if name.endswith((" Path", " Ref")):
+                    autosar_path(value, name, 2 if name in ("Type Path", "Interface Path") else 1)
+                elif name.endswith(" Name"):
+                    short_name(value, name)
+                elif name == "Runnable Symbol":
+                    c_identifier(value)
+        except ValueError as error:
+            LOGGER.error("Skipped %s row %d: %s", sheet_name, row_number, error)
+            continue
         records.append(record)
     return records
 
@@ -425,7 +384,11 @@ def read_sheet_rows(
 def resolve_target_file(listed_path: str, project_root: Path, context: str) -> Path | None:
     """把 ``Target ARXML`` 列转为绝对路径；路径非法或文件不存在时记录 error 并返回 ``None``。"""
 
-    listed = Path(listed_path.replace("\\", "/"))
+    try:
+        listed = filesystem_path(listed_path)
+    except ValueError as error:
+        LOGGER.error("Skipped %s: %s", context, error)
+        return None
     if listed.is_absolute():
         LOGGER.error(
             "Skipped %s: Target ARXML must be relative to projectRoot: %s", context, listed_path
@@ -482,7 +445,7 @@ def default_enum_path(type_path: str, package: str, prefix: str = "") -> str:
     """
     name = type_path.rsplit("/", maxsplit=1)[-1]
     parent = type_path.rsplit("/", maxsplit=1)[0].rsplit("/", maxsplit=1)[0]
-    return f"{parent}/{package}/{prefix}{name}"
+    return f"{parent}/{package}/{generated_name(prefix + name)}"
 
 
 def read_enumerations(sheets: Sheets, project_root: Path) -> list[EnumerationSpec]:
@@ -491,12 +454,7 @@ def read_enumerations(sheets: Sheets, project_root: Path) -> list[EnumerationSpe
     同一 ``Type Path`` 的各行必须填写相同的目标文件、基础类型和可选路径；
     取值必须是整数且不重复，文本标签也不能重复。
     """
-    rows = read_sheet_rows(
-        sheets,
-        ENUMERATION_SHEET,
-        ("Type Path", "Target ARXML", "Implementation Data Type Ref", "Value", "Label"),
-        ("Compu Method Ref", "Data Constr Ref"),
-    )
+    rows = read_sheet_rows(sheets, ENUMERATION_SHEET)
     groups: dict[str, tuple[dict[str, object], list[tuple[str, str]]]] = {}
     for row in rows:
         path = row["Type Path"]
@@ -546,12 +504,7 @@ def read_enumerations(sheets: Sheets, project_root: Path) -> list[EnumerationSpe
 def read_arrays(sheets: Sheets, project_root: Path) -> list[ArraySpec]:
     """读取固定长度数组；每行定义一个 ``IMPLEMENTATION-DATA-TYPE``。"""
 
-    rows = read_sheet_rows(
-        sheets,
-        ARRAY_SHEET,
-        ("Type Path", "Target ARXML", "Element Name", "Element Type Ref", "Array Size"),
-        ("Array Size Semantics",),
-    )
+    rows = read_sheet_rows(sheets, ARRAY_SHEET)
     specs: list[ArraySpec] = []
     seen: set[str] = set()
     for row in rows:
@@ -594,11 +547,7 @@ def read_arrays(sheets: Sheets, project_root: Path) -> list[ArraySpec]:
 def read_structures(sheets: Sheets, project_root: Path) -> list[StructureSpec]:
     """读取结构体，并按 Type Path 合并多行成员。"""
 
-    rows = read_sheet_rows(
-        sheets,
-        STRUCTURE_SHEET,
-        ("Type Path", "Target ARXML", "Member Name", "Member Type Ref"),
-    )
+    rows = read_sheet_rows(sheets, STRUCTURE_SHEET)
     groups: dict[str, tuple[dict[str, object], list[tuple[str, str]]]] = {}
     for row in rows:
         path = row["Type Path"]
@@ -626,12 +575,7 @@ def read_sr_interfaces(sheets: Sheets, project_root: Path) -> list[InterfaceSpec
 
     同一 ``Interface Path`` 的各行必须写同一个 ``Target ARXML`` 和 ``Is Service``，数据元素不能重名。
     """
-    rows = read_sheet_rows(
-        sheets,
-        SR_INTERFACE_SHEET,
-        ("Interface Path", "Data Element Name", "Data Type Ref", "Target ARXML"),
-        ("Is Queued", "Is Service"),
-    )
+    rows = read_sheet_rows(sheets, SR_INTERFACE_SHEET)
     groups: dict[str, tuple[dict[str, object], list[tuple[str, str, bool]]]] = {}
     for row in rows:
         path = row["Interface Path"]
@@ -664,12 +608,7 @@ def read_sr_interfaces(sheets: Sheets, project_root: Path) -> list[InterfaceSpec
 def read_cs_interfaces(sheets: Sheets, project_root: Path) -> list[ClientServerInterfaceSpec]:
     """读取 CS 接口；参数三列全空表示无参数 operation，不能与有参数的同名定义混用。"""
 
-    rows = read_sheet_rows(
-        sheets,
-        CS_INTERFACE_SHEET,
-        ("Interface Path", "Operation Name", "Target ARXML"),
-        ("Argument Name", "Direction", "Data Type Ref", "Is Service"),
-    )
+    rows = read_sheet_rows(sheets, CS_INTERFACE_SHEET)
     groups: dict[str, tuple[dict[str, object], dict[str, list[tuple[str, str, str]]]]] = {}
     for row in rows:
         path = row["Interface Path"]
@@ -801,10 +740,7 @@ def _read_port(
     if create_rte_artifact is None:
         return None
     access_kind_label = row.get("Access Kind", "")
-    access_kind = (
-        ACCESS_KIND_LABELS.get(access_kind_label.casefold())
-        or ACCESS_KIND_ALIASES.get(access_kind_label.casefold(), "")
-    )
+    access_kind = ACCESS_KIND_LABELS.get(access_kind_label.casefold(), "")
     if access_kind_label and not access_kind:
         LOGGER.error(
             "Skipped port %s in %s: Access Kind must be one of %s: %s",
@@ -882,7 +818,7 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
     """
     components: dict[str, ComponentSpec] = {}
     paths: set[str] = set()
-    for row in read_sheet_rows(sheets, COMPONENTS_SHEET, ("SW-C", "Component Path")):
+    for row in read_sheet_rows(sheets, COMPONENTS_SHEET):
         key = row["SW-C"]
         path = row["Component Path"]
         if not path.startswith("/"):
@@ -899,13 +835,11 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
 
     ports: list[PortSpec] = []
     seen_ports: set[tuple[str, str]] = set()
-    for sheet_name, direction, optional_headers in (
-        (P_PORTS_SHEET, DIRECTION_PROVIDED, P_PORT_OPTIONAL_HEADERS),
-        (R_PORTS_SHEET, DIRECTION_REQUIRED, R_PORT_OPTIONAL_HEADERS),
+    for sheet_name, direction in (
+        (P_PORTS_SHEET, DIRECTION_PROVIDED),
+        (R_PORTS_SHEET, DIRECTION_REQUIRED),
     ):
-        rows = read_sheet_rows(
-            sheets, sheet_name, ("SW-C", "Port Name", "Port Interface Ref"), optional_headers
-        )
+        rows = read_sheet_rows(sheets, sheet_name)
         for row in rows:
             port = _read_port(row, sheet_name, direction, components)
             if port is None:
@@ -930,12 +864,7 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
     只做与 ARXML 无关的静态校验：组件必须在 ``Components`` 表中出现、
     ``Access Kind`` 必须是已知取值、同一端口的同一数据元素不能重复。
     """
-    rows = read_sheet_rows(
-        sheets,
-        DATA_ACCESS_SHEET,
-        ("SW-C", "Runnable Name", "Port Name"),
-        ("Data Element Name", "Access Kind", "Access Name"),
-    )
+    rows = read_sheet_rows(sheets, DATA_ACCESS_SHEET)
 
     specs: list[AccessSpec] = []
     seen: set[tuple[str, str, str, str]] = set()

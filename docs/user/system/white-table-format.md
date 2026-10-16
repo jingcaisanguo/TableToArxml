@@ -22,7 +22,7 @@
 
 页签缺失、表头不符或 General 不完整时，工具在加载 ARXML 前即报错退出。数据行的引用错误逐行记录 ERROR，全部处理完后再退出。
 
-连接名固定自动生成，白表不再有 `Connection` 列；旧白表中的 `Connection` 列作为多余列忽略。
+连接名由工具自动生成，白表无需填写连接名称列。
 
 ## General
 
@@ -54,7 +54,7 @@
 
 ## AssemblySwConnection
 
-组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`，连接名为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`；超过 AUTOSAR SHORT-NAME 上限 128 字符时截断并以 8 位哈希结尾，保证唯一。
+组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`，连接名为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`；超过 AUTOSAR SHORT-NAME 上限 128 字符时截断并以 8 位哈希结尾，仍会检查名称冲突，不静默覆盖。
 
 | 列 | 说明 |
 | --- | --- |

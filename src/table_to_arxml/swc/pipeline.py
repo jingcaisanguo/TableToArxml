@@ -96,7 +96,10 @@ def execute(options: Options) -> tuple[RunSummary, SourceStore]:
         exclusions=ArxmlExclusions(project_root, options.exclude_arxml), strict=options.strict_list,
     )
 
-    store = SourceStore()
+    store = SourceStore([
+        *arxml_files,
+        *(spec.target_file for spec in [*enumerations, *arrays, *structures, *interfaces, *cs_interfaces]),
+    ])
     LOGGER.info("Applying type and interface definitions")
     summary.enumerations = apply_enumerations(enumerations, store)
     summary.composite_types = apply_composite_types(arrays, structures, store)

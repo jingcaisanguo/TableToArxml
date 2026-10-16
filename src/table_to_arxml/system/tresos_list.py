@@ -10,29 +10,19 @@ Autosar Builder 工程保持同源。清单条目的解析规则见 :mod:`table_
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Iterable
 
 from ..common.arxml_list import ArxmlExclusions, read_arxml_list
+from ..common.paths import filesystem_path
 
 LOGGER = logging.getLogger(__name__)
 
 IMPORTER = "PrefSystemImporter"
 TRESOS_OUTPUT_BASE_DIR_ENV = "TRESOS_OUTPUT_BASE_DIR"
 TRESOS_PROJECT_SUBDIR = "tresos"
-
-
-def filesystem_path(value: str) -> Path:
-    """把配置中的路径文本转为 ``Path``；拒绝未展开的占位符和当前平台无法使用的 Windows 盘符路径。"""
-
-    if os.name != "nt" and PureWindowsPath(value).drive:
-        raise ValueError(f"Windows drive/UNC path cannot be used on this platform: {value}")
-    if "${" in value:
-        raise ValueError(f"Unresolved placeholder in filesystem path: {value}")
-    return Path(value.replace("\\", os.sep).replace("/", os.sep))
 
 
 def resolve_preference_files(

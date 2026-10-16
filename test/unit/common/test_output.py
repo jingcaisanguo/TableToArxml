@@ -45,3 +45,24 @@ def test_directory_target_is_rejected(tmp_path):
     (tmp_path / "target").mkdir()
     with pytest.raises(ValueError, match="not a file"):
         write_files_atomically([(tmp_path / "target", b"x")])
+
+
+def test_fsync_failure_removes_temporary_file(tmp_path, monkeypatch):
+    target = tmp_path / "target"
+    target.write_bytes(b"original")
+
+    def fail(_descriptor):
+        raise OSError("fsync failed")
+
+    monkeypatch.setattr(output.os, "fsync", fail)
+    with pytest.raises(OSError, match="fsync failed"):
+        write_files_atomically([(target, b"new")])
+    assert target.read_bytes() == b"original"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.parametrize("names", [("same.txt", "same.txt"), ("Pair.txt", "pair.txt")])
+def test_duplicate_output_paths_are_rejected_before_writing(tmp_path, names):
+    with pytest.raises(ValueError, match="Conflicting output path"):
+        write_files_atomically([(tmp_path / name, b"new") for name in names])
+    assert list(tmp_path.iterdir()) == []

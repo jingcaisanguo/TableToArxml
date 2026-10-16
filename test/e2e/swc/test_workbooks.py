@@ -1,17 +1,16 @@
 """工作簿产物的布局和再生成回归，不依赖 Excel GUI。"""
 
-import subprocess
-import sys
 from zipfile import ZipFile
 
 import pytest
 from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 
-from helpers import ROOT, SWC, run_tool
+from helpers import ROOT, SWC, run_python, run_tool
+from table_to_arxml.swc.schema import BOOLEAN_VALUES, SHEET_HEADERS
 
-SAMPLE = ROOT / "test" / "tableToSwcArxml" / "SwcTestPorts.xlsx"
-TEMPLATE = ROOT / "docs" / "user" / "tableToSwcArxml" / "SwcTemplate.xlsx"
+SAMPLE = ROOT / "test" / "samples" / "swc" / "SwcTestPorts.xlsx"
+TEMPLATE = ROOT / "docs" / "user" / "swc" / "SwcTemplate.xlsx"
 SHEETS = [
     "README", "Components", "Enumerations", "Arrays", "Structures",
     "SR-Interfaces", "CS-Interfaces", "P-Ports", "R-Ports", "Data Accesses",
@@ -19,7 +18,7 @@ SHEETS = [
 COMMON_PORT_HEADERS = [
     "SW-C", "Port Name", "Port Interface Ref", "Create RTE Artifact", "Runnable Name", "Access Kind",
 ]
-BOOLEAN_CHOICES = {"Y", "N", "TRUE", "FALSE", "YES", "NO", "1", "0"}
+BOOLEAN_CHOICES = set(BOOLEAN_VALUES)
 
 
 @pytest.mark.parametrize("path", [SAMPLE, TEMPLATE], ids=["sample", "blank"])
@@ -54,6 +53,8 @@ def test_workbook_layout_and_validation(path):
             assert table.ref == sheet.dimensions
             assert table.autoFilter.ref == table.ref
             assert [column.name for column in table.tableColumns] == [cell.value for cell in sheet[1]]
+            required, optional = SHEET_HEADERS[name]
+            assert {cell.value for cell in sheet[1]} == set(required + optional)
             assert sheet.row_dimensions[1].height >= 48
             assert sheet.print_title_rows == "$1:$1"
             assert sheet.page_setup.orientation == "landscape"
@@ -97,9 +98,9 @@ def test_workbook_layout_and_validation(path):
 
 
 def test_workbooks_are_reproducible(tmp_path):
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "generate_swc_workbooks.py"), "--output-dir", str(tmp_path)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    result = run_python(
+        f"import runpy, sys; sys.argv = ['generate_swc_workbooks', '--output-dir', {str(tmp_path)!r}]; "
+        f"runpy.run_path({str(ROOT / 'tools' / 'generate_swc_workbooks.py')!r}, run_name='__main__')"
     )
     assert result.returncode == 0, result.stderr
     for source in (SAMPLE, TEMPLATE):

@@ -43,8 +43,6 @@ def run(options: Options) -> int:
     """检查输入和依赖、执行处理流程，最后按输出选项写出文件；返回退出码。"""
 
     _log_file, errors = setup_logging(TOOL_NAME, options.log_dir, options.log_level)
-    for notice in options.notices:
-        LOGGER.warning("%s", notice)
     if not options.project_root.is_dir():
         raise NotADirectoryError(f"Project directory not found: {options.project_root}")
     if not options.workbook.is_file():
@@ -68,7 +66,10 @@ def run(options: Options) -> int:
         LOGGER.error("Validation failed with %d error(s); no ARXML files were written", errors.count)
         return 1
     if options.in_place or options.output_dir is not None:
-        write_changes(store.modified(), options.in_place, options.output_dir, options.project_root)
+        write_changes(
+            store.modified(), options.in_place, options.output_dir, options.project_root,
+            tuple(store.source_files),
+        )
     else:
         LOGGER.info("Dry run successful; use --in-place or --output-dir to write ARXML")
     return 0

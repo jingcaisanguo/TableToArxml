@@ -18,9 +18,8 @@ from typing import Sequence
 from ..common.errors import ConfigError
 from ..common.logs import LOG_LEVELS
 from ..common.messages import clean_message
+from ..common.paths import expand_path, filesystem_path
 
-# 解析库固定为 armodel；``backend`` 只为兼容旧配置保留，不影响运行。
-SUPPORTED_BACKENDS = ("armodel",)
 CONFIG_KEYS = (
     "defaultVariant",
     "projectRoot",
@@ -30,7 +29,6 @@ CONFIG_KEYS = (
     "excludeArxml",
     "logDir",
     "logLevel",
-    "backend",
     "inPlace",
     "outputDir",
     "dryRun",
@@ -56,8 +54,6 @@ class Options:
     # 与不写 inPlace/outputDir 等价，只用于在配置中显式声明“仅验证”。
     dry_run: bool = False
     variant: str | None = None
-    # 解析参数时发现的提示（如已废弃的配置项），在日志创建后输出为 WARNING。
-    notices: tuple[str, ...] = ()
 
 
 def attribute(key: str) -> str:
@@ -81,15 +77,16 @@ def resolve_config_path(value: object, key: str, variant: str | None, config_dir
         if variant is None:
             raise ConfigError(f"Config option {key} uses ${{variant}}; provide --variant or config defaultVariant")
         value = value.replace("${variant}", variant)
-    path = Path(value.replace("\\", "/"))
-    if not path.is_absolute():
-        path = config_dir / path
-    if glob.has_magic(str(path)):
+    try:
+        entry = filesystem_path(value)
+    except ValueError as error:
+        raise ConfigError(f"Config option {key}: {error}") from error
+    path = entry if entry.is_absolute() else config_dir / entry
+    if not path.exists() and glob.has_magic(str(entry)):
         directory = key in DIRECTORY_KEYS
         matches = sorted({
             candidate.resolve()
-            for match in glob.glob(str(path))
-            for candidate in (Path(match),)
+            for candidate in expand_path(entry, config_dir)
             if (candidate.is_dir() if directory else candidate.is_file())
         })
         if not matches:
@@ -108,9 +105,12 @@ def resolve_cli_path(value: str, option: str) -> Path:
 
     if any(token in value for token in ("*", "?", "${")):
         raise ConfigError(f"{option} must be a literal path; templates and wildcards are only supported in JSON")
-    path = Path(value)
-    if not path.is_absolute() and (path.drive or path.root):
-        raise ConfigError(f"{option} must be absolute or relative to the working directory: {value}")
+    if not value.strip():
+        raise ConfigError(f"{option} must be a non-empty path")
+    try:
+        path = filesystem_path(value)
+    except ValueError as error:
+        raise ConfigError(f"{option}: {error}") from error
     return (Path.cwd() / path).resolve()
 
 
@@ -139,9 +139,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-dir", help="Log directory; required via CLI or config; no default")
     parser.add_argument(
         "--log-level", type=str.upper, choices=LOG_LEVELS, help="Log level, case-insensitive (default: INFO)"
-    )
-    parser.add_argument(
-        "--backend", choices=SUPPORTED_BACKENDS, help="Deprecated and ignored; armodel is always used"
     )
     output_group = parser.add_mutually_exclusive_group()
     output_group.add_argument(
@@ -208,11 +205,6 @@ def _options(values: dict[str, object]) -> Options:
     log_level = "INFO" if values["logLevel"] is None else values["logLevel"]
     if not isinstance(log_level, str) or log_level.upper() not in LOG_LEVELS:
         raise ConfigError(f"logLevel must be one of: {', '.join(LOG_LEVELS)}")
-    notices: list[str] = []
-    if values["backend"] is not None:
-        if values["backend"] not in SUPPORTED_BACKENDS:
-            raise ConfigError(f"backend must be one of: {', '.join(SUPPORTED_BACKENDS)}")
-        notices.append("backend is deprecated and ignored; remove it from the configuration")
     for key in BOOLEAN_KEYS:
         if values[key] is None:
             values[key] = False
@@ -237,7 +229,6 @@ def _options(values: dict[str, object]) -> Options:
         output_dir=values["outputDir"],
         dry_run=values["dryRun"],
         variant=values["defaultVariant"],
-        notices=tuple(notices),
     )
 
 

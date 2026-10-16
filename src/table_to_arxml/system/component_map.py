@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import re
-
 from .arxml_model import ArxmlModel
+from ..common.names import generated_name, short_name as validate_short_name
 
 
 class ComponentTypeMap(dict):
@@ -44,7 +43,7 @@ def build_component_type_map(
         by_type.setdefault(type_path, set()).add(definition)
         candidates.setdefault(instance_path, set()).add(definition)
     for type_path, short_name in component_types.items():
-        definitions = by_type.setdefault(type_path, {(prototype_prefix + short_name, type_path)})
+        definitions = by_type.setdefault(type_path, {(generated_name(prototype_prefix + short_name), type_path)})
         candidates.setdefault(type_path, set()).update(definitions)
         candidates.setdefault(short_name, set()).update(definitions)
         for definition in definitions:
@@ -57,19 +56,20 @@ def build_component_type_map(
         path = target
         if isinstance(target, dict):
             path, prototype_name = target.get("type"), target.get("prototype")
-            if not isinstance(prototype_name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", prototype_name):
+            if not isinstance(prototype_name, str):
                 raise ValueError(f"componentAliases.{alias}.prototype must be an AUTOSAR SHORT-NAME")
+            validate_short_name(prototype_name, f"componentAliases.{alias}.prototype")
         if not isinstance(path, str) or not path.startswith("/"):
             raise ValueError(f"componentAliases.{alias} must be a full AUTOSAR path")
         if path in prototypes and not prototype_name:
             definition = (path.rsplit("/", 1)[-1], prototypes[path])
         elif path in component_types or path in composition_types:
-            definitions = by_type.setdefault(path, {(prototype_prefix + path.rsplit("/", 1)[-1], path)})
+            definitions = by_type.setdefault(path, {(generated_name(prototype_prefix + path.rsplit("/", 1)[-1]), path)})
             if len(definitions) != 1:
                 raise ValueError(f"componentAliases.{alias}: multiple target instances; use a prototype path")
             definition = next(iter(definitions))
             if path not in prototypes.values() and path not in named_types:
-                definition = (prototype_name or prototype_prefix + alias, path)
+                definition = (prototype_name or generated_name(prototype_prefix + alias), path)
                 old_definition = next(iter(definitions))
                 for values in candidates.values():
                     if old_definition in values:

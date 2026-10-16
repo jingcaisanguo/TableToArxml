@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
+from .paths import expand_path, filesystem_path
+
 LOGGER = logging.getLogger(__name__)
 
 ARXML_SUFFIX = ".arxml"
@@ -78,7 +80,7 @@ def read_arxml_list(
         if normalize_entry is not None:
             entry = normalize_entry(entry)
         location = f"{list_file}:{line_number}"
-        entry_path = Path(entry.replace("\\", "/"))
+        entry_path = filesystem_path(entry)
         bases = [entry_path] if entry_path.is_absolute() else [
             base / entry_path for base in (project_root, *search_dirs)
         ]
@@ -87,7 +89,7 @@ def read_arxml_list(
         # 文件名本身可能含 ``[`` 等通配符字符：只要按字面存在，就不再当作通配符展开。
         if glob.has_magic(entry) and not literal_matches:
             candidates = sorted(
-                {Path(match) for base in bases for match in glob.glob(str(base), recursive=True)},
+                {match for base in (project_root, *search_dirs) for match in expand_path(entry_path, base)},
                 key=lambda path: str(path).casefold(),
             )
             candidates = [path for path in candidates if path.is_file() and path.suffix.casefold() == ARXML_SUFFIX]

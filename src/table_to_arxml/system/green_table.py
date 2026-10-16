@@ -6,7 +6,6 @@ J 为对端端口（总线行为信号），K 为备注。INPUT、OUTPUT 两页�
 
 from __future__ import annotations
 
-import glob
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,8 +15,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
 from ..common.openpyxl_compat import copy_worksheet
+from ..common.paths import expand_path, filesystem_path
 from .values import norm
-from .tresos_list import filesystem_path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -133,14 +132,7 @@ def collect_green_workbooks(
         if not rendered:
             continue
         pattern = filesystem_path(rendered)
-        if not pattern.is_absolute():
-            pattern = base_dir / pattern
-
-        if glob.has_magic(str(pattern)):
-            # 通配符未命中视为没有可选绿表，不当作配置错误。
-            matches = [Path(match) for match in glob.glob(str(pattern), recursive=True)]
-        else:
-            matches = [pattern]
+        matches = expand_path(pattern, base_dir)
 
         for match in sorted(matches, key=lambda path: str(path).casefold()):
             path = match.resolve()

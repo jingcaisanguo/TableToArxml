@@ -1,4 +1,4 @@
-"""armodel 契约测试：CI 对每个支持的 armodel 版本运行，确认工具依赖的行为和绕行代码仍然成立。
+"""armodel 契约测试：CI 对 1.8.7、1.9.2 运行，确认工具依赖的行为和绕行代码仍然成立。
 
 若某条“缺陷仍存在”的断言失败，说明新版 armodel 已修复该问题，可以评估删除
 :mod:`table_to_arxml.common.armodel_compat` 中对应的绕行代码。

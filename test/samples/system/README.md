@@ -1,7 +1,7 @@
 # table-to-system-arxml 命令测试
 
-返回 [../README.md](../README.md)。BCM 使用 [BcmTableToSystemArxmlConfig.json](BcmTableToSystemArxmlConfig.json) 测试绿表模式，
-MC 使用 [McTableToSystemArxmlConfig.json](McTableToSystemArxmlConfig.json) 测试白表模式，两者共用 [../common/arxml.lst](../common/arxml.lst)。
+返回 [../README.md](../../README.md)。BCM 使用 [BcmTableToSystemArxmlConfig.json](BcmTableToSystemArxmlConfig.json) 测试绿表模式，
+MC 使用 [McTableToSystemArxmlConfig.json](McTableToSystemArxmlConfig.json) 测试白表模式，两者共用 [../common/arxml.lst](../../data/common/arxml.lst)。
 
 ## 输入
 
@@ -27,7 +27,7 @@ MC 白表声明 `itsAUXL`、`itsHorn` 两个 `Add` 实例，测试以下两条�
 
 ## 准备
 
-使用 Python 3.9 或更新版本，在独立虚拟环境中安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../docs/dev/release.md)），依赖为 wheel 声明的 `armodel>=1.8.7,<1.9.4`。
+使用 Python 3.9 或更新版本，在独立虚拟环境中安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../../docs/dev/release.md)），依赖为 wheel 声明的 `armodel>=1.8.7,<1.9.4`。
 以下命令都从**仓库根目录**执行；命令行相对路径按当前工作目录解析，JSON 中的路径按配置文件所在目录解析。
 
 ```powershell
@@ -37,10 +37,10 @@ python -m pip install ./dist/table_to_arxml-0.3.0-py3-none-any.whl
 ## BCM 绿表
 
 ```powershell
-table-to-system-arxml --config test/tableToSystemArxml/BcmTableToSystemArxmlConfig.json
+table-to-system-arxml --config test/samples/system/BcmTableToSystemArxmlConfig.json
 ```
 
-产物写到 `test/tableToSystemArxml/output/BcmTest`，日志写到 `test/tableToSystemArxml/log/BcmTest`。
+产物写到 `test/samples/system/output/BcmTest`，日志写到 `test/samples/system/log/BcmTest`。
 预期退出码为 0，生成 `BcmWhiteTable.xlsx`、`BcmGreenTables.xlsx`、`BcmSystem.arxml`。
 ARXML 包含两个组件原型、两条装配连接、两个实现映射，以及指向同一 ECU 的两个组件引用。
 不要求 `PrefSystemImporter`、XDM 或原生产工程目录。
@@ -48,7 +48,7 @@ ARXML 包含两个组件原型、两条装配连接、两个实现映射，以�
 ## BCM 白表
 
 ```powershell
-table-to-system-arxml --config test/tableToSystemArxml/BcmTableToSystemArxmlConfig.json --white-table test/tableToSystemArxml/WhiteTable/BcmWhiteTable.xlsx --output-dir test/tableToSystemArxml/output/BcmWhiteTest --log-dir test/tableToSystemArxml/log/BcmWhiteTest
+table-to-system-arxml --config test/samples/system/BcmTableToSystemArxmlConfig.json --white-table test/samples/system/WhiteTable/BcmWhiteTable.xlsx --output-dir test/samples/system/output/BcmWhiteTest --log-dir test/samples/system/log/BcmWhiteTest
 ```
 
 该模式只生成 `BcmSystem.arxml`；规范化 XML 后应与绿表模式输出相同。
@@ -57,11 +57,11 @@ table-to-system-arxml --config test/tableToSystemArxml/BcmTableToSystemArxmlConf
 ## MC 白表
 
 ```powershell
-table-to-system-arxml --config test/tableToSystemArxml/McTableToSystemArxmlConfig.json
+table-to-system-arxml --config test/samples/system/McTableToSystemArxmlConfig.json
 ```
 
 配置使用单数 `whiteTable` 字段，不是 `whiteTables`，不需要 MC 绿表。
-产物写到 `test/tableToSystemArxml/output/McTest`，日志写到 `test/tableToSystemArxml/log/McTest`。
+产物写到 `test/samples/system/output/McTest`，日志写到 `test/samples/system/log/McTest`。
 预期退出码为 0，只生成 `McSystem.arxml`，不生成白表或合并绿表。
 输出包含两个组件、两条连接、两个实现映射及同一 ECU 下的两个组件引用。
 白表模式的 Composition/System/根组合/ECU 引用来自白表 General 页，不由配置中的 `general` 覆盖。
@@ -69,7 +69,7 @@ table-to-system-arxml --config test/tableToSystemArxml/McTableToSystemArxmlConfi
 ## 联合运行
 
 ```powershell
-table-to-system-arxml --config test/tableToSystemArxml/McTableToSystemArxmlConfig.json --config test/tableToSystemArxml/BcmTableToSystemArxmlConfig.json --output-dir test/tableToSystemArxml/output/BcmMcTest --log-dir test/tableToSystemArxml/log/BcmMcTest
+table-to-system-arxml --config test/samples/system/McTableToSystemArxmlConfig.json --config test/samples/system/BcmTableToSystemArxmlConfig.json --output-dir test/samples/system/output/BcmMcTest --log-dir test/samples/system/log/BcmMcTest
 ```
 
 命令行统一目录，避免两份配置各自目录不同导致报错；五个输入模型只加载一次。

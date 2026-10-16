@@ -66,3 +66,28 @@ def test_interface_mapping_is_validated(tmp_path, elements, message):
     assert result.returncode == 1
     assert message in result.stderr
     assert not (tmp_path / "out").exists()
+
+
+def test_same_interface_missing_type_blocks_output(tmp_path):
+    write_model(tmp_path)
+    path = tmp_path / "model.arxml"
+    text = path.read_text(encoding="utf-8").replace(">/Pkg/IfB<", ">/Pkg/IfA<")
+    path.write_text(text.replace(">/Pkg/uint8<", ">/Pkg/MissingType<"), encoding="utf-8")
+    write_white_table(tmp_path, {
+        "Components": COMPONENTS, "AssemblySwConnection": [["A", "pOut", "B", "rIn"]],
+    })
+    result = run_tool(SYSTEM, "--config", write_config(tmp_path))
+    assert result.returncode == 1
+    assert "Cannot resolve interface data types" in result.stderr
+    assert not (tmp_path / "out").exists()
+
+
+def test_invalid_outer_port_name_blocks_output(tmp_path):
+    write_model(tmp_path)
+    write_white_table(tmp_path, {
+        "Components": COMPONENTS, "DelegationSwConnection": [["A", "pOut", "bad-name"]],
+    })
+    result = run_tool(SYSTEM, "--config", write_config(tmp_path))
+    assert result.returncode == 1
+    assert "Outer Port must be an AUTOSAR SHORT-NAME" in result.stderr
+    assert not (tmp_path / "out").exists()

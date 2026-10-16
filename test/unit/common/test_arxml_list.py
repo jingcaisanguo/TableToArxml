@@ -87,3 +87,10 @@ def test_empty_result_and_missing_list(project):
 def test_literal_file_name_with_glob_characters(project):
     (project / "Foo[1].arxml").write_text("<AUTOSAR/>", encoding="utf-8")
     assert names(read_arxml_list(write_list(project, "Foo[1].arxml"), project, strict=True)) == ["Foo[1].arxml"]
+
+
+def test_glob_inside_literal_bracket_directory(tmp_path):
+    project = tmp_path / "Project[1]"
+    project.mkdir()
+    (project / "a.arxml").touch()
+    assert names(read_arxml_list(write_list(project, "*.arxml"), project, strict=True)) == ["a.arxml"]

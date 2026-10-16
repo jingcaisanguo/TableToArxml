@@ -70,7 +70,7 @@ JSON 中的相对路径始终基于 JSON 所在目录；命令行传入的相对
 
 config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可以省略，保留时也不会检查；清单不存在直接失败，不回退 EB。只有删除 `arxmlFileList` 且未传 `--arxml-file-list` 时才使用 `tresosPreferenceFiles`。空字符串或 `null` 不是切换到 XDM 的方式。
 
-命令行参数与 JSON 键一一对应（如 `outputDir` 对应 `--output-dir`），命名与 `table-to-swc-arxml` 统一，参数名须完整书写，不接受缩写。
+可在命令行覆盖的 JSON 项采用统一命名（如 `outputDir` 对应 `--output-dir`）；并非所有 JSON 项都有 CLI 参数，接口映射等只支持 JSON。参数名须完整书写，不接受缩写。
 
 | 参数 | 作用 |
 | --- | --- |
@@ -89,7 +89,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 - 加载集合是各配置清单的并集，并排除所有配置本次要生成的 `<outputPrefix>System.arxml`。
 - 按 `--config` 顺序依次生成；前一个配置新生成的 ARXML 会追加到模型中，因此被引用的配置要排在前面（例如 B 配置引用 A 配置新增的实例时，A 须在前）。
-- 各配置的 `outputPrefix` 不能重复；未传 `--log-level` 时，各配置写了的 `logLevel` 必须一致，否则报错。
+- 各配置的 `outputPrefix` 不能重复或仅大小写不同，开始生成前会检查最终输出路径；未传 `--log-level` 时，各配置写了的 `logLevel` 必须一致，否则报错。
 - 未传 `--output-dir` 或 `--log-dir` 时，每份配置必须提供对应的 `outputDir` 或 `logDir`，且各自解析后的目录必须一致。
 - 任一配置失败则全部不发布。
 
@@ -109,7 +109,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | `variantA.lst` | 仅 EB 模式在产物目录生成；复用已有 lst 时不会复制或重新生成此文件 |
 | `table_to_system_arxml_<时间含微秒>_<进程号>.log` | 在显式指定的 `--log-dir` 或 `logDir` 下记录本次运行日志 |
 
-只有整次转换成功才覆盖同名产物，不会自动清理其他旧文件。任何 ERROR 或异常都阻止本次发布，临时文件清理、原有产物保留不变；发布失败会尝试回滚，日志保留。不同变体使用相同 `outputPrefix` 时仍需用 `--output-dir` 分目录；不要并发发布到同一个产物目录。
+只有整次转换成功才覆盖同名产物，不会自动清理其他旧文件。工具自身的 ERROR 或运行异常阻止本次发布；armodel 解析器诊断不单独影响退出码，但仍需检查是否影响工程所需内容。失败时清理临时文件，发布失败尝试回滚，日志保留。不同变体使用相同 `outputPrefix` 时仍需分次运行并用 `--output-dir` 分目录；不要并发发布到同一个产物目录。
 
 工具本身不把产物复制回工程；需要分发时由调用方的构建流程复制，并仅在退出码为 0 时复制。
 

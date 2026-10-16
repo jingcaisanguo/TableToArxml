@@ -17,9 +17,17 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.worksheet.views import Selection
 from openpyxl.workbook.defined_name import DefinedName
 
+from table_to_arxml.swc.schema import (
+    ACCESS_KIND_CHOICES,
+    ARRAY_SIZE_SEMANTICS,
+    BOOLEAN_VALUES,
+    CS_ARGUMENT_DIRECTIONS,
+    SHEET_HEADERS,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
-BOOLEAN_CHOICES = ("Y", "N", "TRUE", "FALSE", "YES", "NO", "1", "0")
-ACCESS_CHOICES = ("Send", "ReceiveByArgument", "ReceiveByValue", "Read", "Write")
+BOOLEAN_CHOICES = BOOLEAN_VALUES
+ACCESS_CHOICES = ACCESS_KIND_CHOICES
 HEADER_COLORS = {"required": "1F4E78", "conditional": "9C6500", "optional": "516272"}
 
 
@@ -53,7 +61,7 @@ ARTIFACT = Field("Create RTE Artifact", "可选", "N", "Y：SR 按 Access Kind �
 P_RUNNABLE = Field("Runnable Name", "SR 且 Artifact=Y 时必填", "CS 自动命名", "SR：已有 runnable 的简称。CS P：新建名称；留空用 RE_<端口>_<operation>，多 operation 时给手填名追加后缀。", "Run / RE_Service", 28)
 R_RUNNABLE = Field("Runnable Name", "Artifact=Y 时必填", "—", "组件内部行为中已有 runnable 的简称，不是完整 AUTOSAR 路径。", "Run", 28)
 P_ACCESS = Field("Access Kind", "可选", "Send", "仅 SR 且 Artifact=Y 生效；Send 为显式发送，Write 为隐式写访问。", "Send / Write", 26, ("Send", "Write"))
-R_ACCESS = Field("Access Kind", "可选", "ReceiveByArgument", "仅 SR 且 Artifact=Y 生效；ReceiveBy* 为显式接收，Read 为隐式读访问。也接受旧值 Argument / Value。", "ReceiveByValue / Read", 26, ("ReceiveByArgument", "ReceiveByValue", "Read", "Argument", "Value"))
+R_ACCESS = Field("Access Kind", "可选", "ReceiveByArgument", "仅 SR 且 Artifact=Y 生效；ReceiveBy* 为显式接收，Read 为隐式读访问。", "ReceiveByValue / Read", 26, ("ReceiveByArgument", "ReceiveByValue", "Read"))
 
 LAYOUT: dict[str, tuple[Field, ...]] = {
     "Components": (
@@ -74,7 +82,7 @@ LAYOUT: dict[str, tuple[Field, ...]] = {
         Field("Element Name", "必填", "—", "数组实现数据类型中的元素 SHORT-NAME。", "Element", 28),
         Field("Element Type Ref", "必填", "—", "数组元素的实现数据类型路径。", "/Pkg/Types/Mode", 46),
         Field("Array Size", "必填", "—", "正整数；VARIABLE-SIZE 时表示声明的最大长度。", "8", 16, number="positive_integer"),
-        Field("Array Size Semantics", "可选", "FIXED-SIZE", "数组大小语义。", "FIXED-SIZE / VARIABLE-SIZE", 26, ("FIXED-SIZE", "VARIABLE-SIZE")),
+        Field("Array Size Semantics", "可选", "FIXED-SIZE", "数组大小语义。", "FIXED-SIZE / VARIABLE-SIZE", 26, ARRAY_SIZE_SEMANTICS),
         TARGET,
     ),
     "Structures": (
@@ -94,7 +102,7 @@ LAYOUT: dict[str, tuple[Field, ...]] = {
         INTERFACE_PATH,
         Field("Operation Name", "必填", "—", "一个参数一行；同一接口、同一 operation 的参数按行合并。无参数 operation 只填一行。", "Reset / SetMode", 28),
         Field("Argument Name", "有参数时必填", "全空表示无参数", "参数名、方向和类型必须全填或全空；同一 operation 不得混用无参数声明和参数行。", "Mode", 28),
-        Field("Direction", "有参数时必填", "—", "参数方向；与 Argument Name、Data Type Ref 一起填写。", "IN / OUT / INOUT", 16, ("IN", "OUT", "INOUT")),
+        Field("Direction", "有参数时必填", "—", "参数方向；与 Argument Name、Data Type Ref 一起填写。", "IN / OUT / INOUT", 16, CS_ARGUMENT_DIRECTIONS),
         Field("Data Type Ref", "有参数时必填", "—", "参数的实现数据类型路径；无参数 operation 留空。", "/Pkg/Types/Mode", 46),
         SERVICE, TARGET,
     ),
@@ -211,10 +219,12 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("流程 1：只加端口", "Components → P-Ports / R-Ports。前三列必填，Create RTE Artifact 留空或 N 即仅创建端口及选配 ComSpec。")
     paragraph("流程 2：新接口", "类型（需要时）→ SR-Interfaces / CS-Interfaces → P/R-Ports。端口可以引用本次新建接口，接口可以引用本次新建类型。")
     paragraph("流程 3：访问点", "端口页 Artifact=Y：为全部元素自动创建；Data Accesses：只选部分元素或自定义名称。同一访问需求不要在两处重复填写。")
-    paragraph("页签与表头", "未使用的工作表可以省略；有端口或访问点时必须提供 Components 映射。页名/列名不区分大小写；第 1 行是表头，禁止增加标题行、空白分隔列或给列名加星号。")
+    paragraph("页签与表头", "未使用的工作表可以省略；有端口或访问点时必须提供 Components 映射。只接受本模板规定的页名和列名（不区分大小写），其他页名/列名报错；README 仅供阅读。第 1 行是表头，禁止增加标题行、空白分隔列或给列名加星号。")
     paragraph("颜色与位置", "深蓝表头=必填，棕色=条件必填，灰蓝=可选；具体条件见批注。P/R 前六列位置一致，后面为 ComSpec 和 CS 服务端配置。点击各页 A1 返回本页说明。")
     paragraph("路径与名称", "Path 是对象完整 AUTOSAR 路径（组件路径指已有对象）；Ref 是引用路径；Name 是 SHORT-NAME。SW-C 是工作簿标识。AUTOSAR 路径以 / 开头。")
+    paragraph("名称校验", "新建 Name 和路径各段必须以 ASCII 字母开头，只含字母、数字、下划线，最长 128 字符。枚举 Label 等文本可用中文；Runnable Symbol 使用 C 标识符。自动长名称截断并追加哈希。")
     paragraph("目标文件", "Target ARXML 相对 projectRoot，目标文件和所在包必须已存在；它不是导出路径。最终输出由 outputDir / inPlace / dryRun 控制。")
+    paragraph("输出与重定义", "outputDir 不能覆盖任何输入 ARXML（包括链接别名），覆盖源文件必须明确使用 inPlace。其他文件已有同路径对象时禁止再次创建；候选文件解析失败也会阻止写出。")
     paragraph("空值与布尔值", "布尔留空为 N；接受 Y/N、TRUE/FALSE、YES/NO、1/0（不区分大小写）。其他默认值逐列列出。合法但不生效的配置会 WARNING；非法值仍 ERROR。")
     paragraph("错误与写出", "任一 ERROR 阻止全部 ARXML 写出，退出码 1；WARNING 不阻止写出。空模板不产生对象，运行会提示没有有效记录。")
     paragraph("数据表操作", "每页使用 Excel 表格：从表格最后一个单元格按 Tab 追加行，筛选会自动扩展。若在表外粘贴，使用“调整表格大小”纳入新行；解析器仍读取整页。")
@@ -224,8 +234,6 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("CS P / CS R", "CS P：每个 operation 新建 runnable/event；名称留空自动命名，多 operation 给手填名追加后缀。CS R：已有调用方 Runnable Name 必填，每个 operation 创建同步调用点（超时 0.0）。")
     paragraph("ComSpec 触发", "P：超时非空（含 0）或 E2E=Y。R：Enable Update=Y 或 Queue Length>0，两者互斥。仅填 N 或 Queue Length=0 不触发；新端口为全部数据元素生成。")
     paragraph("已知限制", "组件及内部行为/访问点容器须按对应功能预先存在；CS 不生成应用错误；SR 接口以外不自动生成数据访问点。无参数 operation 的参数三列全空，不能混用同名有参数声明。")
-    paragraph("兼容名称", "Data-Accesses → Data Accesses；SWC → SW-C；Runnable / Runnable Ref → Runnable Name；Receive Mode → Access Kind（Argument / Value 仍兼容）；Base Type Ref → Implementation Data Type Ref。")
-    paragraph("其他旧列名", "Create Access → Create RTE Artifact；Transmission Acknowledge → Transmission Acknowledge Timeout；QueueLength → Queue Length；Data Element / Operation / Argument → 对应的 ... Name。")
     paragraph("精确类型", "枚举底层列引用 IMPLEMENTATION-DATA-TYPE，不是 SW-BASE-TYPE。所有时间间隔/超时单位为秒。")
     paragraph("字段导航", "点击下方工作表标题跳转输入页；字段说明与各页表头批注来自同一份定义。")
     sections = {}
@@ -251,6 +259,14 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
 
 
 def create_workbook(sample: bool = False) -> Workbook:
+    if set(LAYOUT) != set(SHEET_HEADERS):
+        raise ValueError("Template worksheets do not match the reader schema")
+    for name, fields in LAYOUT.items():
+        required, optional = SHEET_HEADERS[name]
+        if {field.name for field in fields} != set(required + optional) or len(fields) != len(required + optional):
+            raise ValueError(f"Template columns do not match the reader schema: {name}")
+        if any((field.name in required) != (field.required == "必填") for field in fields):
+            raise ValueError(f"Template required columns do not match the reader schema: {name}")
     workbook = Workbook()
     sections = make_readme(workbook, sample)
     tab_colors = {
@@ -319,8 +335,8 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, help="验证用输出目录；不指定时更新仓库内两份工作簿")
     args = parser.parse_args()
     outputs = (
-        ("SwcTestPorts.xlsx", ROOT / "test" / "tableToSwcArxml", True),
-        ("SwcTemplate.xlsx", ROOT / "docs" / "user" / "tableToSwcArxml", False),
+        ("SwcTestPorts.xlsx", ROOT / "test" / "samples" / "swc", True),
+        ("SwcTemplate.xlsx", ROOT / "docs" / "user" / "swc", False),
     )
     for filename, directory, sample in outputs:
         target = (args.output_dir if args.output_dir is not None else directory) / filename

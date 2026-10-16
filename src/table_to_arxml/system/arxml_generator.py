@@ -27,6 +27,8 @@ from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.PortInterface import
 )
 
 from ..common.armodel_compat import SystemArxmlWriter
+from ..common.names import MAX_SHORT_NAME as MAX_SHORT_NAME
+from ..common.names import autosar_path, generated_name, short_name
 from .arxml_model import ArxmlModel
 from .values import ref_value
 from .type_signature import TypeSignatures
@@ -43,25 +45,17 @@ COMPONENT_DESTINATIONS = (
     (EcuAbstractionSwComponentType, "ECU-ABSTRACTION-SW-COMPONENT-TYPE"),
     (ServiceSwComponentType, "SERVICE-SW-COMPONENT-TYPE"),
 )
-# AUTOSAR SHORT-NAME 最长 128 个字符。
-MAX_SHORT_NAME = 128
 ASSEMBLY_PREFIX = "ac_"
 DELEGATION_PREFIX = "dlc_"
-NAME_HASH_LENGTH = 8
 
 
 def connector_name(prefix: str, *parts: str) -> str:
     """生成连接器 SHORT-NAME：``<前缀><各部分以 _ 连接>``。
 
-    各部分之间始终有分隔符，避免不同输入拼出同一名称；超过 :data:`MAX_SHORT_NAME` 时截断，
-    并以完整名称的哈希结尾，保证截断后的名称仍然唯一且稳定。
+    超过 :data:`MAX_SHORT_NAME` 时截断并追加完整名称的哈希；调用方仍须检查名称冲突。
     """
 
-    name = prefix + "_".join(parts)
-    if len(name) <= MAX_SHORT_NAME:
-        return name
-    digest = sha256(name.encode("utf-8")).hexdigest()[:NAME_HASH_LENGTH]
-    return f"{name[:MAX_SHORT_NAME - NAME_HASH_LENGTH - 1]}_{digest}"
+    return generated_name(prefix + "_".join(parts))
 
 
 def _reference(destination: str, path: str) -> RefType:
@@ -142,10 +136,14 @@ class _Resolver:
         self.interface_mappings: dict[str, _InterfaceMapping] = {}
         self.type_signatures = TypeSignatures(self.lookup)
         self.model = ArxmlModel(document, [], [])
-        self.composition_path = data.general["Composition"].rstrip("/")
-        parts = self.composition_path.split("/")
-        if not self.composition_path.startswith("/") or len(parts) < 3 or not all(parts[1:]):
-            raise ValueError("General.Composition must be an absolute AUTOSAR path with a package")
+        self.composition_path = autosar_path(data.general["Composition"], "General.Composition", 2)
+        system_name = data.general["System"]
+        if system_name.startswith("/"):
+            autosar_path(system_name, "General.System", 2)
+        else:
+            short_name(system_name, "General.System")
+        for key in ("RootSwCompositionPrototype", "EcuInstance"):
+            autosar_path(data.general[key], f"General.{key}")
         self.context_components: list[str] = []
         self.system_category = "SYSTEM_DESCRIPTION"
         self.system_version = "1.0.0"
@@ -172,11 +170,16 @@ class _Resolver:
         if not all(values.values()):
             raise ValueError("all component fields are required")
         name, type_path = values["Prototype"], values["Type"]
+        autosar_path(type_path, "Component Type")
         action = values["Action"].lower()
         if action not in ("add", "reference"):
             raise ValueError(f"invalid Action '{values['Action']}'")
         if "/" in name and (action == "add" or not name.startswith("/")):
             raise ValueError("Add requires a prototype SHORT-NAME")
+        if name.startswith("/"):
+            autosar_path(name, "Prototype")
+        else:
+            short_name(name, "Prototype")
         component_type = self.lookup("find", type_path)
         destination = next((dest for kind, dest in COMPONENT_DESTINATIONS
                             if isinstance(component_type, kind)), "")
@@ -223,6 +226,7 @@ class _Resolver:
                     self.aliases[alias] = component
 
     def endpoint(self, component_name: str, port_name: str, expected: str = "") -> _Endpoint:
+        short_name(port_name, "Port")
         if component_name in self.ambiguous_aliases:
             raise ValueError(f"ambiguous component '{component_name}'; use its prototype name")
         if component_name not in self.aliases:
@@ -301,7 +305,8 @@ class _Resolver:
         mapping = _InterfaceMapping(name, tuple(references))
         if name in self.interface_mappings and self.interface_mappings[name] != mapping:
             raise ValueError(f"Conflicting generated interface mapping: {name}")
-        path = f"{self.composition_path}_InterfaceMappings/{name}"
+        package_path, _, composition_name = self.composition_path.rpartition("/")
+        path = f"{package_path}/{generated_name(composition_name + '_InterfaceMappings')}/{name}"
         if self.lookup("find", path) is not None:
             raise ValueError(f"Generated interface mapping already exists in input: {path}")
         self.interface_mappings[name] = mapping
@@ -326,11 +331,7 @@ class _Resolver:
             interface = self.lookup("find", provider.interface_path)
             if isinstance(interface, SenderReceiverInterface):
                 for element in interface.getDataElements():
-                    try:
-                        self.validate_element_types(element, element, provider, requester)
-                    except _UnresolvedDataTypeError as exc:
-                        # 同一接口无需映射，类型无法唯一解析时只提示。
-                        LOGGER.warning("%s: %s", row.location, exc)
+                    self.validate_element_types(element, element, provider, requester)
         name = connector_name(
             ASSEMBLY_PREFIX, provider.component.name, values["PPort"], requester.component.name, values["RPort"])
         connector = _Assembly(name, provider, requester, mapping_path)
@@ -342,6 +343,7 @@ class _Resolver:
         values = row.values
         inner = self.endpoint(values["Inner SW-C"], values["Inner Port"])
         outer = values["Outer Port"]
+        short_name(outer, "Outer Port")
         if not outer or "/" in outer or not inner.interface_path or not inner.interface_destination:
             raise ValueError("delegation requires an outer port SHORT-NAME and an inner interface reference")
         existing = self.outer_ports.get(outer)
@@ -380,11 +382,13 @@ class _Resolver:
             raise ValueError("signal mapping requires a SenderReceiverInterface")
         if not endpoint.interface_path or not values["DataElement"]:
             raise ValueError("signal mapping requires an interface reference and DataElement")
+        short_name(values["DataElement"], "DataElement")
         data_path = f"{endpoint.interface_path}/{values['DataElement']}"
         data_element = self.lookup("findVariableDataPrototype", data_path)
         if data_element is None:
             raise ValueError(f"DataElement '{data_path}' is not defined")
         signal_path = values["SignalGroup" if group else "Signal"]
+        autosar_path(signal_path, "SignalGroup" if group else "Signal")
         if not group:
             self.model.validate_signal_mapping(signal_path, direction, self.data.general["EcuInstance"])
         signal = self.lookup("findSystemSignalGroup" if group else "findSystemSignal", signal_path)
@@ -457,7 +461,7 @@ def _write_model(
         package = package.createARPackage(package_name)
     composition = package.createCompositionSwComponentType(parts[-1])
     if resolver.interface_mappings:
-        mapping_set = package.createPortInterfaceMappingSet(f"{parts[-1]}_InterfaceMappings")
+        mapping_set = package.createPortInterfaceMappingSet(generated_name(f"{parts[-1]}_InterfaceMappings"))
         for name, definition in sorted(resolver.interface_mappings.items()):
             interface_mapping = mapping_set.createVariableAndParameterInterfaceMapping(name)
             for first, second in definition.elements:
@@ -508,7 +512,7 @@ def _write_model(
     if resolver.system_version:
         system.setSystemVersion(ARLiteral().setValue(resolver.system_version))
     system.addFibexElementRef(_reference("ECU-INSTANCE", general["EcuInstance"]))
-    mapping = system.createSystemMapping(f"SystemMapping_{system_mapping}")
+    mapping = system.createSystemMapping(generated_name(f"SystemMapping_{system_mapping}"))
     root = general["RootSwCompositionPrototype"]
     if root.rsplit("/", 1)[0] == system.getFullName():
         system.createRootSoftwareComposition(root.rsplit("/", 1)[-1]).setSoftwareCompositionTRef(
@@ -519,7 +523,7 @@ def _write_model(
     for component in added:
         ecu_mapping.addComponentIRef(_component_iref(component, root, context))
         if component.implementation:
-            impl_mapping = mapping.createSwcToImplMapping(f"{component.name}_ImplMapping")
+            impl_mapping = mapping.createSwcToImplMapping(generated_name(f"{component.name}_ImplMapping"))
             impl_mapping.setComponentImplementationRef(_reference("SWC-IMPLEMENTATION", component.implementation))
             impl_mapping.addComponentIRef(_component_iref(component, root, context))
     for signal in resolver.signals:

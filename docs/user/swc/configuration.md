@@ -21,7 +21,6 @@
 | `logLevel` | `--log-level` | 字符串 | `INFO` | `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
 | `strictList` | `--strict-list` | 布尔 | `false` | 清单中有缺失、非 `.arxml` 或无匹配的条目时直接失败，而不是警告后跳过 |
 | `excludeArxml` | `--exclude-arxml` | 字符串数组 | `[]` | 排除文件名或相对 `projectRoot` 的路径；命令行可重复，覆盖配置列表 |
-| `backend` | `--backend` | 字符串 | — | **已废弃**：固定使用 armodel；只接受 `armodel`，填写时记录 `WARNING`，请从配置中删除 |
 | `dryRun` | `--dry-run` | 布尔 | `false` | 只校验，不写文件；与三者都不选等价，用于显式声明 |
 | `inPlace` | `--in-place` | 布尔 | `false` | 直接覆盖源 ARXML |
 | `outputDir` | `--output-dir` | 目录 | 可选 | 把修改后的 ARXML 按 `projectRoot` 内的相对路径写到该目录，不改源文件 |
@@ -53,7 +52,7 @@ JSON 路径按以下顺序处理：
 
 1. 用 `--variant` 的值替换 `${variant}`；未传时使用 `defaultVariant`。用了占位符却没有 variant 时报错。
 2. 以配置文件所在目录补全相对路径，允许 `..`；`\` 与 `/` 都可使用。
-3. 含 `*`、`?` 时按通配符匹配，必须唯一匹配一个文件（目录类参数匹配目录）；零个或多个匹配都报错，不会自动选第一个。
+3. 路径按字面存在时优先使用，包括名称中有方括号的文件或目录；否则展开 `*`、`?`、`[...]`、`**` 通配符，基准目录按字面处理。必须唯一匹配一个文件（目录类参数匹配目录），零个或多个匹配都报错。
 4. 日志和输出目录可以尚不存在，但这时不能使用通配符。
 
 命令行相对路径的基准与 `table-to-system-arxml` 相同，都是当前工作目录。
@@ -110,5 +109,5 @@ table-to-swc-arxml --project-root . --arxml-file-list path/to/files.lst --workbo
 ## 部署建议
 
 把 wheel 安装到项目的虚拟环境，配置、工作簿和清单随项目维护，通过绝对路径 `--config` 选择项目。
-升级工具只需重新安装 wheel，配置无需修改；项目整体移动时只需改启动命令中的配置路径。
+兼容版本升级通常只需重新安装 wheel；跨版本升级前仍应检查 [迁移说明](../migration.md)，不能保证所有旧配置和输入都无需调整。项目整体移动时，若全部项目路径都是相对路径，只需调整启动命令中的配置路径。
 移动 JSON 文件本身会改变其中相对路径的含义。
