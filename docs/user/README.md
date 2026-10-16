@@ -1,6 +1,6 @@
 # 表格转 ARXML 工具使用说明
 
-本说明面向工具使用者，可单独提供给外部。两个命令行工具随同一个 wheel 安装：
+本目录面向工具使用者，可作为使用资料提供给外部；分发时应一并提供整个 `docs/user` 目录并保留目录结构，尤其是 SWC 工作簿模板 `tableToSwcArxml/SwcTemplate.xlsx`。这些文档和模板不包含在 wheel 或 GitHub Release 的 wheel 附件中，需与 wheel 分开交付。两个命令行工具随同一个 wheel 安装：
 
 | 命令 | 用途 | 说明 |
 | --- | --- | --- |
@@ -45,5 +45,5 @@ table-to-arxml @ <Release 中 table_to_arxml-0.3.0-py3-none-any.whl 的下载链
 - 日志目录必须通过 `--log-dir` 或配置指定；`table-to-system-arxml` 的产物目录也必须显式指定。安装后的命令不会向 `site-packages` 写配置、产物或日志。
 - 日志同时写入日志文件和控制台：普通信息到 stdout，`WARNING`、`ERROR` 到 stderr，每行为 `<时间戳> <等级>: <消息>`。
 - 两个工具读取 ARXML 清单（`arxmlFileList`）的规则相同，见各工具的配置说明；`strictList` / `--strict-list` 使无效条目直接失败。
-- 退出码：`0` 成功；`1` 运行失败（存在 ERROR），不写任何产物；`2` 命令行或配置文件错误，打印用法，不创建日志。
+- 退出码：`0` 成功；`1` 工具自身运行或校验失败，不发布本次产物；`2` 命令行或配置文件错误，打印用法，不创建日志。System 工具的 armodel 解析器诊断即使以 `ERROR` 级别打印，也不单独导致退出码 `1`；详见 [System 日志与退出码说明](tableToSystemArxml/arxml-and-errors.md#日志与退出码)。
 - EB 模式（由 tresos 导入器生成 ARXML 清单）需要调用方环境提供 `PrefSystemImporter`，wheel 不包含 EB 工具。
