@@ -65,7 +65,7 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 | INPUT | I：上游组件 | J：上游 P-port | 当前绿表模块 | B：当前 R-port |
 | OUTPUT | 当前绿表模块 | B：当前 P-port | I：下游组件 | J：下游 R-port |
 
-最终连接名由工具取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`，最长 255 字符；同名但端点不同的连接会报错退出，避免截断碰撞。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
+最终连接名由工具取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`；超过 128 字符时截断并以 8 位哈希结尾。同名但端点不同的连接会报错退出。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
 
 装配连接强制要求 `P-port -> R-port`；端口引用的 interface 必须存在，默认两端必须是同一完整接口引用。`interfaceMismatch` 仅在 config 中设置，可选 `error`（缺省报错）、`skip`（WARNING 后跳过该连接）、`map`（生成明确的接口映射再连接），不提供命令行参数。映射支持 SenderReceiverInterface 的完整一一数据元素配对，并沿类型引用解析最终位宽、编码/符号性与形状；uint8/uint16、uint8/sint8 均拒绝，相同接口也检查组件各自的应用类型实现。详情见 [configuration.md](configuration.md)。委托连接按内端口生成同方向外端口，不套用装配连接的 P/R 两端规则。
 

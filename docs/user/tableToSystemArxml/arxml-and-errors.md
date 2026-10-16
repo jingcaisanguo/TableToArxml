@@ -37,11 +37,11 @@ app/common/swc/Lamp.arxml
 build/variantA.Debug/tresos/**/swcd/*.arxml
 ```
 
-1. 使用 UTF-8 文本，去除每行首尾空白，跳过空行及以 `#` 开头的行。路径有空格无需加引号；不支持行尾注释、嵌套 `@其他清单` 或在行中展开 `${variant}`。
+1. 使用 UTF-8 文本，去除每行首尾空白及两端引号，跳过空行及以 `#` 开头的行。路径有空格无需加引号；不支持行尾注释、嵌套 `@其他清单` 或在行中展开 `${variant}`。清单规则与 `table-to-swc-arxml` 相同。
 2. 规范化目录分隔符；仅 EB 模式下，条目包含构建基目录的末级名称时，若下一层不是 `tresos`，就在其后补一层 `tresos`。例如 `build/variantA.Debug/bswm/swcd/a.arxml` 会补成 `build/variantA.Debug/tresos/bswm/swcd/a.arxml`。复用清单不做此补齐，须直接提供真实路径。
 3. 绝对路径直接使用。EB 模式的相对路径分别尝试 `projectRoot` 和从 XDM 推导出的 tresos 工程目录，**如果两处都存在，会都收集，不是只取第一处。** 复用清单的相对路径只基于 `projectRoot`。
 4. 支持 `*`、`?`、字符集合和递归 `**` 等 glob。只保留存在且扩展名为 `.arxml`（不区分大小写）的文件；单写目录不会递归扫描，需写 glob。
-5. 具体文件不存在时记录 `WARNING` 并跳过；glob 无匹配直接跳过。过滤后没有任何 ARXML 会报错。
+5. 具体文件不存在、扩展名不是 `.arxml` 或 glob 无匹配时记录 `WARNING` 并跳过；`strictList` / `--strict-list` 为真时直接失败。被排除规则命中的不存在条目只记录 `INFO`。过滤后没有任何 ARXML 会报错。
 6. 解析到实际绝对路径后去重。同一物理路径只加载一次，但内容相同的不同文件不会按内容去重。
 
 原始 EB lst 仅在整次成功后发布到输出目录；展开 glob、补齐目录、去重和排除只用于内存中的加载集合，**不会把规范化后的集合写回 lst**。因此 lst 行数与实际加载文件数可能不同。lst 兼容 UTF-8 BOM 和两种目录分隔符，POSIX 不接受 Windows 盘符/UNC 绝对路径。
@@ -78,7 +78,7 @@ build/variantA.Debug/tresos/**/swcd/*.arxml
 
 ## 日志与退出码
 
-- 同时输出到控制台和日志文件，两者格式相同，每行为 `<时间戳> <等级>: <消息>`；日志等级取 `--log-level`、`logLevel`、默认 `INFO` 中优先级最高者，多配置时各配置的 `logLevel` 须一致。日志目录必须通过 `--log-dir` 或配置 `logDir` 指定，命令行优先，无默认目录，与产物目录分开。缺少日志或产物目录时仅在控制台报错，返回 1，不创建文件日志。
+- 同时输出到控制台和日志文件：普通信息到 stdout，`WARNING`、`ERROR` 到 stderr，两者格式相同，每行为 `<时间戳> <等级>: <消息>`；日志等级取 `--log-level`、`logLevel`、默认 `INFO` 中优先级最高者，多配置时各配置的 `logLevel` 须一致。日志目录必须通过 `--log-dir` 或配置 `logDir` 指定，命令行优先，无默认目录，与产物目录分开。缺少日志或产物目录时仅在控制台打印用法和错误，返回 `2`，不创建文件日志。
 - `INFO` 可查看选中的绿表数量、加载数量、各表追加数量和产物位置。
 - armodel 解析器的 WARNING/ERROR 按原级别输出，不支持的元素跳过，不影响退出码。其他代码记录的 ERROR 先收集，发布产物前统一失败并列出全部消息。
 - 日志文件名包含微秒和进程号，降低冲突概率；不支持并发发布到同一产物目录。
@@ -87,17 +87,17 @@ build/variantA.Debug/tresos/**/swcd/*.arxml
 | --- | --- |
 | 全部转换、写出和发布成功，无 ERROR | 返回 `0` |
 | armodel 解析器以外的任意 ERROR，或配置、文件、模型、转换、写入异常 | 记录失败原因并返回 `1`，不发布本次 Excel/ARXML/lst；旧产物不变。非预期的程序异常另记录完整堆栈 |
-| 命令行格式错误 | argparse 通常返回 `2` |
+| 命令行或配置错误（参数格式、配置文件缺失或无法解析、未知键、必填项缺失、日志/产物目录缺失等） | 打印用法和错误，返回 `2`，不创建日志 |
 | Python 转换依赖缺失或导入不可用 | 日志初始化后检查，在控制台及日志文件记录库名、实际异常和解释器，返回 `1` |
 
 ## 常见情况
 
 | 日志/现象 | 含义与检查方向 |
 | --- | --- |
-| `Python dependencies are missing or unusable` / `Cannot load conversion dependencies` | 使用日志中指定的解释器检查或修复库和传递依赖；完整列表见 [README.md](README.md) |
+| `Python dependencies are missing or unusable` | 使用日志中指定的解释器检查或修复库和传递依赖；完整列表见 [README.md](README.md) |
 | `PrefSystemImporter was not found in PATH` | 进入有 EB 工具的构建环境，或用已有 lst；不能以普通终端的 PATH 推断构建环境 |
 | `tresos preference file does not exist` | 仅 EB 模式会检查；确认路径相对配置目录。已指定 lst 时不应出现此项检查 |
-| `No ARXML files were resolved` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
+| `No usable ARXML files found` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
 | `No green tables were selected` | 检查 glob、变体及相对配置目录的文件位置 |
 | `Cannot find the SW component type of green table(s)` | 绿表文件名未能匹配组件查询表；补齐输入类型/引用或修正文件名，任务退出 |
 | 纯组件模型没有 CAN/LIN | 允许；只在存在总线映射行时验证相应通道 |

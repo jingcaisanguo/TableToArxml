@@ -19,16 +19,18 @@
 | `workbook` | `--workbook` | 文件 | **必填** | Excel 工作簿，格式见 [workbook-format.md](workbook-format.md) |
 | `logDir` | `--log-dir` | 目录 | **必填** | 日志目录，不存在时自动创建 |
 | `logLevel` | `--log-level` | 字符串 | `INFO` | `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
-| `strictList` | `--strict-list` | 布尔 | `false` | 清单中有无效条目时直接失败，而不是警告后跳过 |
+| `strictList` | `--strict-list` | 布尔 | `false` | 清单中有缺失、非 `.arxml` 或无匹配的条目时直接失败，而不是警告后跳过 |
 | `excludeArxml` | `--exclude-arxml` | 字符串数组 | `[]` | 排除文件名或相对 `projectRoot` 的路径；命令行可重复，覆盖配置列表 |
-| `backend` | `--backend` | 字符串 | `armodel` | ARXML 解析后端，目前只有 `armodel` |
-| `dryRun` | `--dry-run` | 布尔 | `false` | 只校验，不写文件 |
+| `backend` | `--backend` | 字符串 | — | **已废弃**：固定使用 armodel；只接受 `armodel`，填写时记录 `WARNING`，请从配置中删除 |
+| `dryRun` | `--dry-run` | 布尔 | `false` | 只校验，不写文件；与三者都不选等价，用于显式声明 |
 | `inPlace` | `--in-place` | 布尔 | `false` | 直接覆盖源 ARXML |
 | `outputDir` | `--output-dir` | 目录 | 可选 | 把修改后的 ARXML 按 `projectRoot` 内的相对路径写到该目录，不改源文件 |
 
 - `inPlace`、`outputDir`、`dryRun` 三者最多选一个；都不选时与 `dryRun` 相同，只校验不写文件。
+- 命令行指定了其中任一项时，整体替换配置中的输出方式。例如配置写了 `outputDir`，命令行加 `--dry-run` 即只校验，不报互斥错误。
 - JSON 中出现表外的键会报错，并列出支持的键。
-- 必填项缺失时，参数解析阶段即报错退出（退出码 `2`），不会创建日志。
+- 必填项缺失、JSON 无法读取或取值非法时，参数解析阶段即打印用法并退出（退出码 `2`），不会创建日志。
+- 依赖（armodel 版本等）在创建日志后检查，不满足时记录 `ERROR` 并返回 `1`；`--help` 不受依赖影响。
 - 日志文件名为 `table_to_swc_arxml_<时间含微秒>_<进程号>.log`，每次运行新建，启动时打印完整路径。
 
 ## 路径规则
@@ -36,7 +38,7 @@
 排除示例：`"excludeArxml": ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
 命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml arxml/Bcm/TUR.arxml`。
 只写文件名会排除所有同名文件（文件名不区分大小写）；带目录则精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
-排除发生在文件存在性检查之前，日志记录 `Exclude ARXML file`，不修改 lst。
+被排除的条目即使不存在也不会告警，日志记录 `Exclude ARXML file`，不修改 lst。
 全部排除时报错退出；被排除文件里的组件和接口无法通过清单查找。
 此选项不禁止工作簿通过 `Target ARXML` 显式指定该文件作为生成目标。
 
@@ -44,7 +46,7 @@
 | --- | --- | --- |
 | JSON 中的路径（`projectRoot`、`arxmlFileList`、`workbook`、`logDir`、`outputDir`） | 配置文件所在目录 | 支持 |
 | 命令行路径（`--config`、`--project-root`、`--arxml-file-list`、`--workbook`、`--log-dir`、`--output-dir`） | 当前工作目录 | 不支持 |
-| ARXML 清单中的条目 | `projectRoot` | 不支持 |
+| ARXML 清单中的条目 | `projectRoot` | 不支持 `${variant}`；支持通配符 |
 | 工作簿中的 `Target ARXML` | `projectRoot`，必须是相对路径，允许 `..` | 不支持 |
 
 JSON 路径按以下顺序处理：
@@ -58,13 +60,14 @@ JSON 路径按以下顺序处理：
 
 ## ARXML 清单
 
-`arxmlFileList` 是纯文本，每行一个 ARXML 路径：
+`arxmlFileList` 是 UTF-8 纯文本（兼容 BOM），每行一个 ARXML 路径；读取规则与 `table-to-system-arxml` 相同：
 
-- 空行和以 `#` 开头的行被忽略；路径两端的引号会去掉。
+- 空行和以 `#` 开头的行被忽略；路径两端的引号会去掉，`\` 与 `/` 都可使用。
 - 相对路径以 `projectRoot` 为基准，也可以写绝对路径。
-- 扩展名不是 `.arxml` 或文件不存在的条目：默认记录 `WARNING` 并跳过；`strictList=true` 时立即报错退出。
+- 条目可以含通配符（`*`、`?`、`[...]`，递归 `**`），只保留扩展名为 `.arxml` 的文件。
+- 文件不存在、扩展名不是 `.arxml` 或通配符没有匹配的条目：默认记录 `WARNING` 并跳过；`strictList=true` 时立即报错退出。
 - 同一文件重复出现时只保留第一次（Windows 下不区分大小写），记录 `INFO`。
-- 跳过后一个可用文件都不剩时报错退出。
+- 跳过后一个可用文件都不剩时报错退出（`No usable ARXML files found`）。
 
 工具只在清单列出的文件中查找组件和端口接口。新建类型或接口时写入的 `Target ARXML` 只要求文件存在；
 但如果同一次运行中的端口要引用新建接口，该接口所在文件必须在清单中，否则端口找不到它。
@@ -85,7 +88,7 @@ JSON 路径按以下顺序处理：
 
 ## 命令示例
 
-命令不在 `PATH` 时可换成同一虚拟环境的 `python -m table_to_swc_arxml`，参数相同。
+命令不在 `PATH` 时可换成同一虚拟环境的 `python -m table_to_arxml.swc`，参数相同。
 
 ```powershell
 # 只用配置文件

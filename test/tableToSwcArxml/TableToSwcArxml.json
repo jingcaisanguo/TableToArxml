@@ -5,6 +5,5 @@
   "logDir": "log/SwcTest",
   "outputDir": "output/SwcTest",
   "strictList": false,
-  "logLevel": "INFO",
-  "backend": "armodel"
+  "logLevel": "INFO"
 }

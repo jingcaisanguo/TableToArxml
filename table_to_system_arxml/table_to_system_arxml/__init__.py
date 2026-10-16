@@ -1,1 +1,0 @@
-"""Excel to AUTOSAR Composition and System ARXML conversion tool."""

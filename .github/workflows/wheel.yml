@@ -6,15 +6,13 @@ on:
     branches:
       - '**'
     paths:
-      - 'table_to_system_arxml/**'
-      - 'table_to_swc_arxml/**'
+      - 'src/**'
       - 'pyproject.toml'
       - 'requirements.txt'
       - '.github/workflows/wheel.yml'
   pull_request:
     paths:
-      - 'table_to_system_arxml/**'
-      - 'table_to_swc_arxml/**'
+      - 'src/**'
       - 'pyproject.toml'
       - 'requirements.txt'
       - '.github/workflows/wheel.yml'
@@ -42,38 +40,25 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           table-to-system-arxml --help
-          python -m table_to_system_arxml --help
+          python -m table_to_arxml.system --help
           table-to-swc-arxml --help
-          python -m table_to_swc_arxml --help
-          if table-to-swc-arxml --project-root . --arxml-file-list missing.lst 2>error.txt; then
-            echo "Missing workbook and log directory must fail" && exit 1
-          fi
+          python -m table_to_arxml.swc --help
+          python -c "import table_to_arxml.common.dependencies as d; d.check_dependencies()"
+
+          # 参数和配置错误：退出码 2，不创建日志。
+          set +e
+          table-to-swc-arxml --project-root . --arxml-file-list missing.lst 2>error.txt
+          status=$?
+          set -e
+          test "$status" -eq 2
           grep -q -- '--workbook, --log-dir required' error.txt
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          from tempfile import TemporaryDirectory
-          from unittest.mock import patch
-          from table_to_system_arxml import cli
-          from table_to_system_arxml.lib import (
-              arxml_generator, arxml_model, common, component_map, general, green_table, green_to_white,
-              type_signature, white_table)
-          cli._check_python_dependencies()
-          with TemporaryDirectory() as temporary:
-              config = Path(temporary) / "config.json"
-              config.write_text(json.dumps({"defaultVariant": "test", "projectRoot": ".", "outputPrefix": "Test", "greenTables": ["unused.xlsx"]}), encoding="utf-8")
-              with patch.object(cli, "_setup_logging") as setup:
-                  try:
-                      cli.run(config)
-                  except ValueError as error:
-                      assert "logDir" in str(error)
-                  else:
-                      raise AssertionError("Missing directories must fail")
-                  setup.assert_not_called()
-          with patch.object(cli, "run", return_value=[]) as run, patch("sys.argv", ["table-to-system-arxml"]):
-              assert cli.main() == 0
-              assert run.call_args.kwargs["config_paths"] == [Path.cwd() / "config.json"]
-          PY
+
+          set +e
+          table-to-system-arxml 2>error.txt
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -q -- 'config.json' error.txt
       - uses: actions/upload-artifact@v4
         with:
           name: table-to-arxml-wheel

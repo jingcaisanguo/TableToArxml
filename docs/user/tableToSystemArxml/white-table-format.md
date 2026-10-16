@@ -54,7 +54,7 @@
 
 ## AssemblySwConnection
 
-组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`，连接名为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`（最长 255 字符）。
+组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`，连接名为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`；超过 AUTOSAR SHORT-NAME 上限 128 字符时截断并以 8 位哈希结尾，保证唯一。
 
 | 列 | 说明 |
 | --- | --- |
@@ -67,7 +67,7 @@
 
 ## DelegationSwConnection
 
-内部端口委托到 `Composition` 外部端口，生成 `DELEGATION-SW-CONNECTOR`，连接名为 `dc_<Outer Port>_<内实例><Inner Port>`；外部端口在已加载 ARXML 中不存在时才一并生成。
+内部端口委托到 `Composition` 外部端口，生成 `DELEGATION-SW-CONNECTOR`，连接名为 `dlc_<Outer Port>_<内实例>_<Inner Port>`（长度规则同装配连接）；外部端口在已加载 ARXML 中不存在时才一并生成。
 
 | 列 | 说明 |
 | --- | --- |
