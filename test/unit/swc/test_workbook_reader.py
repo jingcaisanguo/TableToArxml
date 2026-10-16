@@ -1,8 +1,9 @@
-"""工作簿兼容性和条件必填规则；不读写实际 ARXML 模型。"""
+"""工作簿规范名称和条件必填规则；不读写实际 ARXML 模型。"""
 
 import pytest
 
 from table_to_arxml.swc import workbook
+from table_to_arxml.swc.schema import SHEET_HEADERS
 
 
 @pytest.fixture
@@ -10,8 +11,8 @@ def reader():
     return workbook
 
 
-@pytest.mark.parametrize("header", ["Implementation Data Type Ref", "Base Type Ref", "base type ref"])
-def test_enum_type_header_compatibility(reader, tmp_path, header, caplog):
+@pytest.mark.parametrize("header", ["Implementation Data Type Ref", "implementation data type ref"])
+def test_enum_type_header_is_case_insensitive(reader, tmp_path, header, caplog):
     target = tmp_path / "types.arxml"
     target.touch()
     specs = reader.read_enumerations({
@@ -58,17 +59,50 @@ def test_cs_parameter_grouping_is_preserved(reader, tmp_path, caplog):
     assert not caplog.records
 
 
-def test_duplicate_sheet_aliases_still_fail(reader, caplog):
-    specs = reader.read_data_accesses({"Data Accesses": [], "Data-Accesses": []}, {})
+def test_duplicate_sheet_names_are_case_insensitive(reader, caplog):
+    specs = reader.read_data_accesses({"Data Accesses": [], "data accesses": []}, {})
     assert specs == []
     assert "Multiple worksheets match Data Accesses" in caplog.text
 
 
-def test_duplicate_column_aliases_still_fail(reader, caplog):
+def test_duplicate_column_names_are_case_insensitive(reader, caplog):
     reader.read_workbook({"Components": [
-        ("SW-C", "SWC", "Component Path"), ("A", "A", "/Pkg/A"),
+        ("SW-C", "sw-c", "Component Path"), ("A", "A", "/Pkg/A"),
     ]})
     assert "duplicate=['SW-C']" in caplog.text
+
+
+@pytest.mark.parametrize("sheet, removed", [
+    ("P-Ports", "Create Access"),
+    ("P-Ports", "Runnable"),
+    ("R-Ports", "Runnable Ref"),
+    ("Components", "SWC"),
+    ("R-Ports", "Receive Mode"),
+    ("Enumerations", "Base Type Ref"),
+    ("P-Ports", "Transmission Acknowledge"),
+    ("R-Ports", "QueueLength"),
+    ("Data Accesses", "Data Element"),
+    ("CS-Interfaces", "Operation"),
+    ("CS-Interfaces", "Argument"),
+])
+def test_removed_header_aliases_are_unknown(reader, sheet, removed, caplog):
+    required, optional = SHEET_HEADERS[sheet]
+    records = reader.read_sheet_rows({sheet: [(*required, *optional, removed)]}, sheet)
+    assert records == []
+    assert f"unknown=['{removed}']" in caplog.text
+
+
+@pytest.mark.parametrize("kind", ["Argument", "Value"])
+def test_removed_access_kind_values_are_rejected(reader, kind, caplog):
+    _, ports = reader.read_workbook({
+        "Components": [("SW-C", "Component Path"), ("A", "/Pkg/A")],
+        "R-Ports": [
+            ("SW-C", "Port Name", "Port Interface Ref", "Access Kind"),
+            ("A", "r_Test", "/Pkg/If", kind),
+        ],
+    })
+    assert ports == []
+    assert "Access Kind must be one of" in caplog.text
 
 
 @pytest.mark.parametrize("queue,expected", [("", False), ("0", False), ("1", True)])

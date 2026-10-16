@@ -61,7 +61,7 @@ ARTIFACT = Field("Create RTE Artifact", "可选", "N", "Y：SR 按 Access Kind �
 P_RUNNABLE = Field("Runnable Name", "SR 且 Artifact=Y 时必填", "CS 自动命名", "SR：已有 runnable 的简称。CS P：新建名称；留空用 RE_<端口>_<operation>，多 operation 时给手填名追加后缀。", "Run / RE_Service", 28)
 R_RUNNABLE = Field("Runnable Name", "Artifact=Y 时必填", "—", "组件内部行为中已有 runnable 的简称，不是完整 AUTOSAR 路径。", "Run", 28)
 P_ACCESS = Field("Access Kind", "可选", "Send", "仅 SR 且 Artifact=Y 生效；Send 为显式发送，Write 为隐式写访问。", "Send / Write", 26, ("Send", "Write"))
-R_ACCESS = Field("Access Kind", "可选", "ReceiveByArgument", "仅 SR 且 Artifact=Y 生效；ReceiveBy* 为显式接收，Read 为隐式读访问。也接受旧值 Argument / Value。", "ReceiveByValue / Read", 26, ("ReceiveByArgument", "ReceiveByValue", "Read", "Argument", "Value"))
+R_ACCESS = Field("Access Kind", "可选", "ReceiveByArgument", "仅 SR 且 Artifact=Y 生效；ReceiveBy* 为显式接收，Read 为隐式读访问。", "ReceiveByValue / Read", 26, ("ReceiveByArgument", "ReceiveByValue", "Read"))
 
 LAYOUT: dict[str, tuple[Field, ...]] = {
     "Components": (
@@ -219,7 +219,7 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("流程 1：只加端口", "Components → P-Ports / R-Ports。前三列必填，Create RTE Artifact 留空或 N 即仅创建端口及选配 ComSpec。")
     paragraph("流程 2：新接口", "类型（需要时）→ SR-Interfaces / CS-Interfaces → P/R-Ports。端口可以引用本次新建接口，接口可以引用本次新建类型。")
     paragraph("流程 3：访问点", "端口页 Artifact=Y：为全部元素自动创建；Data Accesses：只选部分元素或自定义名称。同一访问需求不要在两处重复填写。")
-    paragraph("页签与表头", "未使用的工作表可以省略；有端口或访问点时必须提供 Components 映射。页名/列名不区分大小写；第 1 行是表头，禁止增加标题行、空白分隔列或给列名加星号。")
+    paragraph("页签与表头", "未使用的工作表可以省略；有端口或访问点时必须提供 Components 映射。只接受本模板规定的页名和列名（不区分大小写），其他页名/列名报错；README 仅供阅读。第 1 行是表头，禁止增加标题行、空白分隔列或给列名加星号。")
     paragraph("颜色与位置", "深蓝表头=必填，棕色=条件必填，灰蓝=可选；具体条件见批注。P/R 前六列位置一致，后面为 ComSpec 和 CS 服务端配置。点击各页 A1 返回本页说明。")
     paragraph("路径与名称", "Path 是对象完整 AUTOSAR 路径（组件路径指已有对象）；Ref 是引用路径；Name 是 SHORT-NAME。SW-C 是工作簿标识。AUTOSAR 路径以 / 开头。")
     paragraph("名称校验", "新建 Name 和路径各段必须以 ASCII 字母开头，只含字母、数字、下划线，最长 128 字符。枚举 Label 等文本可用中文；Runnable Symbol 使用 C 标识符。自动长名称截断并追加哈希。")
@@ -234,8 +234,6 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("CS P / CS R", "CS P：每个 operation 新建 runnable/event；名称留空自动命名，多 operation 给手填名追加后缀。CS R：已有调用方 Runnable Name 必填，每个 operation 创建同步调用点（超时 0.0）。")
     paragraph("ComSpec 触发", "P：超时非空（含 0）或 E2E=Y。R：Enable Update=Y 或 Queue Length>0，两者互斥。仅填 N 或 Queue Length=0 不触发；新端口为全部数据元素生成。")
     paragraph("已知限制", "组件及内部行为/访问点容器须按对应功能预先存在；CS 不生成应用错误；SR 接口以外不自动生成数据访问点。无参数 operation 的参数三列全空，不能混用同名有参数声明。")
-    paragraph("兼容名称", "Data-Accesses → Data Accesses；SWC → SW-C；Runnable / Runnable Ref → Runnable Name；Receive Mode → Access Kind（Argument / Value 仍兼容）；Base Type Ref → Implementation Data Type Ref。")
-    paragraph("其他旧列名", "Create Access → Create RTE Artifact；Transmission Acknowledge → Transmission Acknowledge Timeout；QueueLength → Queue Length；Data Element / Operation / Argument → 对应的 ... Name。")
     paragraph("精确类型", "枚举底层列引用 IMPLEMENTATION-DATA-TYPE，不是 SW-BASE-TYPE。所有时间间隔/超时单位为秒。")
     paragraph("字段导航", "点击下方工作表标题跳转输入页；字段说明与各页表头批注来自同一份定义。")
     sections = {}
@@ -348,10 +346,6 @@ def main() -> None:
             workbook.save(target)
         finally:
             workbook.close()
-        if not sample and args.output_dir is None:
-            legacy = ROOT / "docs" / "user" / "tableToSwcArxml" / filename
-            legacy.parent.mkdir(parents=True, exist_ok=True)
-            legacy.write_bytes(target.read_bytes())
         print(target)
 
 

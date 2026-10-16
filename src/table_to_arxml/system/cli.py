@@ -1,7 +1,6 @@
 """表格转 System ARXML 工具入口：绿表 -> 白表 Excel -> Composition/System ARXML，也可直接输入白表。
 
-与原先 ``greenToWhiteTable`` + ``xlsx2c_parallel`` 两个命令相比，本工具在同一个进程内只解析一次 ARXML，
-两个阶段共用同一个 AUTOSAR 文档，省掉重复解析耗时。
+两个阶段在同一进程内共用一个 AUTOSAR 文档，避免重复解析 ARXML。
 
 工具本身与具体工程解耦：所有工程相关的路径、车型、命名都放在 config.json 中。产物和日志目录必须通过
 命令行或配置文件显式指定，不提供默认目录；需要分发到工程其他位置时由外部（例如 CMB 动作中的 cp 命令）复制。

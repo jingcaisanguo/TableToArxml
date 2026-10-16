@@ -43,8 +43,6 @@ def run(options: Options) -> int:
     """检查输入和依赖、执行处理流程，最后按输出选项写出文件；返回退出码。"""
 
     _log_file, errors = setup_logging(TOOL_NAME, options.log_dir, options.log_level)
-    for notice in options.notices:
-        LOGGER.warning("%s", notice)
     if not options.project_root.is_dir():
         raise NotADirectoryError(f"Project directory not found: {options.project_root}")
     if not options.workbook.is_file():

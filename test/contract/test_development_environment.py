@@ -1,4 +1,4 @@
-"""The Bash helper reuses compatible environments without forcing Python 3.9.6."""
+"""The Bash helper reuses supported environments and honors the selected interpreter."""
 
 import os
 import shutil
@@ -56,3 +56,20 @@ def test_existing_invalid_environment_is_not_deleted(tmp_path):
     assert result.returncode == 1
     assert "[ERROR]" in result.stderr
     assert marker.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_explicit_interpreter_controls_environment_creation(tmp_path, valid):
+    script = tmp_path / "init_venv.sh"
+    shutil.copyfile(ROOT / "init_venv.sh", script)
+    environment = dict(os.environ)
+    environment["TTA_PYTHON"] = sys.executable if valid else str(tmp_path / "missing-python")
+    source = 'PATH="/usr/bin:$PATH"; source "$(cygpath -u "$1")"' if os.name == "nt" else 'source "$1"'
+    result = subprocess.run(
+        [bash_executable(), "-c", source, "test", str(script)],
+        env=environment, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert result.returncode == (0 if valid else 1), result.stderr
+    assert (tmp_path / ".venv").exists() == valid
+    if not valid:
+        assert "[ERROR]" in result.stderr

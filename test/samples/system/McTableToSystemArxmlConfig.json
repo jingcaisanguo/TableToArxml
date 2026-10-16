@@ -1,5 +1,4 @@
 {
-    "project": "MC_COMMAND_TEST",
     "defaultVariant": "McTest",
     "projectRoot": "../../..",
     "logLevel": "INFO",

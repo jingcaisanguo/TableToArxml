@@ -25,6 +25,7 @@ def test_help_does_not_import_armodel():
 @pytest.mark.parametrize("config, message", [
     ("{not json", "Cannot read config file"),
     ({"unknownKey": 1}, "Unknown config option"),
+    ({"project": "unused"}, "Unknown config option"),
     ({"defaultVariant": "T", "projectRoot": ".", "greenTables": "x.xlsx"}, "Missing config.outputPrefix"),
     ({"defaultVariant": "T", "projectRoot": ".", "outputPrefix": "T", "greenTables": "x.xlsx",
       "outputDir": "out", "logDir": "log"}, "an ARXML list is required"),

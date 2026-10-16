@@ -62,26 +62,6 @@ ACCESS_KIND_CHOICES = (
     "Read",
     "Write",
 )
-ACCESS_KIND_ALIASES = {
-    "argument": ACCESS_RECEIVE_BY_ARGUMENT,
-    "value": ACCESS_RECEIVE_BY_VALUE,
-}
-
-# 旧工作簿列名映射到当前规范名称；解析按名称进行，不依赖列顺序。
-HEADER_ALIASES = {
-    "create access": "Create RTE Artifact",
-    "runnable": "Runnable Name",
-    "runnable ref": "Runnable Name",
-    "swc": "SW-C",
-    "receive mode": "Access Kind",
-    "base type ref": "Implementation Data Type Ref",
-    "transmission acknowledge": "Transmission Acknowledge Timeout",
-    "queuelength": "Queue Length",
-    "data element": "Data Element Name",
-    "operation": "Operation Name",
-    "argument": "Argument Name",
-}
-
 BOOLEAN_VALUES = tuple(BOOLEAN_CHOICES.split(", "))
 SHEET_HEADERS = {
     COMPONENTS_SHEET: (("SW-C", "Component Path"), ()),

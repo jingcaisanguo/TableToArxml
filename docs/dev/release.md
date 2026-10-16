@@ -48,10 +48,8 @@ python tools/package_user_docs.py
 如果上传失败留下草稿，维护者应先调查失败原因，再决定清理草稿或发布新版本，不能覆盖已公开产物。
 仓库需启用 GitHub Actions，并允许工作流写入 Release；同一标签的发布串行执行，不要求上传到 PyPI。
 
-用户说明压缩包的根目录是使用说明入口，包含 `system/`、`swc/`、迁移说明以及旧链接兼容入口和模板副本。
+用户说明压缩包的根目录是使用说明入口，包含 `system/`、`swc/` 和迁移说明；只有一份当前 SWC 模板，不包含旧链接跳转页。
 不包含开发文档、测试数据、工具源码或 `third_party` 内容；wheel 仍只打包运行代码和发行元数据。
-
-旧格式标签 `tableToSystemArxml/<版本>`、`tableToSwcArxml/<版本>` 不再触发发布。
 
 ## 第三方安装脚本
 

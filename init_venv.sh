@@ -21,11 +21,7 @@ _init_venv_supported() {
 }
 
 _init_venv_find_python() {
-    local candidate requested="${TTA_PYTHON:-${PYTHON_3_9_6:-}}"
-
-    if [ -n "${PYTHON_3_9_6:-}" ] && [ -z "${TTA_PYTHON:-}" ]; then
-        echo "[WARNING] PYTHON_3_9_6 已废弃，请改用 TTA_PYTHON" >&2
-    fi
+    local candidate requested="${TTA_PYTHON:-}"
     if [ -n "$requested" ]; then
         if _init_venv_supported "$requested"; then
             python_cmd=("$requested")

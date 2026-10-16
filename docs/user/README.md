@@ -3,19 +3,19 @@
 本目录面向工具使用者。交付时同时提供同版本的 wheel 与
 `table_to_arxml-<版本>-user-guide.zip`；后者包含本目录的全部说明和 [SWC 空白模板](swc/SwcTemplate.xlsx)，解压后从本页开始阅读。
 文档和模板不在 wheel 内；从源码分发时可直接复制整个 `docs/user` 目录并保留结构。
-`tableToSystemArxml`、`tableToSwcArxml` 旧路径保留为兼容入口，新增链接请使用 `system`、`swc`。
+工具说明统一位于 `system`、`swc`，不再保留旧路径跳转页或重复模板。
 升级前请阅读 [迁移说明](migration.md)。两个命令行工具随同一个 wheel 安装：
 
 | 命令 | 用途 | 说明 |
 | --- | --- | --- |
-| `table-to-system-arxml` | 绿表 → 白表 Excel → Composition/System ARXML，也可直接输入白表 | [tableToSystemArxml/README.md](system/README.md) |
-| `table-to-swc-arxml` | 按 Excel 工作簿向已有 ARXML 增量添加端口、接口、数据类型及 RTE 访问对象 | [tableToSwcArxml/README.md](swc/README.md) |
+| `table-to-system-arxml` | 绿表 → 白表 Excel → Composition/System ARXML，也可直接输入白表 | [System 使用说明](system/README.md) |
+| `table-to-swc-arxml` | 按 Excel 工作簿向已有 ARXML 增量添加端口、接口、数据类型及 RTE 访问对象 | [SWC 使用说明](swc/README.md) |
 
 表格格式：
 
-- 绿表：[tableToSystemArxml/green-table-rules.md](system/green-table-rules.md)
-- 白表：[tableToSystemArxml/white-table-format.md](system/white-table-format.md)
-- SWC 工作簿：[tableToSwcArxml/workbook-format.md](swc/workbook-format.md)
+- [绿表规则](system/green-table-rules.md)
+- [白表格式](system/white-table-format.md)
+- [SWC 工作簿格式](swc/workbook-format.md)
 
 ## 安装
 

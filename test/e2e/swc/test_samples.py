@@ -1,4 +1,4 @@
-"""SWC 工具端到端测试：样例基线、旧格式兼容、错误阻止写出及各类新增对象。"""
+"""SWC 工具端到端测试：样例基线、大小写规则、错误阻止写出及各类新增对象。"""
 
 from __future__ import annotations
 
@@ -81,32 +81,24 @@ def test_swc_warns_for_ignored_port_columns(tmp_path):
         assert_matches_baseline(path, ROOT / "test/samples/swc/expected" / path.name)
 
 
-def test_swc_accepts_legacy_headers_and_case_insensitive_sheet_names(tmp_path):
+def test_swc_accepts_case_insensitive_headers_and_sheet_names(tmp_path):
     workbook = load_workbook(ROOT / "test/samples/swc/SwcTestPorts.xlsx")
     final_titles = {}
     for sheet in workbook.worksheets:
         for cell in sheet[1]:
-            if cell.value == "SW-C":
-                cell.value = "SWC"
-            elif cell.value == "Implementation Data Type Ref":
-                cell.value = "Base Type Ref"
-        if sheet.title == "R-Ports":
-            for cell in sheet[1]:
-                if cell.value == "Access Kind":
-                    cell.value = "Receive Mode"
-        if sheet.title == "Data Accesses":
-            final_titles[sheet] = "dAtA-aCcEsSeS"
-        elif sheet.title != "README":
+            if isinstance(cell.value, str) and sheet.title != "README":
+                cell.value = cell.value.lower()
+        if sheet.title != "README":
             final_titles[sheet] = sheet.title.lower()
     for sheet, title in final_titles.items():
-        sheet.title = f"legacy-{sheet.title}"
+        sheet.title = f"temporary-{sheet.title}"
         sheet.title = title
-    workbook.save(tmp_path / "legacy-ports.xlsx")
+    workbook.save(tmp_path / "lowercase-ports.xlsx")
     workbook.close()
 
     result = run_tool(
         SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
-        "--workbook", tmp_path / "legacy-ports.xlsx", "--output-dir", tmp_path / "out",
+        "--workbook", tmp_path / "lowercase-ports.xlsx", "--output-dir", tmp_path / "out",
         "--log-dir", tmp_path / "log",
     )
     assert result.returncode == 0, result.stderr
@@ -148,11 +140,10 @@ def test_swc_same_named_runnables_in_one_file(tmp_path):
 
     append("Components", SW_C="A", Component_Path="/Pkg/A")
     append("Components", SW_C="B", Component_Path="/Pkg/B")
-    workbook["R-Ports"]["E1"] = "Runnable Ref"
     append("P-Ports", SW_C="B", Port_Name="p_Out", Port_Interface_Ref="/Pkg/If",
            Create_RTE_Artifact="Y", Runnable_Name="Run")
     append("R-Ports", SW_C="B", Port_Name="r_Cs", Port_Interface_Ref="/Pkg/CsIf",
-           Create_RTE_Artifact="Y", Runnable_Ref="Run")
+           Create_RTE_Artifact="Y", Runnable_Name="Run")
     workbook.save(tmp_path / "ports.xlsx")
 
     result = run_tool(

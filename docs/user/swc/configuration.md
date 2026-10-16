@@ -21,7 +21,6 @@
 | `logLevel` | `--log-level` | 字符串 | `INFO` | `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
 | `strictList` | `--strict-list` | 布尔 | `false` | 清单中有缺失、非 `.arxml` 或无匹配的条目时直接失败，而不是警告后跳过 |
 | `excludeArxml` | `--exclude-arxml` | 字符串数组 | `[]` | 排除文件名或相对 `projectRoot` 的路径；命令行可重复，覆盖配置列表 |
-| `backend` | `--backend` | 字符串 | — | **已废弃**：固定使用 armodel；只接受 `armodel`，填写时记录 `WARNING`，请从配置中删除 |
 | `dryRun` | `--dry-run` | 布尔 | `false` | 只校验，不写文件；与三者都不选等价，用于显式声明 |
 | `inPlace` | `--in-place` | 布尔 | `false` | 直接覆盖源 ARXML |
 | `outputDir` | `--output-dir` | 目录 | 可选 | 把修改后的 ARXML 按 `projectRoot` 内的相对路径写到该目录，不改源文件 |

@@ -114,6 +114,20 @@ def test_blank_header_blocks_output_instead_of_disabling_artifacts(tmp_path):
     assert not (tmp_path / "out").exists()
 
 
+@pytest.mark.parametrize("title", ["Data-Accesses", "Custom Data"])
+def test_unknown_worksheet_blocks_output_even_with_valid_ports(tmp_path, title):
+    write_twins(tmp_path, PORTS, minimal=True)
+    path = tmp_path / "ports.xlsx"
+    workbook = load_workbook(path)
+    workbook.create_sheet(title).append(["SW-C", "Runnable Name", "Port Name"])
+    workbook.save(path)
+    workbook.close()
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 1
+    assert f"Unknown worksheet {title}" in result.stderr
+    assert not (tmp_path / "out").exists()
+
+
 @pytest.mark.parametrize("name", ["bad/name", "1port", "P" * 129])
 def test_invalid_short_name_never_reaches_output(tmp_path, name):
     result = run_twins(tmp_path, {

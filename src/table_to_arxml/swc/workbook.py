@@ -24,10 +24,6 @@ from .constants import (
     PORT_ELEMENTS,
 )
 
-LOGGER = logging.getLogger(__name__)
-
-Sheets = dict[str, list[tuple[object, ...]]]
-
 from .schema import (
     COMPONENTS_SHEET,
     P_PORTS_SHEET,
@@ -44,10 +40,12 @@ from .schema import (
     ARRAY_SIZE_SEMANTICS,
     CS_ARGUMENT_DIRECTIONS,
     ACCESS_KIND_CHOICES,
-    ACCESS_KIND_ALIASES,
-    HEADER_ALIASES,
     SHEET_HEADERS,
 )
+
+LOGGER = logging.getLogger(__name__)
+
+Sheets = dict[str, list[tuple[object, ...]]]
 
 # ``Enumerations`` 表留空时，计算方法和数据约束放在数据类型包的同级包里。
 ENUM_COMPU_METHOD_PACKAGE = "CompuMethods"
@@ -226,18 +224,21 @@ def load_workbook_sheets(workbook_path: Path) -> Sheets:
 
     workbook = load_workbook(workbook_path, data_only=False)
     try:
-        return {sheet.title: sheet_values(sheet) for sheet in workbook.worksheets}
+        supported = {name.casefold() for name in SHEET_HEADERS}
+        sheets: Sheets = {}
+        for sheet in workbook.worksheets:
+            if sheet.title.casefold() == "readme":
+                continue
+            if sheet.title.casefold() not in supported:
+                LOGGER.error(
+                    "Unknown worksheet %s; supported: %s, README",
+                    sheet.title, ", ".join(SHEET_HEADERS),
+                )
+                continue
+            sheets[sheet.title] = sheet_values(sheet)
+        return sheets
     finally:
         workbook.close()
-
-
-def _sheet_matches(sheets: Sheets, sheet_name: str) -> list[str]:
-    aliases = {
-        DATA_ACCESS_SHEET: ("Data-Accesses",),
-    }
-    accepted_names = {sheet_name.casefold()}
-    accepted_names.update(alias.casefold() for alias in aliases.get(sheet_name, ()))
-    return [name for name in sheets if name.casefold() in accepted_names]
 
 
 def parse_flag(label: str, column: str, context: str) -> bool | None:
@@ -284,7 +285,7 @@ def read_sheet_rows(
     schema 中的可选列允许为空，且允许整列缺失。列顺序任意；未知列、
     重复列或缺少必填列时记录 error 并跳过整张表。
     """
-    matches = _sheet_matches(sheets, sheet_name)
+    matches = [name for name in sheets if name.casefold() == sheet_name.casefold()]
     if not matches:
         LOGGER.debug("Optional worksheet not present: %s", sheet_name)
         return []
@@ -314,10 +315,7 @@ def read_sheet_rows(
         return []
 
     canonical = {name.casefold(): name for name in required + optional}
-    headers = []
-    for header in raw_headers:
-        alias = HEADER_ALIASES.get(header.casefold(), header)
-        headers.append(canonical.get(alias.casefold(), alias))
+    headers = [canonical.get(header.casefold(), header) for header in raw_headers]
     folded = [header.casefold() for header in headers]
     duplicates = sorted(
         {header for header in headers if folded.count(header.casefold()) > 1}
@@ -742,10 +740,7 @@ def _read_port(
     if create_rte_artifact is None:
         return None
     access_kind_label = row.get("Access Kind", "")
-    access_kind = (
-        ACCESS_KIND_LABELS.get(access_kind_label.casefold())
-        or ACCESS_KIND_ALIASES.get(access_kind_label.casefold(), "")
-    )
+    access_kind = ACCESS_KIND_LABELS.get(access_kind_label.casefold(), "")
     if access_kind_label and not access_kind:
         LOGGER.error(
             "Skipped port %s in %s: Access Kind must be one of %s: %s",

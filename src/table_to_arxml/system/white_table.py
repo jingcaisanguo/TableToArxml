@@ -1,7 +1,7 @@
 """白表（System Excel）的布局、创建、格式化与读取。
 
 白表完全是本工具的产物，不依赖模板：页签与表头由 :data:`WHITE_TABLE_LAYOUT` 固定。
-读取时只要求布局中的列各出现一次，多余的列（如旧版的 ``Connection``）忽略。
+读取时只要求布局中的列各出现一次，额外的业务信息列不参与转换。
 """
 
 from __future__ import annotations

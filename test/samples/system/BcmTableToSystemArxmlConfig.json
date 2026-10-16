@@ -1,5 +1,4 @@
 {
-    "project": "BCM_COMMAND_TEST",
     "defaultVariant": "BcmTest",
     "projectRoot": "../../..",
     "logLevel": "INFO",

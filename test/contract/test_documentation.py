@@ -1,4 +1,4 @@
-"""External documentation must be self-contained, with working compatibility entries."""
+"""External documentation must be self-contained and use the canonical layout."""
 
 import re
 
@@ -26,8 +26,7 @@ def test_external_documentation_does_not_link_outside_delivery():
             assert docs in (document.parent / target).resolve().parents, (document, target)
 
 
-def test_legacy_template_is_identical_to_current_template():
+def test_external_documentation_uses_only_canonical_paths():
     docs = ROOT / "docs" / "user"
-    assert (docs / "swc" / "SwcTemplate.xlsx").read_bytes() == (
-        docs / "tableToSwcArxml" / "SwcTemplate.xlsx"
-    ).read_bytes()
+    assert {path.name for path in docs.iterdir()} == {"README.md", "migration.md", "swc", "system"}
+    assert list(docs.rglob("SwcTemplate.xlsx")) == [docs / "swc" / "SwcTemplate.xlsx"]

@@ -29,7 +29,7 @@ DEFAULT_BUILD_TYPE = "Debug"
 DEFAULT_TRESOS_OUTPUT_BASE_DIR = "build/${variant}.${buildType}"
 INTERFACE_MISMATCH_POLICIES = ("error", "skip", "map")
 CONFIG_KEYS = frozenset({
-    "project", "defaultVariant", "buildType", "projectRoot", "logLevel", "outputDir", "logDir",
+    "defaultVariant", "buildType", "projectRoot", "logLevel", "outputDir", "logDir",
     "outputPrefix", "greenTables", "whiteTable", "tresosPreferenceFiles", "arxmlFileList", "strictList",
     "tresosOutputBaseDir", "excludeArxmlPatterns", "excludeArxml", "general", "componentAliases",
     "prototypePrefix", "e2eWrapperComponent", "signalPathTemplate", "arRelease", "interfaceMismatch",

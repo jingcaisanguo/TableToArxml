@@ -22,7 +22,7 @@
   后面为 ComSpec，P 页最后三列为 CS 服务端配置。冻结第一行和左侧两列。
 - 每页使用 Excel 表格。通过表格末尾 `Tab` 追加行可自动扩展筛选；在表外粘贴后应“调整表格大小”。
   工具读取整页，并非只读筛选范围，隐藏/筛选掉的行也会处理。
-- 下拉框包含布尔兼容值，数值列提供整数/非负数提示；端口与访问点的 `SW-C` 可从 Components 选择。
+- 下拉框包含支持的布尔值，数值列提供整数/非负数提示；端口与访问点的 `SW-C` 可从 Components 选择。
   数据验证允许留空，条件必填和引用一致性仍由工具校验。粘贴可能绕过 Excel 验证。
 - 列顺序可以改变，但移动后应检查 Excel 数据验证是否仍对应正确列；不要插入空表头的分隔列。
 - 模板只为实际数据和一个空输入行设置格式，避免给百万行创建单元格。新增行沿用 Excel 表格格式。
@@ -32,6 +32,7 @@
 ### 工作表与表头
 
 - 下表列出支持的 9 个数据工作表，名称不区分大小写。未使用的表可以省略，也可保留表头而不填数据。
+- 除 `README` 说明页外，不接受其他工作表名；未知工作表记录 `ERROR` 并阻止写出，不静默忽略。
 - 填写端口或访问点时，所用 `SW-C` 必须在 `Components` 中定义；否则记录 `ERROR`，不是静默跳过。
 - 可以只新建类型或接口而不填端口；整本工作簿没有任何有效记录时记录 `ERROR`。
 - 每页第 1 行是表头，按名称识别列，**不区分大小写**，列顺序可任意调整。
@@ -50,26 +51,12 @@
 | `R-Ports` | 新建请求端口 | 一个端口 |
 | `Data Accesses` | 逐元素新建数据访问点（高级用法） | 一个访问点 |
 
-为兼容旧工作簿，以下旧列名仍被识别（比较时不区分大小写）：
-
-| 旧列名 | 当前列名 |
-| --- | --- |
-| `Create Access` | `Create RTE Artifact` |
-| `Runnable` | `Runnable Name` |
-| `Runnable Ref` | `Runnable Name` |
-| `SWC` | `SW-C` |
-| `Receive Mode` | `Access Kind` |
-| `Base Type Ref` | `Implementation Data Type Ref` |
-| `Transmission Acknowledge` | `Transmission Acknowledge Timeout` |
-| `QueueLength` | `Queue Length` |
-| `Data Element` | `Data Element Name` |
-| `Operation` | `Operation Name` |
-| `Argument` | `Argument Name` |
+工作表和列名只接受本文规定的名称，不识别别名。请从当前模板开始填写。
 
 ### 单元格
 
 - 单元格可以是文本、数字或 Excel 布尔值；首尾空白会去掉。数字按原值转为文本，整数形式的浮点数（如 `8.0`）按整数处理。
-- 旧表中的合并单元格仍会展开为逐行值；新模板使用 Excel 表格，建议逐行重复公共字段，避免合并妨碍排序和筛选。
+- 合并单元格会展开为逐行值；模板使用 Excel 表格，建议逐行重复公共字段，避免合并妨碍排序和筛选。
 - 所有单元格都为空的行被忽略。必填单元格为空时，该行记录 `ERROR` 并跳过。
 - 布尔列接受 `TRUE`/`YES`/`Y`/`1` 和 `FALSE`/`NO`/`N`/`0`（不区分大小写），留空视为否；其他值记录 `ERROR` 并跳过该行。
 
@@ -86,7 +73,6 @@
 - 每个路径段和 `... Name` 都必须是合法 SHORT-NAME：ASCII 字母开头，只含字母、数字和下划线，最长 128 字符；不允许空段、末尾 `/` 或中文名称。`SW-C` 是工作簿标识，不套用此规则。
 - `Target ARXML` 必须是相对路径且文件已存在；写绝对路径或文件不存在都记录 `ERROR`。
 - 工作簿不填写 `DEST`。端口接口引用按查到的接口类型推导；新类型和 SR/CS 数据类型列明确引用 `IMPLEMENTATION-DATA-TYPE`。这不是完整的跨文件类型语义校验。
-- 工作表名称和列名均不区分大小写；`Data-Accesses` 作为旧页名兼容。
 
 ## Components
 
@@ -250,7 +236,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 
 ## P-Ports 和 R-Ports
 
-两页只有前三列必填，其余列都是可选的，可以整列不存在（兼容旧工作簿）。
+两页只有前三列必填，其余列都是可选的，可以整列不存在。
 部分可选列在 `Create RTE Artifact=Y` 时条件必填，详见下表。
 同一组件的端口名在两页之间也不能重复，因为它们都写入同一个 `PORTS` 容器。
 
@@ -263,7 +249,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | `Port Interface Ref` | 是 | 端口接口的完整路径，可以是本次新建的接口 |
 | `Create RTE Artifact` | 否 | 布尔，默认 `N`；`Y` 时为接口全部元素或 operation 生成 RTE 访问对象，见下文 |
 | `Runnable Name` | 条件必填 | 只填 SHORT-NAME，不填路径；SR P/R 和 CS R 指已有 runnable，CS P 指新建名称，具体规则见下文 |
-| `Access Kind` | 否 | 仅 SR 接口：访问点类别，取值同 [Data Accesses](#data-accesses)，须与端口方向匹配；留空时 P-Port 取 `Send`、R-Port 取 `ReceiveByArgument`。也接受旧值 `Argument`/`Value` |
+| `Access Kind` | 否 | 仅 SR 接口：访问点类别，取值同 [Data Accesses](#data-accesses)，须与端口方向匹配；留空时 P-Port 取 `Send`、R-Port 取 `ReceiveByArgument` |
 
 `P-Ports` 专有列：
 

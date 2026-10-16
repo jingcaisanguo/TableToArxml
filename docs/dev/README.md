@@ -5,7 +5,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| 本文 | 仓库结构、开发环境、源码模块、测试与 CI、内部工程集成、版本历史 |
+| 本文 | 仓库结构、开发环境、源码模块、测试与 CI、内部工程集成 |
 | [release.md](release.md) | 构建 wheel、按 `x.y.z` 标签发布 |
 
 ## 仓库结构
@@ -37,7 +37,7 @@ table-to-swc-arxml --help
 ```
 
 - 新环境优先 Python 3.13，可在创建环境前设置 `TTA_PYTHON` 指定解释器。已有 `.venv` 只要满足最低版本就直接复用，不自动重建；
-  若需要更换解释器，先自行备份并处理旧环境。`PYTHON_3_9_6` 仅为兼容保留并提示废弃。
+  若需要更换解释器，先自行备份并处理旧环境。
 - 不安装时可设置 `PYTHONPATH=src`，再用 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` 运行，参数与命令完全相同。
 - 依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明。armodel 的版本范围在代码中只有一处
   （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。
@@ -98,7 +98,7 @@ table-to-swc-arxml --help
 | [options.py](../../src/table_to_arxml/swc/options.py) | 合并命令行与 JSON 配置，得到冻结的 `Options` |
 | [pipeline.py](../../src/table_to_arxml/swc/pipeline.py) | 处理步骤编排与 `RunSummary` 汇总 |
 | [constants.py](../../src/table_to_arxml/swc/constants.py) | 与解析库无关的取值：端口方向、接口 DEST、访问点类别和容器 |
-| [schema.py](../../src/table_to_arxml/swc/schema.py) | 解析器与模板共用的工作表、必填/可选表头、枚举取值和旧列名 |
+| [schema.py](../../src/table_to_arxml/swc/schema.py) | 解析器与模板共用的工作表、必填/可选表头和枚举取值 |
 | [workbook.py](../../src/table_to_arxml/swc/workbook.py) | 一次加载工作簿，逐表校验并转为待创建对象 |
 | [resolve.py](../../src/table_to_arxml/swc/resolve.py) | 定位组件、接口、runnable，补全端口和访问点 |
 | [apply.py](../../src/table_to_arxml/swc/apply.py) | 生成片段、插入并重新解析验证；各步骤返回 `StepResult` |
@@ -135,38 +135,10 @@ CI 对 armodel 1.8.7、1.9.2 两个指定版本运行这些测试，不代表允
 - [third_party/](../../third_party) 下的 `init_app_env`（安装固定版本 wheel）和 `autosar_builder/gen_ab_project`（生成 Autosar Builder 工程和清单）
   是移植时按需选用的第三方脚本，不在本工程的测试、lint、CI 和发布范围内，由使用它们的工程自行维护，说明见 [third_party/README.md](../../third_party/README.md)。
 
-## 版本历史与迁移
+## 版本与迁移
 
-- **0.3.1**：修复输出覆盖、大小写冲突、空表头错位、候选解析失败、跨文件重定义、类型/名称校验、
-  glob 和配置优先级问题；共享工作簿 schema，抽离 System 配置，发布增加完整测试门禁、实际转换验证与版本配套文档附件。
-  对外兼容性变化统一写在 [迁移说明](../user/migration.md)。
-- 用户说明采用 `docs/user/system`、`docs/user/swc`，旧文档路径保留跳转入口，旧模板由生成器同步副本并测试一致性。
-  样例采用 `test/samples/system`、`test/samples/swc`，共享模型位于 `test/data/common`。
-- **0.3.0**：
-  - 源码迁移为 `src/table_to_arxml/{common,system,swc}` 单一包，删除源码启动脚本；`python -m table_to_system_arxml`、
-    `python -m table_to_swc_arxml` 改为 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc`。命令名不变。
-  - 两个工具统一退出码：System 工具的配置错误由 `1` 改为 `2`（打印用法，不创建日志）。System 工具的正常日志改走 stdout。
-  - ARXML 清单规则统一：SWC 清单也支持通配符；System 新增 `strictList` / `--strict-list`；通配符无匹配改为 WARNING。
-  - SWC：`backend` / `--backend` 已废弃并忽略（只接受 `armodel`，并给出 WARNING）；命令行指定输出方式时整体替换配置中的输出方式；
-    汇总日志拆为多行。缺失容器按 AUTOSAR schema 顺序创建（此前可能插到 `SUPPORTS-MULTIPLE-INSTANTIATION` 之后）。
-  - System：委托连接器名称由 `dc_<外端口>_<实例><内端口>` 改为 `dlc_<外端口>_<实例>_<内端口>`；连接器名称超过 128 个字符时
-    截断并追加哈希（此前截断到 255）。合并绿表中页签名冲突时追加 `~序号`。
-  - `init_app_env`、`autosar_builder` 移到 `third_party/`，不再归本工程测试、lint 和 CI 管理；仓库中只保留 `init_app_env` 实际安装的 wheel。
-  - SWC 工作簿格式见 TTA-7：统一 `Runnable Name`、端口页 `Access Kind`、`Data Accesses` 页名、`SW-C` 列名、可省略未用页、无参数 CS operation。
-- **合并为单个 wheel**（0.2.0）：之前两个工具分别发布 `table-to-system-arxml`、`table-to-swc-arxml` 两个包，标签为 `tableToSystemArxml/<版本>`、
-  `tableToSwcArxml/<版本>`；现在合并为 `table-to-arxml`，标签直接是 `x.y.z`。
-- **System 工具**：
-  - 不再依赖或导入 `pya4a`，也不启动 `xlsx-composition-sw`；白表格式和有效输入的输出约定保持兼容。其他工程工具可能仍需要 `pya4a` 等库，本工具不会卸载它们。
-  - 旧配置字段 `name`、`xdm`、`arxml`、`output`、`generatedComponents` 已不用，不提供自动迁移。
-  - `projectRoot` 改为必填（原默认值 `../../..` 对应旧仓库布局）；白表去掉了未使用的 `Connection` 列，旧白表中的该列被忽略。
-- **SWC 工具**：参数已与 System 工具统一。
+当前版本为 **0.3.1**。对外行为变化和升级要求统一维护在 [迁移说明](../user/migration.md)，
+本页不重复维护历史参数表或兼容入口。
 
-  | 旧写法 | 新写法 |
-  | --- | --- |
-  | `default_variant` | `defaultVariant` |
-  | `project_dir` / `--project-dir` | `projectRoot` / `--project-root` |
-  | `list_file` / `--list-file` | `arxmlFileList` / `--arxml-file-list` |
-  | `log_file` / `--log-file`（日志文件） | `logDir` / `--log-dir`（日志目录） |
-  | `log_level`、`strict_list`、`in_place`、`output_dir`、`dry_run` | `logLevel`、`strictList`、`inPlace`、`outputDir`、`dryRun` |
-
-  `workbook` 和 `logDir` 不再有默认值，必须显式提供。0.2.0 起命令行相对路径按当前工作目录解析（此前按 `projectRoot`），相对 `--config` 也不再需要 `--project-root`。
+用户说明只使用 `docs/user/system`、`docs/user/swc`；样例使用 `test/samples/system`、`test/samples/swc`，
+共享模型位于 `test/data/common`。不保留旧目录、模板副本或废弃输入别名。
