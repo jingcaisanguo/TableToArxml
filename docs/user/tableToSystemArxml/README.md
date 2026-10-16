@@ -40,7 +40,9 @@
 
 ## 运行方式
 
-产物和日志目录均必须显式指定：在配置中提供 `outputDir`、`logDir`，或传入 `--output-dir`、`--log-dir`；缺少任一目录就报错退出，不创建默认目录。
+产物和日志目录均必须显式指定：在配置中提供 `outputDir`、`logDir`，或传入 `--output-dir`、`--log-dir`；缺少任一目录就打印用法并以退出码 `2` 结束，不创建默认目录。
+
+退出码：`0` 成功并已发布；`1` 运行失败（输入表、ARXML、转换或写出错误），不发布本次产物；`2` 命令行或配置错误（含配置文件缺失、JSON 无法解析、未知键、必填项缺失），打印用法，不创建日志。
 
 ```powershell
 # 默认读取当前目录的 config.json。
@@ -63,7 +65,7 @@ table-to-system-arxml --help
 table-to-system-arxml --config ./config/system.json --log-level DEBUG
 ```
 
-命令不在 `PATH` 时，可用同一虚拟环境的 `python -m table_to_system_arxml`，参数相同。
+命令不在 `PATH` 时，可用同一虚拟环境的 `python -m table_to_arxml.system`，参数相同。
 JSON 中的相对路径始终基于 JSON 所在目录；命令行传入的相对路径基于启动时的工作目录。
 
 config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可以省略，保留时也不会检查；清单不存在直接失败，不回退 EB。只有删除 `arxmlFileList` 且未传 `--arxml-file-list` 时才使用 `tresosPreferenceFiles`。空字符串或 `null` 不是切换到 XDM 的方式。
@@ -76,6 +78,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | `--variant` | 覆盖 `defaultVariant`，用于展开 `${variant}` |
 | `--project-root` | 覆盖 `projectRoot`，影响 lst 内相对路径解析和默认构建目录，不改变 JSON 路径基准；与 `projectRoot` 至少提供一个 |
 | `--arxml-file-list` | 覆盖 `arxmlFileList`，使用已有清单 |
+| `--strict-list` | 覆盖 `strictList`：清单中有缺失、非 `.arxml` 或无匹配的条目时直接失败，而不是警告后跳过 |
 | `--exclude-arxml` | 排除 ARXML 文件名或相对 `projectRoot` 的路径，可重复；提供时覆盖 `excludeArxml` |
 | `--output-dir` | 指定产物目录，覆盖 `outputDir`；参数或配置必须提供，无默认值，不改变日志位置 |
 | `--log-dir` | 指定日志目录，覆盖 `logDir`；参数或配置必须提供，无默认值；不能与产物目录相同 |

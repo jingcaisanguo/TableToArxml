@@ -4,19 +4,35 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "table-to-arxml"
-version = "0.2.1"
 description = "Excel to AUTOSAR ARXML tools: table-to-system-arxml and table-to-swc-arxml"
 requires-python = ">=3.9"
-dynamic = ["dependencies"]
+dynamic = ["version", "dependencies"]
 
 [project.scripts]
-table-to-system-arxml = "table_to_system_arxml.cli:main"
-table-to-swc-arxml = "table_to_swc_arxml.cli:main"
+table-to-system-arxml = "table_to_arxml.system.cli:main"
+table-to-swc-arxml = "table_to_arxml.swc.cli:main"
 
 [tool.setuptools]
-package-dir = { "table_to_system_arxml" = "table_to_system_arxml/table_to_system_arxml", "table_to_swc_arxml" = "table_to_swc_arxml/table_to_swc_arxml" }
-packages = ["table_to_system_arxml", "table_to_system_arxml.lib", "table_to_swc_arxml", "table_to_swc_arxml.lib"]
+package-dir = { "" = "src" }
 include-package-data = false
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.setuptools.dynamic]
+version = { attr = "table_to_arxml.__version__" }
 dependencies = { file = ["requirements.txt"] }
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+pythonpath = ["src", "test"]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+target-version = "py39"
+src = ["src", "test", "tools"]
+# 第三方脚本不归本工程维护，不做 lint。
+extend-exclude = ["third_party"]
+
+[tool.ruff.lint]
+select = ["F", "B", "E9"]

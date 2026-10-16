@@ -7,10 +7,10 @@
 
 实际项目请使用不含样例行的 [SwcTemplate.xlsx](../../docs/user/tableToSwcArxml/SwcTemplate.xlsx)。
 本目录的 [SwcTestPorts.xlsx](SwcTestPorts.xlsx) 保留 LIT/Horn 数据，用于比较生成结果。
-两者的列定义、README、批注、下拉验证和样式由 [generate_workbooks.py](generate_workbooks.py) 统一生成：
+两者的列定义、README、批注、下拉验证和样式由 [tools/generate_swc_workbooks.py](../../tools/generate_swc_workbooks.py) 统一生成：
 
 ```powershell
-python test\tableToSwcArxml\generate_workbooks.py
+python tools\generate_swc_workbooks.py
 ```
 
 该命令会重建仓库内两份工作簿；不要直接修改生成文件中的布局。验证生成器时可用
@@ -36,10 +36,10 @@ LIT 与 Horn 的端口方向互补，可用于后续测试 BCM 与 MC 组件连�
 在仓库根目录安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../docs/dev/release.md)）后执行。命令行相对路径按当前目录解析，配置中的 `projectRoot`（`../..`）指向仓库根目录：
 
 ```powershell
-python -m pip install ./dist/table_to_arxml-0.2.1-py3-none-any.whl
+python -m pip install ./dist/table_to_arxml-0.3.0-py3-none-any.whl
 table-to-swc-arxml --config test/tableToSwcArxml/TableToSwcArxml.json
 ```
 
-- 预期退出码为 0，汇总为 `Validated 4 of 4 requested ports: 4 to create ...; 2 ARXML file(s) affected.`
+- 预期退出码为 0，汇总包含 `Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped` 和 `2 ARXML file(s) affected`。
 - 修改后的 `LIT.arxml`、`Horn.arxml` 按仓库相对路径写到 `test/tableToSwcArxml/output/SwcTest/test/common/arxml/...`，源模型不变。
 - 日志写到 `test/tableToSwcArxml/log/SwcTest`。

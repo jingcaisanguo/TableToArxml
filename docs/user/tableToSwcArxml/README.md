@@ -14,7 +14,7 @@
 
 ## 安装与运行
 
-安装方式见 [../README.md](../README.md)，安装后提供 `table-to-swc-arxml` 命令（等同 `python -m table_to_swc_arxml`）：
+安装方式见 [../README.md](../README.md)，安装后提供 `table-to-swc-arxml` 命令（等同 `python -m table_to_arxml.swc`）：
 
 ```bash
 table-to-swc-arxml --config ./config/swc.json
@@ -57,7 +57,7 @@ table-to-swc-arxml --config ./config/swc.json
 | JSON 配置可读、是对象、没有未知键；路径占位符和通配符唯一匹配 | 参数错误，退出码 `2` |
 | `inPlace`、`outputDir`、`dryRun` 最多选一个；布尔项为 `true`/`false` | 参数错误，退出码 `2` |
 | 工程目录存在，工作簿和清单文件存在 | `ERROR`，退出码 `1` |
-| 清单条目扩展名为 `.arxml` 且文件存在 | 默认 `WARNING` 后跳过该条目；`strictList=true` 时直接失败 |
+| 清单条目扩展名为 `.arxml` 且文件存在，通配符条目至少匹配一个文件 | 默认 `WARNING` 后跳过该条目；`strictList=true` 时直接失败 |
 | 清单中同一文件重复出现 | 只保留第一次，`INFO` 记录 |
 | 清单中至少有一个可用文件 | `ERROR`，退出码 `1` |
 
@@ -185,9 +185,11 @@ table-to-swc-arxml --config ./config/swc.json
 | 包的 `ELEMENTS` | 自动创建（包本身必须已存在） |
 | 组件的 `PORTS` | 报 `ERROR`，不创建 |
 | runnable 的访问点容器（`DATA-SEND-POINTS`、`DATA-RECEIVE-POINT-BY-ARGUMENTS`、`DATA-RECEIVE-POINT-BY-VALUES`、`DATA-READ-ACCESSS`、`DATA-WRITE-ACCESSS`） | 报 `ERROR`，不创建 |
-| runnable 的 `SERVER-CALL-POINTS` | 自动创建，放在 `SYMBOL` 之前 |
-| 内部行为的 `EVENTS` | 自动创建，放在 `EXCLUSIVE-AREAS` 或 `RUNNABLES` 之前 |
-| 内部行为的 `RUNNABLES` | 自动创建，放在 `SERVICE-DEPENDENCIES` 之前 |
+| runnable 的 `SERVER-CALL-POINTS` | 自动创建 |
+| 内部行为的 `EVENTS` | 自动创建 |
+| 内部行为的 `RUNNABLES` | 自动创建 |
+
+自动创建的容器按 AUTOSAR schema 规定的子元素顺序插入：例如 `EVENTS` 位于 `EXCLUSIVE-AREAS` 之后、`HANDLE-TERMINATION-AND-RESTART` 之前，`RUNNABLES` 位于 `PORT-API-OPTIONS` 之后、`SERVICE-DEPENDENCYS` 和 `SUPPORTS-MULTIPLE-INSTANTIATION` 之前，`SERVER-CALL-POINTS` 位于 `SYMBOL` 之前。
 
 容器写成自闭合形式（如 `<PORTS/>`）时无法追加内容，报 `ERROR`，需改写为 `<PORTS></PORTS>`。
 
@@ -255,16 +257,21 @@ table-to-swc-arxml --config ./config/swc.json
 普通信息到 stdout，`WARNING`、`ERROR` 到 stderr。控制台与日志文件格式相同，每行为 `<时间戳> <等级>: <消息>`。结束时输出汇总，例如：
 
 ```text
-Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped; 0 enumeration(s) to create, 0 skipped;
-0 array/structure type(s) to create, 0 skipped; 0 SR interface(s) to create, 0 skipped; 0 CS interface(s) to create,
-0 skipped; 0 of 0 data access(es) to create; 0 CS artifact(s) to create, 0 skipped; 2 ARXML file(s) affected.
+Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped
+Enumerations: 0 to create, 0 skipped
+Array/structure types: 0 to create, 0 skipped
+SR interfaces: 0 to create, 0 skipped
+CS interfaces: 0 to create, 0 skipped
+CS artifacts: 0 to create, 0 skipped
+Data accesses: 0 of 0 to create
+2 ARXML file(s) affected
 ```
 
 | 退出码 | 含义 |
 | --- | --- |
 | `0` | 全部检查通过；指定了写出方式时已写出 |
 | `1` | 存在 `ERROR`、输入文件缺失、生成后校验失败或运行异常；未写任何 ARXML |
-| `2` | 参数错误（缺少必填项、未知配置键、写出方式冲突等） |
+| `2` | 命令行或配置错误（缺少必填项、未知配置键、写出方式冲突等）；打印用法，不创建日志 |
 
 ## 限制
 

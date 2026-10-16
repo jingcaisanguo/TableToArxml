@@ -52,6 +52,7 @@
 | `tresosPreferenceFiles` | 字符串或字符串数组 | 仅 EB 模式必填；指向具体 XDM 文件，不展开 glob；有`arxmlFileList` 时可省略，即使保留也完全忽略                                                                                                                                                                                                                    |
 | `arxmlFileList`         | 路径字符串         | 写了该字段就选择清单模式，必须是非空字符串且文件存在；空值、类型错误或文件不存在直接报错，不回退 EB；使用 XDM 时须删除该字段                                                                                                                                                                                        |
 | `tresosOutputBaseDir`   | 路径字符串         | EB 模式可选，显式值基于配置目录；未填时按`projectRoot/build/${variant}.${buildType}` 计算；复用 lst 时忽略                                                                                                                                                                                                        |
+| `strictList` | 布尔 | 可选，默认 `false`；为 `true` 时清单中有缺失、非 `.arxml` 或无匹配的条目直接失败，而不是警告后跳过；`--strict-list` 优先 |
 | `excludeArxmlPatterns`  | 字符串或字符串数组 | 可选，追加 ARXML 排除正则；不替换内置排除规则                                                                                                                                                                                                                                                                       |
 | `excludeArxml` | 字符串数组 | 可选，默认 `[]`；排除文件名或相对 `projectRoot` 的路径；`--exclude-arxml` 可重复，提供时覆盖配置列表 |
 | `general`               | 对象               | 必填，成员说明见下表                                                                                                                                                                                                                                                                                                |
@@ -64,7 +65,7 @@
 | `interfaceMappings`     | 对象数组           | 可选，在`map` 模式下为不同名称的数据元素显式配对，格式见下文                                                                                                                                                                                                                                                      |
 | `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 在已加载 ARXML 中存在时，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
 
-字符串数组参数也可写单个字符串；空字符串条目会被忽略。配置中出现上表以外的键，或 `general` 中出现下文 General 表以外的键时，直接报错退出并列出支持的键，避免拼错的字段被静默忽略。
+字符串数组参数也可写单个字符串；空字符串条目会被忽略。配置中出现上表以外的键，或 `general` 中出现下文 General 表以外的键时，直接报错退出（退出码 `2`）并列出支持的键，避免拼错的字段被静默忽略。
 
 排除示例：`"excludeArxml": ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
 命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml arxml/Bcm/TUR.arxml`。
@@ -199,7 +200,7 @@ AUTOSAR 允许不同包下存在相同 SHORT-NAME 的组件类型，它们是独
 ## 输出与选项
 
 - `outputPrefix=Bcm` 推导 `BcmWhiteTable.xlsx`、`BcmGreenTables.xlsx`、`BcmSystem.arxml`，与变体名称无关。
-- 产物目录必须通过 `--output-dir` 或 `outputDir` 指定；日志目录必须通过 `--log-dir` 或 `logDir` 指定。命令行优先，脚本和安装命令都没有默认目录；缺失、空值或类型错误在创建日志前报错并退出 1。日志目录与产物目录不能相同。
+- 产物目录必须通过 `--output-dir` 或 `outputDir` 指定；日志目录必须通过 `--log-dir` 或 `logDir` 指定。命令行优先，脚本和安装命令都没有默认目录；缺失、空值或类型错误在创建日志前报错，打印用法并以退出码 `2` 结束。日志目录与产物目录不能相同。
 - 多配置仍共用一组产物和日志目录。未传对应命令行参数时，每份配置必须提供对应目录，且相对各自配置目录解析后必须一致；有冲突时可通过命令行统一覆盖。
 - 连接名由工具按 prototype 和端口固定生成（见 [white-table-format.md](white-table-format.md)）；输出 release 由 `arRelease` 配置，默认 `R19-11`。
 - 转换及写出先在临时目录完成，全部成功后才发布 Excel、ARXML 及 EB 生成的 lst。任何 ERROR/异常均退出 1，不发布本次产物；原有产物保留不变，失败日志保留。发布时普通 I/O 异常会回滚已替换文件；断电、进程强制终止或回滚期间存储故障不属于可保证的事务范围。

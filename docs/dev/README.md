@@ -6,24 +6,23 @@
 | 文档 | 内容 |
 | --- | --- |
 | 本文 | 仓库结构、开发环境、源码模块、测试与 CI、内部工程集成、版本历史 |
-| [release.md](release.md) | 构建 wheel、按 `x.y.z` 标签发布、更新 `init_app_env` |
+| [release.md](release.md) | 构建 wheel、按 `x.y.z` 标签发布 |
 
 ## 仓库结构
 
 ```text
-pyproject.toml                  两个工具合并打包为一个 wheel（table-to-arxml）
+pyproject.toml                  打包（table-to-arxml）、pytest 与 ruff 配置
 requirements.txt                运行依赖，也是 wheel 的依赖声明
 init_venv.sh                    在 Git Bash 中创建并激活 Python 3.9.6 的 .venv
-init_app_env/                   内部工程安装工具用的脚本和固定版本 wheel
-table_to_system_arxml/
-    table_to_system_arxml.py    源码启动脚本，不打进 wheel
-    table_to_system_arxml/      Python 包
-table_to_swc_arxml/
-    table_to_swc_arxml.py       源码启动脚本，不打进 wheel
-    table_to_swc_arxml/         Python 包
-docs/user/                      对外的使用说明
+src/table_to_arxml/             唯一的 Python 包，打进 wheel
+    common/                     两个工具共用的基础设施
+    system/                     table-to-system-arxml
+    swc/                        table-to-swc-arxml
+tools/                          维护脚本，不打进 wheel（generate_swc_workbooks.py）
+third_party/                    移植时按需选用的第三方脚本，不归本工程维护，见 third_party/README.md
+docs/user/                      对外的使用说明（含 SWC 空白模板）
 docs/dev/                       本工程说明（本目录）
-test/                           命令测试数据、基线产物和端到端测试，见 test/README.md
+test/                           测试代码、测试数据和基线产物，见 test/README.md
 .github/workflows/              CI：tests.yml、wheel.yml、release.yml
 ```
 
@@ -31,88 +30,119 @@ test/                           命令测试数据、基线产物和端到端测
 
 ```bash
 source ./init_venv.sh
-python -m pip install -r requirements.txt
-python table_to_system_arxml/table_to_system_arxml.py --help
-python table_to_swc_arxml/table_to_swc_arxml.py --help
+python -m pip install -r requirements.txt pytest ruff
+python -m pip install -e .            # 可编辑安装，得到两个命令
+table-to-system-arxml --help
+table-to-swc-arxml --help
 ```
 
-- 源码启动脚本与安装后的命令参数相同。区别只有一处：`table_to_system_arxml.py` 未传 `--config` 时读取脚本同目录的 `config.json`，安装后的命令读取当前目录的 `config.json`。
-- 也可以 `python -m pip install -e .` 以可编辑方式安装，直接使用两个命令。
-- 依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明；两个工具运行时各自检查 armodel 版本，常量 `ARMODEL_REQUIREMENT` 须与该文件保持一致。
+- 不安装时可设置 `PYTHONPATH=src`，再用 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` 运行，参数与命令完全相同。
+- 依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明。armodel 的版本范围在代码中只有一处
+  （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。
+- 版本号只在 [src/table_to_arxml/__init__.py](../../src/table_to_arxml/__init__.py) 的 `__version__` 中定义，`pyproject.toml` 从这里读取。
 
 ## 源码模块
 
-### table_to_system_arxml
-
-[cli.py](../../table_to_system_arxml/table_to_system_arxml/cli.py) 解析并校验配置、编排执行流程。`lib/` 下各模块：
+### common：共用基础设施
 
 | 模块 | 职责 |
 | --- | --- |
-| [common.py](../../table_to_system_arxml/table_to_system_arxml/lib/common.py) | 共用取值函数和默认值，不依赖第三方库 |
-| [file_list.py](../../table_to_system_arxml/table_to_system_arxml/lib/file_list.py) | 生成和读取 EB 清单 |
-| [arxml_model.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_model.py) | 加载 ARXML，封装模型查询 |
-| [green_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_table.py) | 绿表读取、收集、合并 |
-| [component_map.py](../../table_to_system_arxml/table_to_system_arxml/lib/component_map.py) | 绿表组件名到实例、类型的映射 |
-| [general.py](../../table_to_system_arxml/table_to_system_arxml/lib/general.py) | 推导白表 General 页 |
-| [green_to_white.py](../../table_to_system_arxml/table_to_system_arxml/lib/green_to_white.py) | 绿表转白表 |
-| [white_table.py](../../table_to_system_arxml/table_to_system_arxml/lib/white_table.py) | 白表布局、创建、格式化和读取 |
-| [type_signature.py](../../table_to_system_arxml/table_to_system_arxml/lib/type_signature.py) | 数据类型最终签名，用于接口两端类型比较 |
-| [arxml_generator.py](../../table_to_system_arxml/table_to_system_arxml/lib/arxml_generator.py) | 解析白表引用并用 armodel 生成输出 |
+| [errors.py](../../src/table_to_arxml/common/errors.py) | `ConfigError`：命令行或配置错误，入口以退出码 2 报告 |
+| [messages.py](../../src/table_to_arxml/common/messages.py) | 去除 ANSI 控制码、合并为单行的消息文本 |
+| [dependencies.py](../../src/table_to_arxml/common/dependencies.py) | 依赖可导入性与 armodel 版本检查 |
+| [logs.py](../../src/table_to_arxml/common/logs.py) | 日志文件与控制台输出、ERROR 收集 |
+| [arxml_list.py](../../src/table_to_arxml/common/arxml_list.py) | ARXML 清单读取和 `excludeArxml`/正则排除，两个工具同一套规则 |
+| [output.py](../../src/table_to_arxml/common/output.py) | 多文件原子写出，失败时回滚 |
+| [armodel_compat.py](../../src/table_to_arxml/common/armodel_compat.py) | armodel 的用法约定与缺陷绕行：全局文档复位、解析器日志接管、片段序列化、writer 修补 |
+| [openpyxl_compat.py](../../src/table_to_arxml/common/openpyxl_compat.py) | 跨工作簿复制页签（依赖 openpyxl 私有属性） |
+
+两个工具的入口行为一致：
+
+- 退出码：`0` 成功；`1` 运行失败（输入错误、校验或生成失败），不写任何产物；`2` 命令行或配置错误，打印用法、不创建日志。
+- 日志同时写文件和控制台，INFO/DEBUG 到 stdout，WARNING 及以上到 stderr；handler 同时挂在本包 logger 和 root logger 上，
+  后者用于收集 armodel writer 直接写 root 的日志。从 armodel 解析器转发的诊断照常输出，但不计入失败。
+- 先完成参数解析、创建日志，再检查依赖，最后才导入依赖 armodel 的模块；因此依赖缺失或版本不符时 `--help` 仍可用，
+  且报告的是明确的版本错误而不是导入异常。非预期异常记录完整堆栈。
+- `main(argv=None)` 可直接传入参数，便于测试。
+
+### system：table-to-system-arxml
+
+| 模块 | 职责 |
+| --- | --- |
+| [cli.py](../../src/table_to_arxml/system/cli.py) | 参数（`RunOptions`）与配置校验、执行流程编排、产物发布 |
+| [values.py](../../src/table_to_arxml/system/values.py) | 取值函数和默认值，不依赖第三方库 |
+| [tresos_list.py](../../src/table_to_arxml/system/tresos_list.py) | 调用 EB 导入器生成清单，按 tresos 工程约定读取 |
+| [arxml_model.py](../../src/table_to_arxml/system/arxml_model.py) | 加载 ARXML，查询组件、System、组合实例链、CAN/LIN 通道与信号 |
+| [green_table.py](../../src/table_to_arxml/system/green_table.py) | 绿表读取、收集、合并 |
+| [component_map.py](../../src/table_to_arxml/system/component_map.py) | 绿表组件名到实例、类型的映射 |
+| [general.py](../../src/table_to_arxml/system/general.py) | 推导白表 General 页 |
+| [green_to_white.py](../../src/table_to_arxml/system/green_to_white.py) | 绿表转白表 |
+| [white_table.py](../../src/table_to_arxml/system/white_table.py) | 白表布局、创建、格式化和读取 |
+| [type_signature.py](../../src/table_to_arxml/system/type_signature.py) | 数据类型最终签名，用于接口两端类型比较 |
+| [arxml_generator.py](../../src/table_to_arxml/system/arxml_generator.py) | 解析白表引用并用 armodel 生成输出；连接器命名见 `connector_name` |
 
 - 多个配置共用一次 `ArxmlModel.load`；生成的 ARXML 写到独立文档，加载的模型保留给后续配置复用。
-- 产物先写到临时目录，全部成功后才发布到输出目录，失败时回滚。
-- 库代码使用 `logging.getLogger(__name__)`，只在 `cli.py` 配置 handler；运行期间非 armodel 的 ERROR 日志会被收集，发布前统一失败。
+- 产物先写到临时目录，没有任何 ERROR 时才原子发布到输出目录。
+- 组合实例链只在 `ArxmlModel.composition_chains` 中实现，嵌套上限为 `MAX_COMPOSITION_DEPTH`；总线类型统一由 `bus_module` 判断。
 
-### table_to_swc_arxml
+### swc：table-to-swc-arxml
 
 | 模块 | 职责 |
 | --- | --- |
-| [cli.py](../../table_to_swc_arxml/table_to_swc_arxml/cli.py) | 入口、日志和处理流程编排 |
-| [options.py](../../table_to_swc_arxml/table_to_swc_arxml/options.py) | 合并命令行与 JSON 配置，得到冻结的 `Options` |
-| [workbook.py](../../table_to_swc_arxml/table_to_swc_arxml/workbook.py) | 一次加载工作簿，逐表校验并转为待创建对象 |
-| [resolve.py](../../table_to_swc_arxml/table_to_swc_arxml/resolve.py) | 读取清单，定位组件、接口、runnable，补全端口和访问点 |
-| [apply.py](../../table_to_swc_arxml/table_to_swc_arxml/apply.py) | 生成片段、插入并重新解析验证 |
-| [xml_patch.py](../../table_to_swc_arxml/table_to_swc_arxml/xml_patch.py) | 按 AUTOSAR 路径在原始字节中定位和插入 |
-| [store.py](../../table_to_swc_arxml/table_to_swc_arxml/store.py) | 缓存待写出的字节和解析结果 |
-| [writer.py](../../table_to_swc_arxml/table_to_swc_arxml/writer.py) | 原子写出 |
-| [lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) | 封装 `armodel` 的解析和片段生成 |
+| [cli.py](../../src/table_to_arxml/swc/cli.py) | 入口、日志、依赖检查与写出 |
+| [options.py](../../src/table_to_arxml/swc/options.py) | 合并命令行与 JSON 配置，得到冻结的 `Options` |
+| [pipeline.py](../../src/table_to_arxml/swc/pipeline.py) | 处理步骤编排与 `RunSummary` 汇总 |
+| [constants.py](../../src/table_to_arxml/swc/constants.py) | 与解析库无关的取值：端口方向、接口 DEST、访问点类别和容器 |
+| [workbook.py](../../src/table_to_arxml/swc/workbook.py) | 一次加载工作簿，逐表校验并转为待创建对象 |
+| [resolve.py](../../src/table_to_arxml/swc/resolve.py) | 定位组件、接口、runnable，补全端口和访问点 |
+| [apply.py](../../src/table_to_arxml/swc/apply.py) | 生成片段、插入并重新解析验证；各步骤返回 `StepResult` |
+| [xml_patch.py](../../src/table_to_arxml/swc/xml_patch.py) | 按 AUTOSAR 路径在原始字节中定位和插入；新建容器按 `CHILD_ORDER` 的 schema 顺序放置 |
+| [store.py](../../src/table_to_arxml/swc/store.py) | 缓存待写出的字节和解析结果，映射输出路径并写出 |
+| [arxml_model.py](../../src/table_to_arxml/swc/arxml_model.py) | armodel 的加载、查询和片段生成 |
 
 - 新元素只以 XML 片段插入原文件字节，其余字节不变，避免 armodel 整文件重新序列化带来的格式差异。
-- armodel 的 `AUTOSAR` 是全局单例，每次加载都会清空；文档对象带代次号，过期使用会报错。`SourceStore` 按文件版本缓存解析结果。
+- armodel 的 `AUTOSAR` 是全局单例，每次加载都会清空；文档对象带加载代次，过期使用会报错。`SourceStore` 按文件版本缓存解析结果。
+- 需要新建的父容器（`ELEMENTS`、`EVENTS`、`RUNNABLES`、`SERVER-CALL-POINTS`）按 [xml_patch.py](../../src/table_to_arxml/swc/xml_patch.py)
+  中 `CHILD_ORDER` 的顺序插入。新增可创建的容器时须同时补充该表，否则会明确报错而不是插到错误位置。
 
-#### 更换解析库
+### armodel 与第三方库
 
-[lib/arxml_backend.py](../../table_to_swc_arxml/table_to_swc_arxml/lib/arxml_backend.py) 集中封装了 `armodel` 的全部用法，
-其余模块只依赖与库无关的抽象：`PortInfo`、`AccessInfo` 描述端口和访问点，`ArxmlDocument` 提供查询和片段生成，
-`ArxmlBackend` 负责加载文件并返回文档和解析诊断。
-
-更换解析库时：在该模块中新增实现 `ArxmlDocument` 的文档类和提供 `name`、`load()` 的后端类，
-注册到 `BACKENDS`，运行时用 `--backend <名称>` 选择；其余模块无需改动。
-
-### 两个工具之间的重复代码
-
-日志初始化、清单读取与 `excludeArxml`、原子写出、依赖检查在两个工具中各有一份。为避免多一个共享包依赖，
-目前保留两份实现，修改其中一份时需同步另一份；后续可补契约测试保证两边行为一致。
+armodel 是两个工具的直接依赖，代码中不再为它做可替换的抽象层。依赖 armodel/openpyxl 内部行为的代码集中在
+`common/armodel_compat.py` 和 `common/openpyxl_compat.py`，由 [test/contract](../../test/contract) 中的契约测试覆盖；
+CI 对每个支持的 armodel 版本运行这些测试。若“缺陷仍存在”类断言失败，说明新版 armodel 已修复，可评估删除对应绕行代码。
 
 ## 测试与 CI
 
-测试数据、基线产物和运行方式见 [../../test/README.md](../../test/README.md)。
+测试结构、数据和运行方式见 [../../test/README.md](../../test/README.md)。pytest 和 ruff 的选项在 [pyproject.toml](../../pyproject.toml) 中配置，
+本地与 CI 都只需执行 `python -m ruff check` 和 `python -m pytest`。
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
-| [tests.yml](../../.github/workflows/tests.yml) | 代码、测试或依赖变更、PR、手动 | Ubuntu/Windows × armodel 1.8.7/1.9.2：ruff（F、B、E9）与 `pytest test` |
-| [wheel.yml](../../.github/workflows/wheel.yml) | 代码或打包配置变更、PR、手动 | 构建 wheel，安装并检查两个命令，上传 artifact，不发布 |
+| [tests.yml](../../.github/workflows/tests.yml) | 源码、测试、工具脚本、模板或依赖变更、PR、手动 | Ubuntu/Windows × armodel 1.8.7/1.9.2：ruff 与全部测试 |
+| [wheel.yml](../../.github/workflows/wheel.yml) | 源码或打包配置变更、PR、手动 | 构建 wheel，安装后检查两个命令、依赖检查和参数错误退出码，上传 artifact，不发布 |
 | [release.yml](../../.github/workflows/release.yml) | 推送 `x.y.z` 标签 | 构建、校验版本、发布到 GitHub Release，见 [release.md](release.md) |
 
 ## 内部工程集成
 
-- 内部工程通过 [../../init_app_env/init_app_env.py](../../init_app_env/init_app_env.py) 从 `init_app_env/whl` 安装固定版本的 armodel、py_eb_model 和本工具 wheel。
 - 内部工程的 CMB 动作通过 profiles 配置 EB 工具环境，产物复制命令目前为注释状态。启用复制时，修改 `outputPrefix` 或 `--output-dir` 后须同步源路径，并仅在退出码为 0 时复制。
-- `table-to-system-arxml` 的 EB 模式与内部工程生成 Autosar Builder 工程的脚本使用相同的 `PrefSystemImporter --file-list` 调用方式。
+- [third_party/](../../third_party) 下的 `init_app_env`（安装固定版本 wheel）和 `autosar_builder/gen_ab_project`（生成 Autosar Builder 工程和清单）
+  是移植时按需选用的第三方脚本，不在本工程的测试、lint、CI 和发布范围内，由使用它们的工程自行维护，说明见 [third_party/README.md](../../third_party/README.md)。
 
 ## 版本历史与迁移
 
-- **合并为单个 wheel**：0.2.0 之前两个工具分别发布 `table-to-system-arxml`、`table-to-swc-arxml` 两个包，标签为 `tableToSystemArxml/<版本>`、`tableToSwcArxml/<版本>`；现在合并为 `table-to-arxml`，标签直接是 `x.y.z`。
+- **0.3.0**：
+  - 源码迁移为 `src/table_to_arxml/{common,system,swc}` 单一包，删除源码启动脚本；`python -m table_to_system_arxml`、
+    `python -m table_to_swc_arxml` 改为 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc`。命令名不变。
+  - 两个工具统一退出码：System 工具的配置错误由 `1` 改为 `2`（打印用法，不创建日志）。System 工具的正常日志改走 stdout。
+  - ARXML 清单规则统一：SWC 清单也支持通配符；System 新增 `strictList` / `--strict-list`；通配符无匹配改为 WARNING。
+  - SWC：`backend` / `--backend` 已废弃并忽略（只接受 `armodel`，并给出 WARNING）；命令行指定输出方式时整体替换配置中的输出方式；
+    汇总日志拆为多行。缺失容器按 AUTOSAR schema 顺序创建（此前可能插到 `SUPPORTS-MULTIPLE-INSTANTIATION` 之后）。
+  - System：委托连接器名称由 `dc_<外端口>_<实例><内端口>` 改为 `dlc_<外端口>_<实例>_<内端口>`；连接器名称超过 128 个字符时
+    截断并追加哈希（此前截断到 255）。合并绿表中页签名冲突时追加 `~序号`。
+  - `init_app_env`、`autosar_builder` 移到 `third_party/`，不再归本工程测试、lint 和 CI 管理；仓库中只保留 `init_app_env` 实际安装的 wheel。
+  - SWC 工作簿格式见 TTA-7：统一 `Runnable Name`、端口页 `Access Kind`、`Data Accesses` 页名、`SW-C` 列名、可省略未用页、无参数 CS operation。
+- **合并为单个 wheel**（0.2.0）：之前两个工具分别发布 `table-to-system-arxml`、`table-to-swc-arxml` 两个包，标签为 `tableToSystemArxml/<版本>`、
+  `tableToSwcArxml/<版本>`；现在合并为 `table-to-arxml`，标签直接是 `x.y.z`。
 - **System 工具**：
   - 不再依赖或导入 `pya4a`，也不启动 `xlsx-composition-sw`；白表格式和有效输入的输出约定保持兼容。其他工程工具可能仍需要 `pya4a` 等库，本工具不会卸载它们。
   - 旧配置字段 `name`、`xdm`、`arxml`、`output`、`generatedComponents` 已不用，不提供自动迁移。

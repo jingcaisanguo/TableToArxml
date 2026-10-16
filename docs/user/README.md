@@ -18,7 +18,7 @@
 需要 Python 3.9 或更新版本，建议安装到项目自己的虚拟环境。从 GitHub Release 下载 `table_to_arxml-<版本>-py3-none-any.whl` 后执行：
 
 ```powershell
-python -m pip install ./table_to_arxml-0.2.1-py3-none-any.whl
+python -m pip install ./table_to_arxml-0.3.0-py3-none-any.whl
 table-to-system-arxml --help
 table-to-swc-arxml --help
 ```
@@ -26,7 +26,7 @@ table-to-swc-arxml --help
 也可以直接用 Release 中 wheel 附件的下载链接安装，或在项目的 `requirements.txt` 中固定版本：
 
 ```text
-table-to-arxml @ <Release 中 table_to_arxml-0.2.1-py3-none-any.whl 的下载链接>
+table-to-arxml @ <Release 中 table_to_arxml-0.3.0-py3-none-any.whl 的下载链接>
 ```
 
 - 安装时自动安装依赖：`armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`。实测 armodel 1.8.7 和 1.9.2 可用；从索引安装时 pip 会在该范围内选最新版，范围外的版本在工具启动时报错。
@@ -38,10 +38,12 @@ table-to-arxml @ <Release 中 table_to_arxml-0.2.1-py3-none-any.whl 的下载链
 | 调用方式 | 说明 |
 | --- | --- |
 | `table-to-system-arxml`、`table-to-swc-arxml` | 安装后的命令 |
-| `python -m table_to_system_arxml`、`python -m table_to_swc_arxml` | 命令不在 `PATH` 时使用，参数相同 |
+| `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` | 命令不在 `PATH` 时使用，参数相同 |
 
 - 两个工具的命令行参数都与 JSON 配置键一一对应（如 `outputDir` 对应 `--output-dir`），命令行优先，参数名须完整书写。
 - JSON 中的相对路径以配置文件所在目录为基准；命令行相对路径以当前工作目录为基准。
 - 日志目录必须通过 `--log-dir` 或配置指定；`table-to-system-arxml` 的产物目录也必须显式指定。安装后的命令不会向 `site-packages` 写配置、产物或日志。
-- 退出码：`0` 成功，`1` 运行失败（存在 ERROR），`2` 参数错误。
+- 日志同时写入日志文件和控制台：普通信息到 stdout，`WARNING`、`ERROR` 到 stderr，每行为 `<时间戳> <等级>: <消息>`。
+- 两个工具读取 ARXML 清单（`arxmlFileList`）的规则相同，见各工具的配置说明；`strictList` / `--strict-list` 使无效条目直接失败。
+- 退出码：`0` 成功；`1` 运行失败（存在 ERROR），不写任何产物；`2` 命令行或配置文件错误，打印用法，不创建日志。
 - EB 模式（由 tresos 导入器生成 ARXML 清单）需要调用方环境提供 `PrefSystemImporter`，wheel 不包含 EB 工具。
