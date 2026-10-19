@@ -2,18 +2,18 @@
 
 返回 [README.md](README.md)。工作簿格式见 [workbook-format.md](workbook-format.md)。
 
-运行参数可以写在 JSON 配置文件里，也可以在命令行直接传入；两者同时出现时命令行优先。
-配置文件使用 UTF-8 JSON 对象（兼容 BOM），键名区分大小写，不支持注释。
+运行参数可以写在配置文件里，也可以在命令行直接传入；两者同时出现时命令行优先。
+配置文件使用 TOML 格式（`.toml`，可用 `#` 写注释），格式规则见 [配置文件格式](../README.md#配置文件格式)。键名区分大小写。
 
 ## 参数一览
 
-命令行参数与 JSON 键一一对应，命令行形式是 JSON 键的短横线写法（如 `outputDir` 对应 `--output-dir`），
+命令行参数与配置键一一对应，命令行形式是配置键的短横线写法（如 `outputDir` 对应 `--output-dir`），
 命名与 `table-to-system-arxml` 统一。参数名须完整书写，不接受缩写。
 
-| JSON 键 | 命令行参数 | 类型 | 必填 / 默认值 | 说明 |
+| 配置键 | 命令行参数 | 类型 | 必填 / 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| — | `--config` | 路径 | 可选 | JSON 配置文件；相对路径按当前工作目录解析 |
-| `defaultVariant` | `--variant` | 字符串 | 可选 | 替换 JSON 路径中的 `${variant}` |
+| — | `--config` | 路径 | 可选 | TOML 配置文件；相对路径按当前工作目录解析 |
+| `defaultVariant` | `--variant` | 字符串 | 可选 | 替换配置文件路径中的 `${variant}` |
 | `projectRoot` | `--project-root` | 目录 | **必填** | 工程根目录；`Target ARXML`、清单内相对条目和 `excludeArxml` 的路径都以它为基准 |
 | `arxmlFileList` | `--arxml-file-list` | 文件 | **必填** | ARXML 清单，工具只在清单列出的文件中查找组件和接口 |
 | `workbook` | `--workbook` | 文件 | **必填** | Excel 工作簿，格式见 [workbook-format.md](workbook-format.md) |
@@ -27,14 +27,14 @@
 
 - `inPlace`、`outputDir`、`dryRun` 三者最多选一个；都不选时与 `dryRun` 相同，只校验不写文件。
 - 命令行指定了其中任一项时，整体替换配置中的输出方式。例如配置写了 `outputDir`，命令行加 `--dry-run` 即只校验，不报互斥错误。
-- JSON 中出现表外的键会报错，并列出支持的键。
-- 必填项缺失、JSON 无法读取或取值非法时，参数解析阶段即打印用法并退出（退出码 `2`），不会创建日志。
+- 配置文件中出现表外的键会报错，并列出支持的键。
+- 必填项缺失、配置文件无法读取（含语法错误）或取值非法时，参数解析阶段即打印用法并退出（退出码 `2`），不会创建日志。
 - 依赖（armodel 版本等）在创建日志后检查，不满足时记录 `ERROR` 并返回 `1`；`--help` 不受依赖影响。
 - 日志文件名为 `table_to_swc_arxml_<时间含微秒>_<进程号>.log`，每次运行新建，启动时打印完整路径。
 
 ## 路径规则
 
-排除示例：`"excludeArxml": ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
+排除示例：`excludeArxml = ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
 命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml arxml/Bcm/TUR.arxml`。
 只写文件名会排除所有同名文件（文件名不区分大小写）；带目录则精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
 被排除的条目即使不存在也不会告警，日志记录 `Exclude ARXML file`，不修改 lst。
@@ -43,12 +43,12 @@
 
 | 位置 | 相对路径基准 | 支持 `${variant}` 和 `*` |
 | --- | --- | --- |
-| JSON 中的路径（`projectRoot`、`arxmlFileList`、`workbook`、`logDir`、`outputDir`） | 配置文件所在目录 | 支持 |
+| 配置文件中的路径（`projectRoot`、`arxmlFileList`、`workbook`、`logDir`、`outputDir`） | 配置文件所在目录 | 支持 |
 | 命令行路径（`--config`、`--project-root`、`--arxml-file-list`、`--workbook`、`--log-dir`、`--output-dir`） | 当前工作目录 | 不支持 |
 | ARXML 清单中的条目 | `projectRoot` | 不支持 `${variant}`；支持通配符 |
 | 工作簿中的 `Target ARXML` | `projectRoot`，必须是相对路径，允许 `..` | 不支持 |
 
-JSON 路径按以下顺序处理：
+配置文件中的路径按以下顺序处理：
 
 1. 用 `--variant` 的值替换 `${variant}`；未传时使用 `defaultVariant`。用了占位符却没有 variant 时报错。
 2. 以配置文件所在目录补全相对路径，允许 `..`；`\` 与 `/` 都可使用。
@@ -73,16 +73,16 @@ JSON 路径按以下顺序处理：
 
 ## 配置示例
 
-```json
-{
-  "defaultVariant": "variantA",
-  "projectRoot": "..",
-  "arxmlFileList": "../cfg/${variant}.lst",
-  "workbook": "excel/swc_arxml_config.xlsx",
-  "logDir": "../log",
-  "outputDir": "../output/swc",
-  "logLevel": "INFO"
-}
+```toml
+# swc_arxml.toml：相对路径以本文件所在目录为基准
+defaultVariant = "variantA"
+projectRoot = ".."
+arxmlFileList = "../cfg/${variant}.lst"
+workbook = "excel/swc_arxml_config.xlsx"
+logDir = "../log"
+# 输出方式三选一：outputDir、inPlace = true、dryRun = true
+outputDir = "../output/swc"
+logLevel = "INFO"
 ```
 
 ## 命令示例
@@ -91,10 +91,10 @@ JSON 路径按以下顺序处理：
 
 ```powershell
 # 只用配置文件
-table-to-swc-arxml --config D:/code/project/config/swc_arxml.json
+table-to-swc-arxml --config D:/code/project/config/swc_arxml.toml
 
 # 相对当前目录的配置文件，并切换变体
-table-to-swc-arxml --config config/swc_arxml.json --variant variantA
+table-to-swc-arxml --config config/swc_arxml.toml --variant variantA
 
 # 不用配置文件，只校验
 table-to-swc-arxml --project-root . --arxml-file-list path/to/files.lst --workbook path/to/swc.xlsx --log-dir log --dry-run
@@ -110,4 +110,4 @@ table-to-swc-arxml --project-root . --arxml-file-list path/to/files.lst --workbo
 
 把 wheel 安装到项目的虚拟环境，配置、工作簿和清单随项目维护，通过绝对路径 `--config` 选择项目。
 兼容版本升级通常只需重新安装 wheel；跨版本升级前仍应检查 [迁移说明](../migration.md)，不能保证所有旧配置和输入都无需调整。项目整体移动时，若全部项目路径都是相对路径，只需调整启动命令中的配置路径。
-移动 JSON 文件本身会改变其中相对路径的含义。
+移动配置文件本身会改变其中相对路径的含义。

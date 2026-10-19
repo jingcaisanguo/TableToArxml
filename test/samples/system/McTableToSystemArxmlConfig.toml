@@ -1,0 +1,25 @@
+# table-to-system-arxml 样例配置（MC，白表模式）。
+# 相对路径均以本文件所在目录为基准；命令行参数优先于这里的配置。
+
+defaultVariant = "McTest"
+projectRoot = "../../.."
+logLevel = "INFO"
+outputDir = "output/McTest"
+logDir = "log/McTest"
+
+# 产物命名前缀：McSystem.arxml
+outputPrefix = "Mc"
+# 连接两端接口不一致时的处理方式：error / skip / map
+interfaceMismatch = "error"
+
+# 白表模式：与 greenTables 二选一
+whiteTable = "WhiteTable/McWhiteTable.xlsx"
+
+# 复用已有 ARXML 清单，不调用 EB 导入器
+arxmlFileList = "../../data/common/arxml.lst"
+
+[general]
+Composition = "/ARDesign/SystemDesign/TopLevelComposition"
+System = "/ARDesign/SystemDesign/ZCUPrototypeSystem"
+EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
+RootSwCompositionPrototype = "/ARDesign/SystemDesign/ZCUPrototypeSystem/ZCUPrototypeComposition"

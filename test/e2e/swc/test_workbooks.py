@@ -113,7 +113,7 @@ def test_workbooks_are_reproducible(tmp_path):
 
 def test_blank_template_has_no_implicit_operations(tmp_path):
     result = run_tool(
-        SWC, "--config", SAMPLE.parent / "TableToSwcArxml.json",
+        SWC, "--config", SAMPLE.parent / "TableToSwcArxml.toml",
         "--workbook", TEMPLATE, "--output-dir", tmp_path / "out", "--log-dir", tmp_path / "log",
     )
     assert result.returncode == 1

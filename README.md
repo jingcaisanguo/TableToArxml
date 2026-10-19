@@ -10,6 +10,7 @@
 | 使用场景 | 入口 |
 | --- | --- |
 | 安装、调用与对外交付 | [使用说明](docs/user/README.md) |
+| 配置文件格式（TOML） | [配置文件格式](docs/user/README.md#配置文件格式) |
 | 版本升级与兼容性变化 | [迁移说明](docs/user/migration.md) |
 | System 表格与配置 | [System 工具](docs/user/system/README.md) |
 | SWC 工作簿与配置 | [SWC 工具](docs/user/swc/README.md)、[空白模板](docs/user/swc/SwcTemplate.xlsx) |

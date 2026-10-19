@@ -1,7 +1,7 @@
-"""命令行与 JSON 配置合并成一个冻结的 :class:`Options`。
+"""命令行与配置文件合并成一个冻结的 :class:`Options`。
 
-JSON 键与命令行参数一一对应：参数名为 JSON 键的 kebab-case（``defaultVariant`` 对应 ``--variant``），
-命令行优先。命令行相对路径以当前工作目录为基准；JSON 中的相对路径以配置文件所在目录为基准，
+配置键与命令行参数一一对应：参数名为配置键的 kebab-case（``defaultVariant`` 对应 ``--variant``），
+命令行优先。命令行相对路径以当前工作目录为基准；配置文件中的相对路径以配置文件所在目录为基准，
 支持 ``${variant}`` 替换和 ``*`` 唯一匹配。
 """
 
@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import argparse
 import glob
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from ..common.config_file import read_config_file
 from ..common.errors import ConfigError
 from ..common.logs import LOG_LEVELS
 from ..common.messages import clean_message
@@ -57,13 +57,13 @@ class Options:
 
 
 def attribute(key: str) -> str:
-    """JSON 键对应的 :class:`Options` 字段名。"""
+    """配置键对应的 :class:`Options` 字段名。"""
 
     return "variant" if key == "defaultVariant" else re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
 
 
 def option_flag(key: str) -> str:
-    """JSON 键对应的命令行参数。"""
+    """配置键对应的命令行参数。"""
 
     return "--variant" if key == "defaultVariant" else "--" + re.sub(r"(?<!^)(?=[A-Z])", "-", key).lower()
 
@@ -104,7 +104,7 @@ def resolve_cli_path(value: str, option: str) -> Path:
     """命令行路径只接受绝对路径或相对当前工作目录的普通路径。"""
 
     if any(token in value for token in ("*", "?", "${")):
-        raise ConfigError(f"{option} must be a literal path; templates and wildcards are only supported in JSON")
+        raise ConfigError(f"{option} must be a literal path; templates and wildcards are only supported in config files")
     if not value.strip():
         raise ConfigError(f"{option} must be a non-empty path")
     try:
@@ -120,8 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Add component ports, interfaces and data types to ARXML from an Excel workbook.",
         allow_abbrev=False,
     )
-    parser.add_argument("--config", help="JSON configuration; paths inside it are relative to its directory")
-    parser.add_argument("--variant", help="Replace ${variant} in JSON paths (overrides config defaultVariant)")
+    parser.add_argument("--config", help="TOML configuration; paths inside it are relative to its directory")
+    parser.add_argument("--variant", help="Replace ${variant} in config paths (overrides config defaultVariant)")
     parser.add_argument("--project-root", help="Project root; relative Target ARXML and list entries use it")
     parser.add_argument("--workbook", help="Excel workbook; required via CLI or config")
     parser.add_argument("--arxml-file-list", help="ARXML list file; required via CLI or config")
@@ -154,12 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _read_config(path: Path) -> dict[str, object]:
-    try:
-        config = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ConfigError(f"Cannot read config file {path}: {clean_message(error)}") from error
-    if not isinstance(config, dict):
-        raise ConfigError(f"Config file must contain a JSON object: {path}")
+    config = read_config_file(path)
     unknown = sorted(set(config) - set(CONFIG_KEYS))
     if unknown:
         raise ConfigError(
@@ -169,7 +164,7 @@ def _read_config(path: Path) -> dict[str, object]:
 
 
 def _merge(args: argparse.Namespace) -> dict[str, object]:
-    """命令行优先，未提供的项取自 JSON；返回 ``JSON 键 -> 值``，路径均已解析为绝对路径。"""
+    """命令行优先，未提供的项取自配置文件；返回 ``配置键 -> 值``，路径均已解析为绝对路径。"""
 
     values: dict[str, object] = {}
     for key in CONFIG_KEYS:
@@ -233,7 +228,7 @@ def _options(values: dict[str, object]) -> Options:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> Options:
-    """解析命令行并合并 JSON 配置；参数错误时按 argparse 惯例退出码为 2。
+    """解析命令行并合并配置文件；参数错误时按 argparse 惯例退出码为 2。
 
     三个输出选项互斥，均未指定时等同于只验证不写文件。
     """

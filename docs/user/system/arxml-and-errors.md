@@ -56,14 +56,12 @@ build/variantA.Debug/tresos/**/swcd/*.arxml
 | 标定目录 | 内置正则排除 `dem/swcd_calibration/`、`dcm/swcd_calibration/` 下文件；这是本工具继承的过滤策略，不应理解为 EB 永远不会列出这些文件 |
 | `excludeArxmlPatterns` | 追加用户正则，不能取消内置排除 |
 
-正则以 `re.IGNORECASE` 编译，对规范化后的绝对路径调用 `match`，不是 glob。需要匹配中间路径时通常以 `.*` 开头，例如以下 JSON 可额外排除文件名为 `EcuExtract.arxml` 的输入：
+正则以 `re.IGNORECASE` 编译，对规范化后的绝对路径调用 `match`，不是 glob。需要匹配中间路径时通常以 `.*` 开头，例如以下配置可额外排除文件名为 `EcuExtract.arxml` 的输入。正则建议写成单引号字面字符串，反斜杠无需再次转义：
 
-```json
-{
-    "excludeArxmlPatterns": [
-        ".*[\\\\/]EcuExtract\\.arxml$"
-    ]
-}
+```toml
+excludeArxmlPatterns = [
+    '.*[\\/]EcuExtract\.arxml$',
+]
 ```
 
 默认不会按旧排除清单自动排除 `EcuExtract.arxml`。是否排除应根据输入模型设计决定，不能仅因文件名称就认定它不需要。
@@ -87,7 +85,7 @@ build/variantA.Debug/tresos/**/swcd/*.arxml
 | --- | --- |
 | 全部转换、写出和发布成功，无 ERROR | 返回 `0` |
 | armodel 解析器以外的任意 ERROR，或配置、文件、模型、转换、写入异常 | 记录失败原因并返回 `1`，不发布本次 Excel/ARXML/lst；旧产物不变。非预期的程序异常另记录完整堆栈 |
-| 命令行或配置错误（参数格式、配置文件缺失或无法解析、未知键、必填项缺失、日志/产物目录缺失等） | 打印用法和错误，返回 `2`，不创建日志 |
+| 命令行或配置错误（参数格式、未指定 `--config`、配置文件缺失或无法解析、未知键、必填项缺失、日志/产物目录缺失等） | 打印用法和错误，返回 `2`，不创建日志 |
 | Python 转换依赖缺失或导入不可用 | 日志初始化后检查，在控制台及日志文件记录库名、实际异常和解释器，返回 `1` |
 
 ## 常见情况

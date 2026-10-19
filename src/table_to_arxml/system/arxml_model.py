@@ -23,10 +23,9 @@ from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreCommu
 )
 from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreTopology import (
     CommunicationCluster,
-    ISignalPort,
 )
 
-from ..common.armodel_compat import new_parser, reset_document
+from ..common.armodel_compat import ISignalPort, new_parser, reset_document
 from .values import ref_value
 
 LOGGER = logging.getLogger(__name__)

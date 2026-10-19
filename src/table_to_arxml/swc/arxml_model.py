@@ -21,10 +21,7 @@ from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.
     ARPackage,
 )
 from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.PrimitiveTypes import (
-    ARBoolean,
-    ARFloat,
     ARLiteral,
-    ARNumerical,
     Limit,
     RefType,
     TRefType,
@@ -57,16 +54,6 @@ from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.SwcInternalBehavior 
     SwcInternalBehavior,
     SynchronousServerCallPoint,
 )
-from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Composition.InstanceRefs import (
-    POperationInAtomicSwcInstanceRef,
-    ROperationInAtomicSwcInstanceRef,
-)
-from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.SwcInternalBehavior.AutosarVariableRef import (
-    AutosarVariableRef,
-)
-from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.SwcInternalBehavior.InstanceRefsUsage import (
-    VariableInAtomicSWCTypeInstanceRef,
-)
 from armodel.models.M2.MSR.AsamHdo.ComputationMethod import (
     Compu,
     CompuConst,
@@ -85,7 +72,24 @@ from armodel.models.M2.MSR.DataDictionary.CalibrationParameter import SwCalprmAx
 from armodel.models.M2.MSR.DataDictionary.DataDefProperties import SwDataDefProps
 from armodel.writer.arxml_writer import ARXMLWriter
 
-from ..common.armodel_compat import new_parser, reset_document, serialize, strip_handle_timeout_type, to_fragment
+from ..common.armodel_compat import (
+    ARBoolean,
+    ARFloat,
+    ARNumerical,
+    AutosarVariableRef,
+    POperationInAtomicSwcInstanceRef,
+    ROperationInAtomicSwcInstanceRef,
+    VariableInAtomicSWCTypeInstanceRef,
+    get_accessed_variable,
+    get_enable_update,
+    new_parser,
+    reset_document,
+    serialize,
+    set_accessed_variable,
+    set_enable_update,
+    strip_handle_timeout_type,
+    to_fragment,
+)
 from .constants import (
     ACCESS_CONTAINERS,
     ACCESS_DIRECTIONS,
@@ -319,7 +323,7 @@ class ArxmlDocument:
             reference = getattr(com_spec, "getDataElementRef", lambda: None)()
             data_path = "" if reference is None else reference.getValue() or ""
             if isinstance(com_spec, NonqueuedReceiverComSpec):
-                enabled = com_spec.getEnableUpdated()
+                enabled = get_enable_update(com_spec)
                 if enabled is not None and str(enabled.getValue()).lower() == "true":
                     updates.append(data_path)
             elif isinstance(com_spec, QueuedReceiverComSpec):
@@ -401,8 +405,8 @@ class ArxmlDocument:
         com_spec.setDataElementRef(
             RefType().setDest("VARIABLE-DATA-PROTOTYPE").setValue(data_path)
         )
-        com_spec.setEnableUpdated(ARBoolean().setValue(True))
-        # armodel 将缺省值初始化为空字符串并错误地尝试序列化；先提供占位，
+        set_enable_update(com_spec, ARBoolean().setValue(True))
+        # armodel 1.9.2 及以前将缺省值初始化为空字符串并错误地尝试序列化；先提供占位，
         # add_port 输出片段前用 strip_handle_timeout_type 删除这个未由 Excel 指定的标签。
         com_spec.setHandleTimeoutType(ARLiteral().setValue("NONE"))
         return com_spec
@@ -544,7 +548,7 @@ class ArxmlDocument:
 
     @staticmethod
     def _access_info(access: Any) -> AccessInfo:
-        accessed = access.getAccessedVariableRef()
+        accessed = get_accessed_variable(access)
         iref = (
             None
             if accessed is None
@@ -581,9 +585,7 @@ class ArxmlDocument:
                 RefType().setDest("VARIABLE-DATA-PROTOTYPE").setValue(data_path)
             )
         )
-        cast(Any, access).setAccessedVariableRef(
-            AutosarVariableRef().setAutosarVariableIRef(iref)
-        )
+        set_accessed_variable(access, AutosarVariableRef().setAutosarVariableIRef(iref))
         return self._serialize(ARXMLWriter().writeVariableAccess, access, ACCESS_CONTAINERS[kind])
 
     def read_server_call(

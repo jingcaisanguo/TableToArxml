@@ -33,7 +33,7 @@ def test_swc_sample(tmp_path):
         workbook.close()
 
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.toml",
         "--output-dir", tmp_path / "out", "--log-dir", tmp_path / "log",
     )
     assert result.returncode == 0, result.stderr
@@ -70,7 +70,7 @@ def test_swc_warns_for_ignored_port_columns(tmp_path):
     workbook.close()
 
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.toml",
         "--workbook", tmp_path / "ports.xlsx", "--output-dir", tmp_path / "out",
         "--log-dir", tmp_path / "log",
     )
@@ -97,7 +97,7 @@ def test_swc_accepts_case_insensitive_headers_and_sheet_names(tmp_path):
     workbook.close()
 
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.toml",
         "--workbook", tmp_path / "lowercase-ports.xlsx", "--output-dir", tmp_path / "out",
         "--log-dir", tmp_path / "log",
     )
@@ -210,7 +210,7 @@ def test_swc_only_required_sheets_and_reordered_columns(tmp_path):
     workbook.save(tmp_path / "minimal.xlsx")
     workbook.close()
     result = run_tool(
-        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.json",
+        SWC, "--project-root", ROOT, "--config", ROOT / "test/samples/swc/TableToSwcArxml.toml",
         "--workbook", tmp_path / "minimal.xlsx", "--output-dir", tmp_path / "out",
         "--log-dir", tmp_path / "log",
     )

@@ -26,7 +26,7 @@ from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.PortInterface import
     DataPrototypeMapping, PortInterface, SenderReceiverInterface,
 )
 
-from ..common.armodel_compat import SystemArxmlWriter
+from ..common.armodel_compat import SystemArxmlWriter, set_communication_direction, set_inner_port_iref
 from ..common.names import MAX_SHORT_NAME as MAX_SHORT_NAME
 from ..common.names import autosar_path, generated_name, short_name
 from .arxml_model import ArxmlModel
@@ -490,7 +490,7 @@ def _write_model(
             assembly.setMappingRef(_reference("VARIABLE-AND-PARAMETER-INTERFACE-MAPPING", connector.mapping_path))
     for name, connector in sorted(resolver.delegations.items()):
         delegation = composition.createDelegationSwConnector(name)
-        delegation.setInnerPortIRref(connector.inner.composition_iref())
+        set_inner_port_iref(delegation, connector.inner.composition_iref())
         delegation.setOuterPortRef(_reference(connector.inner.destination,
                                               f"{resolver.composition_path}/{connector.outer_name}"))
 
@@ -543,7 +543,7 @@ def _write_model(
         else:
             signal_mapping = SenderReceiverToSignalMapping()
             signal_mapping.setDataElementIRef(iref)
-            signal_mapping.setCommunicationDirection(ARLiteral().setValue(signal.direction))
+            set_communication_direction(signal_mapping, ARLiteral().setValue(signal.direction))
             signal_mapping.setSystemSignalRef(_reference("SYSTEM-SIGNAL", signal.signal_path))
             mapping.addDataMapping(signal_mapping)
 

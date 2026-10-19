@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from helpers import ROOT, SWC, run_python, run_tool
 
-CONFIG = ROOT / "test/samples/swc/TableToSwcArxml.json"
+CONFIG = ROOT / "test/samples/swc/TableToSwcArxml.toml"
 
 
 def test_help_and_option_parsing_do_not_import_armodel():
@@ -42,6 +44,32 @@ def test_removed_backend_config_key_is_rejected(tmp_path):
     result = run_tool(SWC, "--config", config, "--log-dir", tmp_path / "log")
     assert result.returncode == 2
     assert "Unknown config option(s)" in result.stderr and "backend" in result.stderr
+    assert not (tmp_path / "log").exists()
+
+
+def test_json_config_is_still_supported(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({
+        "projectRoot": str(ROOT), "arxmlFileList": str(ROOT / "test/data/common/arxml.lst"),
+        "workbook": str(CONFIG.parent / "SwcTestPorts.xlsx"), "logDir": "log", "dryRun": True,
+    }), encoding="utf-8")
+    result = run_tool(SWC, "--config", config)
+    assert result.returncode == 0, result.stderr
+    assert "Dry run successful" in result.stdout
+
+
+@pytest.mark.parametrize("content, message", [
+    ("strictList = 'yes'\n", "strictList must be true or false"),
+    ("workbook = \n", "Cannot read config file"),
+    ("backend = 'armodel'\n", "Unknown config option(s)"),
+])
+def test_toml_configuration_errors_exit_with_code_2(tmp_path, content, message):
+    config = tmp_path / "config.toml"
+    config.write_text(
+        f"projectRoot = '.'\narxmlFileList = 'a.lst'\nlogDir = 'log'\n{content}", encoding="utf-8")
+    result = run_tool(SWC, "--config", config, "--workbook", tmp_path / "w.xlsx")
+    assert result.returncode == 2
+    assert message in result.stderr
     assert not (tmp_path / "log").exists()
 
 

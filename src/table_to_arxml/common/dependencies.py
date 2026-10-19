@@ -6,9 +6,9 @@ import importlib
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
-# 1.9.4 起 armodel 缺少两个工具依赖的导出（如 ARBoolean），因此限定上限。
-ARMODEL_REQUIREMENT = ">=1.8.7,<1.9.4"
-REQUIRED_MODULES = ("packaging", "openpyxl", "armodel")
+# 不设上限；1.9.1 的顶层包只导出 4 个名称（1.9.2 已恢复），工具无法导入，因此单独排除。
+ARMODEL_REQUIREMENT = ">=1.8.7,!=1.9.1"
+REQUIRED_MODULES = ("packaging", "openpyxl", "armodel") + (("tomli",) if sys.version_info < (3, 11) else ())
 
 
 def check_dependencies() -> None:

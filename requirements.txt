@@ -1,3 +1,4 @@
-armodel>=1.8.7,<1.9.4
+armodel>=1.8.7,!=1.9.1
 openpyxl>=3.1.2
 packaging>=21.3
+tomli>=1.1.0; python_version < "3.11"

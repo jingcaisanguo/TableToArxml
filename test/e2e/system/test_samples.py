@@ -10,7 +10,7 @@ from helpers import ROOT, SYSTEM, assert_matches_baseline, run_tool
 @pytest.mark.parametrize("variant, prefix", [("BcmTest", "Bcm"), ("McTest", "Mc")])
 def test_system_sample(tmp_path, variant, prefix):
     result = run_tool(
-        SYSTEM, "--config", ROOT / f"test/samples/system/{prefix}TableToSystemArxmlConfig.json",
+        SYSTEM, "--config", ROOT / f"test/samples/system/{prefix}TableToSystemArxmlConfig.toml",
         "--output-dir", tmp_path / "out", "--log-dir", tmp_path / "log",
     )
     assert result.returncode == 0, result.stderr

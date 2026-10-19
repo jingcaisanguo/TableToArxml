@@ -40,7 +40,7 @@ table-to-swc-arxml --help
   若需要更换解释器，先自行备份并处理旧环境。
 - 不安装时可设置 `PYTHONPATH=src`，再用 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` 运行，参数与命令完全相同。
 - 依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明。armodel 的版本范围在代码中只有一处
-  （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。
+  （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。`tomli` 只在 Python 3.11 以下需要（3.11 起用标准库 `tomllib`），由环境标记控制。
 - 版本号只在 [src/table_to_arxml/__init__.py](../../src/table_to_arxml/__init__.py) 的 `__version__` 中定义，`pyproject.toml` 从这里读取。
 
 ## 源码模块
@@ -50,6 +50,7 @@ table-to-swc-arxml --help
 | 模块 | 职责 |
 | --- | --- |
 | [errors.py](../../src/table_to_arxml/common/errors.py) | `ConfigError`：命令行或配置错误，入口以退出码 2 报告 |
+| [config_file.py](../../src/table_to_arxml/common/config_file.py) | 读取 TOML 配置文件（其他扩展名兼容旧版本按 JSON 读取），返回顶层表；字段校验由各工具负责 |
 | [messages.py](../../src/table_to_arxml/common/messages.py) | 去除 ANSI 控制码、合并为单行的消息文本 |
 | [dependencies.py](../../src/table_to_arxml/common/dependencies.py) | 依赖可导入性与 armodel 版本检查 |
 | [logs.py](../../src/table_to_arxml/common/logs.py) | 日志文件与控制台输出、ERROR 收集 |
@@ -74,7 +75,7 @@ table-to-swc-arxml --help
 | 模块 | 职责 |
 | --- | --- |
 | [cli.py](../../src/table_to_arxml/system/cli.py) | 执行流程编排、日志、错误处理与产物发布 |
-| [options.py](../../src/table_to_arxml/system/options.py) | `RunOptions`、`Job`、CLI/JSON 合并、模式选择和生效配置校验 |
+| [options.py](../../src/table_to_arxml/system/options.py) | `RunOptions`、`Job`、CLI 与配置文件合并、模式选择和生效配置校验 |
 | [values.py](../../src/table_to_arxml/system/values.py) | 取值函数和默认值，不依赖第三方库 |
 | [tresos_list.py](../../src/table_to_arxml/system/tresos_list.py) | 调用 EB 导入器生成清单，按 tresos 工程约定读取 |
 | [arxml_model.py](../../src/table_to_arxml/system/arxml_model.py) | 加载 ARXML，查询组件、System、组合实例链、CAN/LIN 通道与信号 |
@@ -95,7 +96,7 @@ table-to-swc-arxml --help
 | 模块 | 职责 |
 | --- | --- |
 | [cli.py](../../src/table_to_arxml/swc/cli.py) | 入口、日志、依赖检查与写出 |
-| [options.py](../../src/table_to_arxml/swc/options.py) | 合并命令行与 JSON 配置，得到冻结的 `Options` |
+| [options.py](../../src/table_to_arxml/swc/options.py) | 合并命令行与配置文件，得到冻结的 `Options` |
 | [pipeline.py](../../src/table_to_arxml/swc/pipeline.py) | 处理步骤编排与 `RunSummary` 汇总 |
 | [constants.py](../../src/table_to_arxml/swc/constants.py) | 与解析库无关的取值：端口方向、接口 DEST、访问点类别和容器 |
 | [schema.py](../../src/table_to_arxml/swc/schema.py) | 解析器与模板共用的工作表、必填/可选表头和枚举取值 |
@@ -115,7 +116,10 @@ table-to-swc-arxml --help
 
 armodel 是两个工具的直接依赖，代码中不再为它做可替换的抽象层。依赖 armodel/openpyxl 内部行为的代码集中在
 `common/armodel_compat.py` 和 `common/openpyxl_compat.py`，由 [test/contract](../../test/contract) 中的契约测试覆盖；
-CI 对 armodel 1.8.7、1.9.2 两个指定版本运行这些测试，不代表允许安装范围内的每个版本均已覆盖。
+armodel 1.9.4 和 1.9.8 先后改名或移动了部分类和方法（如 `ARBoolean` → `Boolean`、`setEnableUpdated` → `setEnableUpdate`），
+1.9.8 还删除了 `SenderReceiverToSignalMapping` 的 `COMMUNICATION-DIRECTION`；`armodel_compat.py` 按实际版本选择，
+其余代码只从这里导入受影响的类和方法，生成结果在各版本下一致。
+CI 对 armodel 1.8.7、1.9.2、1.9.8 运行这些测试；依赖范围不设上限，armodel 发布新版本后应先补充验证。
 若“缺陷仍存在”类断言失败，应调查库行为变化，不能直接认定绕行代码可以删除。
 
 ## 测试与 CI
@@ -125,7 +129,7 @@ CI 对 armodel 1.8.7、1.9.2 两个指定版本运行这些测试，不代表允
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
-| [tests.yml](../../.github/workflows/tests.yml) | 源码、文档、测试、工具脚本、模板或依赖变更、PR、手动及发布调用 | Ubuntu/Windows × Python 3.9/3.13 × armodel 1.8.7/1.9.2：ruff、全部测试和环境脚本语法检查 |
+| [tests.yml](../../.github/workflows/tests.yml) | 源码、文档、测试、工具脚本、模板或依赖变更、PR、手动及发布调用 | Ubuntu/Windows × Python 3.9/3.13 × armodel 1.8.7/1.9.2/1.9.8：ruff、全部测试和环境脚本语法检查 |
 | [wheel.yml](../../.github/workflows/wheel.yml) | 源码、打包、交付文档或样例变更、PR、手动 | 构建安装 wheel，在仓库外检查命令、依赖、配置错误退出码及 BCM/MC/SWC 基线，打包用户说明并上传 artifact |
 | [release.yml](../../.github/workflows/release.yml) | 推送 `x.y.z` 标签 | 构建、校验版本、发布到 GitHub Release，见 [release.md](release.md) |
 
@@ -137,7 +141,7 @@ CI 对 armodel 1.8.7、1.9.2 两个指定版本运行这些测试，不代表允
 
 ## 版本与迁移
 
-当前版本为 **0.3.1**。对外行为变化和升级要求统一维护在 [迁移说明](../user/migration.md)，
+当前版本为 **0.4.0**。对外行为变化和升级要求统一维护在 [迁移说明](../user/migration.md)，
 本页不重复维护历史参数表或兼容入口。
 
 用户说明只使用 `docs/user/system`、`docs/user/swc`；样例使用 `test/samples/system`、`test/samples/swc`，

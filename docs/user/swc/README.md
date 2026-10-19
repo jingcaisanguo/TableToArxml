@@ -7,7 +7,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [configuration.md](configuration.md) | JSON 配置、命令行参数、路径规则、ARXML 清单、命令示例 |
+| [configuration.md](configuration.md) | TOML 配置、命令行参数、路径规则、ARXML 清单、命令示例 |
 | [workbook-format.md](workbook-format.md) | 工作簿各工作表、列定义、取值范围及生成的 XML 示例 |
 | [SwcTemplate.xlsx](SwcTemplate.xlsx) | 不含测试数据的空白模板，自带填写流程、字段批注、默认值和输入验证 |
 | 本文 | 处理流程、检查规则、生成规则、写出与退出码 |
@@ -17,10 +17,10 @@
 安装方式见 [../README.md](../README.md)，安装后提供 `table-to-swc-arxml` 命令（等同 `python -m table_to_arxml.swc`）：
 
 ```bash
-table-to-swc-arxml --config ./config/swc.json
+table-to-swc-arxml --config ./config/swc.toml
 ```
 
-- 依赖为 `armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`，安装 wheel 时自动安装。实测 armodel 1.8.7 和 1.9.2 可用；1.9.4 及以后缺少 `ARBoolean` 等导出，安装了范围外的版本时工具启动即报版本错误。
+- 依赖为 `armodel>=1.8.7,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另需 `tomli>=1.1.0`（读取 TOML 配置），安装 wheel 时自动安装。armodel 不设上限，已在 armodel 1.8.7、1.9.2、1.9.4、1.9.7、1.9.8 上通过全部测试；安装了范围外的版本时工具启动即报版本错误。
 - 配置、工作簿、清单和日志由使用工具的项目提供。
 
 参数和路径规则见 [configuration.md](configuration.md)。
@@ -54,7 +54,7 @@ table-to-swc-arxml --config ./config/swc.json
 | 检查项 | 不满足时 |
 | --- | --- |
 | `projectRoot`、`arxmlFileList`、`workbook`、`logDir` 都已提供 | 参数错误，退出码 `2` |
-| JSON 配置可读、是对象、没有未知键；路径占位符和通配符唯一匹配 | 参数错误，退出码 `2` |
+| 配置文件可读、语法正确、没有未知键；路径占位符和通配符唯一匹配 | 参数错误，退出码 `2` |
 | `inPlace`、`outputDir`、`dryRun` 最多选一个；布尔项为 `true`/`false` | 参数错误，退出码 `2` |
 | 工程目录存在，工作簿和清单文件存在 | `ERROR`，退出码 `1` |
 | 清单条目扩展名为 `.arxml` 且文件存在，通配符条目至少匹配一个文件 | 默认 `WARNING` 后跳过该条目；`strictList=true` 时直接失败 |

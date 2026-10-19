@@ -1,0 +1,27 @@
+# table-to-system-arxml 样例配置（BCM，绿表模式）。
+# 相对路径均以本文件所在目录为基准；命令行参数优先于这里的配置。
+
+defaultVariant = "BcmTest"
+projectRoot = "../../.."
+logLevel = "INFO"
+outputDir = "output/BcmTest"
+logDir = "log/BcmTest"
+
+# 产物命名前缀：BcmWhiteTable.xlsx、BcmGreenTables.xlsx、BcmSystem.arxml
+outputPrefix = "Bcm"
+# 连接两端接口不一致时的处理方式：error / skip / map
+interfaceMismatch = "error"
+
+# 绿表模式：与 whiteTable 二选一
+greenTables = [
+    "GreenTable/Bcm/*.xlsx",
+]
+
+# 复用已有 ARXML 清单，不调用 EB 导入器
+arxmlFileList = "../../data/common/arxml.lst"
+
+[general]
+Composition = "/ARDesign/SystemDesign/TopLevelComposition"
+System = "/ARDesign/SystemDesign/ZCUPrototypeSystem"
+EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
+RootSwCompositionPrototype = "/ARDesign/SystemDesign/ZCUPrototypeSystem/ZCUPrototypeComposition"

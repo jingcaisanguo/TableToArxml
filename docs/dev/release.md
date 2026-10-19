@@ -10,7 +10,7 @@
 ```powershell
 python -m pip install build
 python -m build --wheel --outdir dist .
-python -m pip install --force-reinstall --no-deps ./dist/table_to_arxml-0.3.1-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps ./dist/table_to_arxml-0.4.0-py3-none-any.whl
 python tools/verify_wheel.py
 python tools/package_user_docs.py
 ```
@@ -25,7 +25,7 @@ python tools/package_user_docs.py
 
 ## 发布
 
-发布由 [release.yml](../../.github/workflows/release.yml) 完成，**标签名就是版本号**，格式为 `x.y.z`（三段纯数字），例如 `0.3.1`：
+发布由 [release.yml](../../.github/workflows/release.yml) 完成，**标签名就是版本号**，格式为 `x.y.z`（三段纯数字），例如 `0.4.0`：
 
 1. 修改 `src/table_to_arxml/__init__.py` 的 `__version__`，经 PR 合入 `main`。
 2. 在 `main` 的对应提交上打标签并推送。不要提前创建同名 Release，由工作流创建和发布：
@@ -33,13 +33,13 @@ python tools/package_user_docs.py
    ```powershell
    git checkout main
    git pull --ff-only
-   git tag 0.3.1
-   git push origin 0.3.1
+   git tag 0.4.0
+   git push origin 0.4.0
    ```
 
 3. 工作流依次执行，任一步失败都不发布：
    - 检查标签是否为 `x.y.z`，且提交位于 `main` 历史中；
-   - 调用测试工作流，在 Windows/Ubuntu、Python 3.9/3.13、armodel 1.8.7/1.9.2 的矩阵上运行 lint 和全部测试；
+   - 调用测试工作流，在 Windows/Ubuntu、Python 3.9/3.13、armodel 1.8.7/1.9.2/1.9.8 的矩阵上运行 lint 和全部测试；
    - 构建 wheel，要求文件名为 `table_to_arxml-<标签>-py3-none-any.whl`，即标签与 `__version__` 完全一致（`0.02.0` 这类写法会因规范化后不一致而失败）；
    - 安装并执行 `pip check`，在仓库外运行命令入口、依赖检查、配置错误退出码及 BCM/MC/SWC 三组真实转换基线；
    - 打包同版本用户说明与模板，先创建 Release 草稿并上传两个附件，再公开发布，自动生成发布说明。

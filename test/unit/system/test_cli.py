@@ -9,6 +9,19 @@ import pytest
 from helpers import SYSTEM, run_python, run_tool
 from system_fixtures import write_config, write_model, write_white_table
 
+# 与 write_config 默认值等价的 TOML 配置。
+TOML_CONFIG = """\
+# 注释
+defaultVariant = "T"
+projectRoot = "."
+outputPrefix = "T"
+whiteTable = "white.xlsx"   # 白表模式
+arxmlFileList = "model.lst"
+outputDir = "out"
+logDir = "log"
+generateSystem = false
+"""
+
 
 def test_help_does_not_import_armodel():
     code = (
@@ -44,10 +57,44 @@ def test_configuration_errors_exit_with_code_2(tmp_path, config, message):
     assert not (tmp_path / "log").exists()
 
 
-def test_default_config_is_read_from_working_directory(tmp_path):
+def test_config_is_required(tmp_path):
+    write_config(tmp_path)
     result = run_tool(SYSTEM, cwd=tmp_path)
     assert result.returncode == 2
-    assert str(tmp_path / "config.json") in result.stderr
+    assert "the following arguments are required: --config" in result.stderr
+    assert not (tmp_path / "log").exists()
+
+
+def test_toml_config_is_used(tmp_path):
+    write_model(tmp_path)
+    write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
+    config = tmp_path / "system.toml"
+    config.write_text(TOML_CONFIG, encoding="utf-8")
+    result = run_tool(SYSTEM, "--config", config)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "out" / "TSystem.arxml").is_file()
+
+
+@pytest.mark.parametrize("content, message", [
+    ('outputPrefix = "T"\noutputPrefix = "U"\n', "Cannot read config file"),
+    ('unknownKey = 1\n', "Unknown config option"),
+    (TOML_CONFIG.replace("generateSystem = false", "generateSystem = 'no'"), "config.generateSystem must be"),
+])
+def test_toml_configuration_errors_exit_with_code_2(tmp_path, content, message):
+    path = tmp_path / "system.toml"
+    path.write_text(content, encoding="utf-8")
+    result = run_tool(SYSTEM, "--config", path)
+    assert result.returncode == 2, result.stderr
+    assert message in result.stderr
+    assert not (tmp_path / "log").exists()
+
+
+def test_legacy_json_config_with_other_extension_still_works(tmp_path):
+    write_model(tmp_path)
+    write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
+    path = write_config(tmp_path).rename(tmp_path / "config.cfg")
+    result = run_tool(SYSTEM, "--config", path)
+    assert result.returncode == 0, result.stderr
 
 
 def test_strict_list_option_fails_on_missing_entries(tmp_path):
