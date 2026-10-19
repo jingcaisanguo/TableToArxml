@@ -64,7 +64,7 @@ table-to-system-arxml --config test/samples/system/McTableToSystemArxmlConfig.to
 产物写到 `test/samples/system/output/McTest`，日志写到 `test/samples/system/log/McTest`。
 预期退出码为 0，只生成 `McSystem.arxml`，不生成白表或合并绿表。
 输出包含两个组件、两条连接、两个实现映射及同一 ECU 下的两个组件引用。
-白表模式的 Composition/System/根组合/ECU 引用来自白表 General 页，不由配置中的 `general` 覆盖。
+白表模式的 Composition/System/根组合/ECU 引用来自白表 General 页，配置无需填写 `[general]`；MC 样例已省略该配置。
 
 ## 联合运行
 

@@ -67,7 +67,7 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 
 最终连接名由工具取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`；超过 128 字符时截断并以 8 位哈希结尾。同名但端点不同的连接会报错退出。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
 
-装配连接强制要求 `P-port -> R-port`；端口引用的 interface 必须存在，默认两端必须是同一完整接口引用。`interfaceMismatch` 仅在 config 中设置，可选 `error`（缺省报错）、`skip`（WARNING 后跳过该连接）、`map`（生成明确的接口映射再连接），不提供命令行参数。映射支持 SenderReceiverInterface 的完整一一数据元素配对，并沿类型引用解析最终位宽、编码/符号性与形状；uint8/uint16、uint8/sint8 均拒绝，相同接口也检查组件各自的应用类型实现。详情见 [configuration.md](configuration.md)。委托连接按内端口生成同方向外端口，不套用装配连接的 P/R 两端规则。
+装配连接强制要求 `P-port -> R-port`；端口引用的 interface 必须存在。接口引用相同时，不检查 SenderReceiver 数据元素及其类型；接口不同时，先复用已有的唯一有效映射，没有可复用映射才按 config 中的 `interfaceMismatch` 处理：`error`（缺省报错）、`skip`（WARNING 后跳过该连接）、`map`（允许新建接口映射再连接），不提供命令行参数。接口映射只校验两侧数据元素存在、配对完整且一一对应，不检查类型、位宽或结构兼容性。详情见 [configuration.md](configuration.md)。委托连接按内端口生成同方向外端口，不套用装配连接的 P/R 两端规则。
 
 ## CAN/LIN 信号映射
 

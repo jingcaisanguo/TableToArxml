@@ -12,14 +12,8 @@ outputPrefix = "Mc"
 # 连接两端接口不一致时的处理方式：error / skip / map
 interfaceMismatch = "error"
 
-# 白表模式：与 greenTables 二选一
+# 白表模式：与 greenTables 二选一；General 信息直接读取白表，无需配置 [general]
 whiteTable = "WhiteTable/McWhiteTable.xlsx"
 
 # 复用已有 ARXML 清单，不调用 EB 导入器
 arxmlFileList = "../../data/common/arxml.lst"
-
-[general]
-Composition = "/ARDesign/SystemDesign/TopLevelComposition"
-System = "/ARDesign/SystemDesign/ZCUPrototypeSystem"
-EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
-RootSwCompositionPrototype = "/ARDesign/SystemDesign/ZCUPrototypeSystem/ZCUPrototypeComposition"

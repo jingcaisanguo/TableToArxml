@@ -1,4 +1,4 @@
-"""模型查询：组合实例链、包含目标组合的 System、总线类型、组件名映射和数据类型签名。"""
+"""模型查询：组合实例链、包含目标组合的 System、总线类型和组件名映射。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import pytest
 from system_fixtures import write_model
 from table_to_arxml.system.arxml_model import MAX_COMPOSITION_DEPTH, ArxmlModel, bus_module
 from table_to_arxml.system.component_map import build_component_type_map
-from table_to_arxml.system.type_signature import TypeSignatures
 
 
 @pytest.fixture(scope="module")
@@ -69,27 +68,3 @@ def test_component_aliases(model):
         build_component_type_map(model, "/Pkg/Top", {"Beta": "/Missing/Type"}, "its")
     with pytest.raises(ValueError, match="path separators"):
         build_component_type_map(model, "/Pkg/Top", {"a/b": "/Other/A"}, "its")
-
-
-def test_type_signatures(model):
-    document = model.document
-    signatures = TypeSignatures(lambda method, path: getattr(document, method)(path))
-    narrow = document.find("/Pkg/IfA/a").getTypeTRef()
-    wide = document.find("/Pkg/IfC/c").getTypeTRef()
-    assert signatures.signature(narrow, "/Pkg/A") == ("scalar", 8, "NONE", "")
-    assert signatures.signature(wide, "/Pkg/A") == ("scalar", 16, "NONE", "")
-    assert signatures.signature(narrow, "/Pkg/A") == signatures.signature(
-        document.find("/Pkg/IfB/b").getTypeTRef(), "/Pkg/B")
-
-
-def test_type_signature_rejects_missing_type(model):
-    document = model.document
-    signatures = TypeSignatures(lambda method, path: getattr(document, method)(path))
-    reference = document.find("/Pkg/IfA/a").getTypeTRef()
-    original = reference.getValue()
-    reference.setValue("/Pkg/missing")
-    try:
-        with pytest.raises(ValueError, match="Data type is not defined"):
-            signatures.signature(reference, "/Pkg/A")
-    finally:
-        reference.setValue(original)

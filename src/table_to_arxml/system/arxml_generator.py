@@ -31,7 +31,6 @@ from ..common.names import MAX_SHORT_NAME as MAX_SHORT_NAME
 from ..common.names import autosar_path, generated_name, short_name
 from .arxml_model import ArxmlModel
 from .values import ref_value
-from .type_signature import TypeSignatures
 from .white_table import (
     ASSEMBLY_SHEET, COMPONENTS_SHEET, DELEGATION_SHEET, SIGNAL_GROUP_SHEET, SIGNAL_SHEET,
     CompositionInput, TableRow,
@@ -60,10 +59,6 @@ def connector_name(prefix: str, *parts: str) -> str:
 
 def _reference(destination: str, path: str) -> RefType:
     return RefType().setDest(destination).setValue(path)
-
-
-class _UnresolvedDataTypeError(ValueError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -134,7 +129,6 @@ class _Resolver:
         self.interface_mismatch = interface_mismatch
         self.interface_mapping_specs = interface_mappings
         self.interface_mappings: dict[str, _InterfaceMapping] = {}
-        self.type_signatures = TypeSignatures(self.lookup)
         self.model = ArxmlModel(document, [], [])
         self.composition_path = autosar_path(data.general["Composition"], "General.Composition", 2)
         system_name = data.general["System"]
@@ -255,50 +249,80 @@ class _Resolver:
                 f"port '{endpoint.port_path}' has a missing or invalid interface: '{endpoint.interface_path}'")
         return endpoint
 
-    def validate_element_types(self, first_element, second_element, provider: _Endpoint, requester: _Endpoint) -> None:
-        first_type, second_type = first_element.getTypeTRef(), second_element.getTypeTRef()
-        try:
-            for element in (first_element, second_element):
-                props = element.getSwDataDefProps()
-                if props is not None and (
-                        props.getSwBitRepresentation() is not None or props.getSwPointerTargetProps() is not None
-                        or ref_value(props.getBaseTypeRef()) or ref_value(props.getImplementationDataTypeRef())):
-                    raise ValueError(f"Element-level type overrides are not supported: {element.getFullName()}")
-            first_signature = self.type_signatures.signature(first_type, provider.component.type_path)
-            second_signature = self.type_signatures.signature(second_type, requester.component.type_path)
-        except ValueError as exc:
-            raise _UnresolvedDataTypeError(
-                f"Cannot resolve interface data types: {first_element.getFullName()} -> "
-                f"{second_element.getFullName()}: {exc}") from exc
-        if first_signature != second_signature:
-            raise ValueError(
-                f"Interface final data type mismatch (bit width, encoding/signedness or shape): "
-                f"{first_element.getFullName()} ({ref_value(first_type)}: {first_signature}) -> "
-                f"{second_element.getFullName()} ({ref_value(second_type)}: {second_signature})")
-
-    def interface_mapping(self, provider: _Endpoint, requester: _Endpoint) -> str:
+    def interface_mapping(self, provider: _Endpoint, requester: _Endpoint, allow_create: bool) -> str:
         first = self.lookup("find", provider.interface_path)
         second = self.lookup("find", requester.interface_path)
         if (not isinstance(first, SenderReceiverInterface) or not isinstance(second, SenderReceiverInterface)
                 or provider.interface_destination != "SENDER-RECEIVER-INTERFACE"
                 or requester.interface_destination != "SENDER-RECEIVER-INTERFACE"):
+            if not allow_create:
+                return ""
             raise ValueError("interfaceMismatch=map currently supports only SenderReceiverInterface pairs")
         first_elements = {element.getShortName(): element for element in first.getDataElements()}
         second_elements = {element.getShortName(): element for element in second.getDataElements()}
         pairs = self.interface_mapping_specs.get((provider.interface_path, requester.interface_path))
-        if pairs is None:
-            if not first_elements or set(first_elements) != set(second_elements):
+        if pairs is not None:
+            if (not set(pairs).issubset(first_elements)
+                    or not set(pairs.values()).issubset(second_elements)
+                    or len(set(pairs.values())) != len(pairs)):
                 raise ValueError(
-                    f"Cannot infer interface mapping {provider.interface_path} -> {requester.interface_path}; "
-                    "configure interfaceMappings.dataElements explicitly")
-            pairs = {name: name for name in first_elements}
+                    "interfaceMappings.dataElements must cover both interfaces exactly once; "
+                    "explicit pairs must reference existing elements with unique targets")
+            pairs = dict(pairs)
+        existing: list[str] = []
+        for mapping in self.model.interface_mappings():
+            references = []
+            for item in mapping.getDataMappings():
+                first_ref, second_ref = item.getFirstDataPrototypeRef(), item.getSecondDataPrototypeRef()
+                if (first_ref is None or second_ref is None
+                        or first_ref.getDest() != "VARIABLE-DATA-PROTOTYPE"
+                        or second_ref.getDest() != "VARIABLE-DATA-PROTOTYPE"):
+                    references = []
+                    break
+                references.append((ref_value(first_ref), ref_value(second_ref)))
+            if not references:
+                continue
+            if all(a.rpartition("/")[0] == requester.interface_path
+                   and b.rpartition("/")[0] == provider.interface_path for a, b in references):
+                references = [(b, a) for a, b in references]
+            if not all(a.rpartition("/")[0] == provider.interface_path
+                       and b.rpartition("/")[0] == requester.interface_path for a, b in references):
+                continue
+            mapped_pairs = {a.rpartition("/")[2]: b.rpartition("/")[2] for a, b in references}
+            if (len(mapped_pairs) != len(references) or set(mapped_pairs) != set(first_elements)
+                    or set(mapped_pairs.values()) != set(second_elements)
+                    or len(set(mapped_pairs.values())) != len(mapped_pairs)):
+                raise ValueError(f"Existing interface mapping must cover both interfaces exactly once: "
+                                 f"{mapping.getFullName()}")
+            if pairs is not None and any(mapped_pairs[name] != target for name, target in pairs.items()):
+                continue
+            existing.append(mapping.getFullName())
+        if len(existing) > 1:
+            raise ValueError(f"Ambiguous existing interface mappings: {', '.join(sorted(existing))}")
+        if existing:
+            LOGGER.info("Reuse interface mapping: %s", existing[0])
+            return existing[0]
+        if not allow_create:
+            return ""
+        if pairs is None and len(first_elements) == len(second_elements) == 1:
+            pairs = {next(iter(first_elements)): next(iter(second_elements))}
+        else:
+            pairs = {} if pairs is None else pairs
+            remaining_first = set(first_elements) - set(pairs)
+            remaining_second = set(second_elements) - set(pairs.values())
+            pairs.update({name: name for name in remaining_first & remaining_second})
+        if not first_elements or not second_elements:
+            raise ValueError(
+                f"Cannot infer interface mapping {provider.interface_path} -> {requester.interface_path}; "
+                "interfaces must contain data elements")
         if (set(pairs) != set(first_elements) or set(pairs.values()) != set(second_elements)
                 or len(set(pairs.values())) != len(pairs)):
-            raise ValueError("interfaceMappings.dataElements must cover both interfaces exactly once")
+            raise ValueError(
+                f"Cannot infer interface mapping {provider.interface_path} -> {requester.interface_path}; "
+                "interfaceMappings.dataElements must cover both interfaces exactly once after same-name pairing")
         references: list[tuple[str, str]] = []
         for first_name, second_name in sorted(pairs.items()):
             first_element, second_element = first_elements[first_name], second_elements[second_name]
-            self.validate_element_types(first_element, second_element, provider, requester)
             references.append((first_element.getFullName(), second_element.getFullName()))
         identity = repr(references).encode("utf-8")
         name = "im_" + sha256(identity).hexdigest()[:20]
@@ -321,17 +345,13 @@ class _Resolver:
                 requester.interface_path, requester.interface_destination):
             message = (f"interface mismatch: {provider.port_path} ({provider.interface_path}) -> "
                        f"{requester.port_path} ({requester.interface_path})")
-            if self.interface_mismatch == "skip":
+            mapping_path = self.interface_mapping(
+                provider, requester, allow_create=self.interface_mismatch == "map")
+            if not mapping_path and self.interface_mismatch == "skip":
                 LOGGER.warning("Skip %s: %s", row.location, message)
                 return
-            if self.interface_mismatch == "error":
+            if not mapping_path and self.interface_mismatch == "error":
                 raise ValueError(message)
-            mapping_path = self.interface_mapping(provider, requester)
-        else:
-            interface = self.lookup("find", provider.interface_path)
-            if isinstance(interface, SenderReceiverInterface):
-                for element in interface.getDataElements():
-                    self.validate_element_types(element, element, provider, requester)
         name = connector_name(
             ASSEMBLY_PREFIX, provider.component.name, values["PPort"], requester.component.name, values["RPort"])
         connector = _Assembly(name, provider, requester, mapping_path)
