@@ -69,6 +69,8 @@ table-to-system-arxml --config ./config/system.toml --log-level DEBUG
 命令不在 `PATH` 时，可用同一虚拟环境的 `python -m table_to_arxml.system`，参数相同。
 配置文件中的相对路径始终基于配置文件所在目录；命令行传入的相对路径基于启动时的工作目录。
 
+白表模式无需在配置中填写 `[general]`，Composition、System、根组合和 ECU 引用直接读取白表 General 页。
+
 config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可以省略，保留时也不会检查；清单不存在直接失败，不回退 EB。只有删除 `arxmlFileList` 且未传 `--arxml-file-list` 时才使用 `tresosPreferenceFiles`。写成空字符串不是切换到 XDM 的方式。
 
 可在命令行覆盖的配置项采用统一命名（如 `outputDir` 对应 `--output-dir`）；并非所有配置项都有 CLI 参数，接口映射等只能写在配置文件中。参数名须完整书写，不接受缩写。
@@ -116,4 +118,4 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 转换错误由工具自身阻断，不需要另写脚本扫描 ERROR。退出码 0 表示转换和发布成功，但不替代工程集成及完整 AUTOSAR XSD/语义验证。具体边界见 [arxml-and-errors.md](arxml-and-errors.md)。
 
-普通连接默认要求两端接口一致；CAN/LIN 映射检查目标 ECU、选定通道的实际信号方向以及应用端 R/P 方向，组成员不允许直接映射。显式 `interfaceMismatch=skip` 只将接口不一致的连接作为 WARNING 跳过，不绕过其他错误；`map` 目前只支持数据元素一一对应且最终数据类型一致的 SenderReceiverInterface。最终位宽、编码/符号性和数组/结构形状必须匹配，uint8 不能连接到 uint16 或 sint8。
+普通连接两端接口不同时，先复用已有的唯一有效映射，不受 `interfaceMismatch` 策略影响；没有可复用映射时，默认报错，`skip` 警告并跳过连接，`map` 允许新建映射。接口映射目前只支持 SenderReceiverInterface，并校验数据元素存在且配对完整、一一对应，不检查类型或结构兼容性。CAN/LIN 映射检查目标 ECU、选定通道的实际信号方向以及应用端 R/P 方向，组成员不允许直接映射。生成成功不代表两端数据语义或 RTE 运行时兼容。

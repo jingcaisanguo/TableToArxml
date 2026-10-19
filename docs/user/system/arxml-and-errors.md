@@ -102,10 +102,8 @@ excludeArxmlPatterns = [
 | `System ... was not found` 或缺少 `RootSwCompositionPrototype` | 自动推导根原型失败；检查所选 System 的短名和定义，必要时显式填写根原型路径 |
 | `unresolved component` / `Ambiguous component` | 外部组件未知或短名不唯一；补齐输入或配置 `componentAliases` |
 | `channel ... is not defined` | I 列不是相应 CAN/LIN 物理通道名，整次失败 |
-| `interface mismatch` | 装配连接两端接口不同；默认失败，可显式选择 `interfaceMismatch=skip` 或配置可验证的 `map` |
+| `interface mismatch` | 装配连接两端接口不同且没有可复用映射；默认失败，可显式选择 `interfaceMismatch=skip` 或允许新建映射的 `map` |
 | `Cannot infer interface mapping` | 无法确定完整的一一元素映射；在 config 中显式配置 `interfaceMappings` |
-| `final data type mismatch` | 最终位宽、编码/符号性或数组/结构形状不一致；提示两端元素、引用类型及解析结果，不做强制转换 |
-| `Cannot resolve interface data types` | 缺少类型定义、基础位宽/编码、组件级应用类型映射，或遇到歧义、循环、未支持的类型；补齐或修正定义后重试 |
 | `Signal direction mismatch` / `No valid signal direction` | 选定通道和目标 ECU 的 I-SIGNAL-PORT 方向不符或缺失；不参考其他 ECU 的方向 |
 | `must be R-PORT-PROTOTYPE` / `must be P-PORT-PROTOTYPE` | 普通装配要求 P 到 R；总线 INPUT 使用 R，OUTPUT 使用 P |
 | `group members cannot be mapped directly` / `cannot be mapped as an individual signal` | 信号属于组或本身是组对象，不能作为普通信号直接映射 |

@@ -47,7 +47,6 @@ MINIMAL = """<?xml version="1.0" encoding="UTF-8"?>
 def test_tool_modules_import_with_this_armodel_version():
     import table_to_arxml.swc.arxml_model  # noqa: F401
     import table_to_arxml.system.arxml_generator  # noqa: F401
-    import table_to_arxml.system.type_signature  # noqa: F401
 
 
 def test_document_is_a_global_singleton_cleared_by_reset(tmp_path):

@@ -84,7 +84,6 @@ table-to-swc-arxml --help
 | [general.py](../../src/table_to_arxml/system/general.py) | 推导白表 General 页 |
 | [green_to_white.py](../../src/table_to_arxml/system/green_to_white.py) | 绿表转白表 |
 | [white_table.py](../../src/table_to_arxml/system/white_table.py) | 白表布局、创建、格式化和读取 |
-| [type_signature.py](../../src/table_to_arxml/system/type_signature.py) | 数据类型最终签名，用于接口两端类型比较 |
 | [arxml_generator.py](../../src/table_to_arxml/system/arxml_generator.py) | 解析白表引用并用 armodel 生成输出；连接器命名见 `connector_name` |
 
 - 多个配置共用一次 `ArxmlModel.load`；生成的 ARXML 写到独立文档，加载的模型保留给后续配置复用。

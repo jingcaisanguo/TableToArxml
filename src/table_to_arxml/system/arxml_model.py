@@ -2,8 +2,8 @@
 
 :class:`ArxmlModel` 把一组 ARXML 合并成一个模型，提供组件、System、组合实例链、CAN/LIN 通道与信号查询，
 并向外暴露底层 AUTOSAR 文档供白表解析和 composition 生成复用。armodel 是工具的直接依赖：
-类型签名（:mod:`.type_signature`）和 composition 生成（:mod:`.arxml_generator`）同样直接使用其模型类，
-与具体版本相关的绕行代码集中在 :mod:`table_to_arxml.common.armodel_compat`。
+composition 生成（:mod:`.arxml_generator`）同样直接使用其模型类，与具体版本相关的绕行代码集中在
+:mod:`table_to_arxml.common.armodel_compat`。
 """
 
 from __future__ import annotations
@@ -18,6 +18,9 @@ from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.
     ARPackage,
 )
 from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Components import SwComponentType
+from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.PortInterface import (
+    PortInterfaceMappingSet, VariableAndParameterInterfaceMapping,
+)
 from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreCommunication import (
     ISignal, ISignalGroup, SystemSignal, SystemSignalGroup,
 )
@@ -115,6 +118,14 @@ class ArxmlModel:
         return [item for item in self._all_elements() if isinstance(item, element_type)]
 
     # -- 组件 ---------------------------------------------------------------
+
+    def interface_mappings(self) -> list[VariableAndParameterInterfaceMapping]:
+        return [
+            mapping
+            for mapping_set in self._elements_of(PortInterfaceMappingSet)
+            for mapping in mapping_set.getPortInterfaceMappings()
+            if isinstance(mapping, VariableAndParameterInterfaceMapping)
+        ]
 
     def component_prototypes(self, composition_path: str | None = None) -> dict[str, str]:
         """返回指定 composition 中的 prototype 完整路径及类型路径。"""

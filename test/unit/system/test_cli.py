@@ -65,14 +65,21 @@ def test_config_is_required(tmp_path):
     assert not (tmp_path / "log").exists()
 
 
-def test_toml_config_is_used(tmp_path):
+@pytest.mark.parametrize("general", [
+    "",
+    '\n[general]\nComposition = "/Other/Unused"\nSystem = "/Other/UnusedSystem"\n',
+])
+def test_toml_white_mode_uses_workbook_general(tmp_path, general):
     write_model(tmp_path)
     write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
     config = tmp_path / "system.toml"
-    config.write_text(TOML_CONFIG, encoding="utf-8")
+    config.write_text(TOML_CONFIG + general, encoding="utf-8")
     result = run_tool(SYSTEM, "--config", config)
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "out" / "TSystem.arxml").is_file()
+    output = (tmp_path / "out" / "TSystem.arxml").read_text(encoding="utf-8")
+    assert "<SHORT-NAME>Top</SHORT-NAME>" in output
+    assert "Unused" not in output
 
 
 @pytest.mark.parametrize("content, message", [

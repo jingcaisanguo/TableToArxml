@@ -57,7 +57,7 @@ EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
 | `strictList` | 布尔 | 可选，默认 `false`；为 `true` 时清单中有缺失、非 `.arxml` 或无匹配的条目直接失败，而不是警告后跳过；`--strict-list` 优先 |
 | `excludeArxmlPatterns`  | 字符串或字符串数组 | 可选，追加 ARXML 排除正则；不替换内置排除规则                                                                                                                                                                                                                                                                       |
 | `excludeArxml` | 字符串数组 | 可选，默认 `[]`；排除文件名或相对 `projectRoot` 的路径；`--exclude-arxml` 可重复，提供时覆盖配置列表 |
-| `general`               | 对象               | 必填，成员说明见下表                                                                                                                                                                                                                                                                                                |
+| `general`               | 对象               | 绿表模式需提供 `Composition`，其余成员见下表；白表模式无需填写，模型引用直接读取白表 General 页 |
 | `componentAliases`      | 对象               | 可选，绿表文件名/组件别名到组件类型完整路径或目标 Composition 内 prototype 完整路径的映射                                                                                                                                                                                                                           |
 | `prototypePrefix`       | 字符串             | 可选，默认`its`；用于没有已有目标实例的组件，允许空字符串                                                                                                                                                                                                                                                         |
 | `e2eWrapperComponent`   | 字符串             | 可选，默认`E2EWrapper`；该名称按普通组件处理，空字符串禁用特殊分支                                                                                                                                                                                                                                                |
@@ -108,6 +108,10 @@ arxmlFileList = "../cfg/${variant}.lst"
 
 ## General 与 AUTOSAR
 
+**白表模式无需配置 `[general]`。** `Composition`、`System`、`RootSwCompositionPrototype`、`EcuInstance` 直接读取白表 General 页，配置中的同名值不会覆盖白表。四项必须在白表中齐全；缺失时报错，不回退到配置。
+
+以下引用配置与自动推导规则用于**绿表生成白表**。`systemMapping` 是独立的映射命名选项，两种模式均可省略；如需自定义，仍可通过 `general.systemMapping` 设置。
+
 | 参数                           | 规则     | 语义                                                                                                    |
 | ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------- |
 | `Composition`                | 必填     | 目标`COMPOSITION-SW-COMPONENT-TYPE` 完整路径；包含包路径和类型短名                                    |
@@ -116,7 +120,7 @@ arxmlFileList = "../cfg/${variant}.lst"
 | `RootSwCompositionPrototype` | 条件可选 | 显式填写完整引用路径；未填时从输入模型中配置的 System 读取其根组合原型                                  |
 | `systemMapping`              | 可选     | 映射命名值；未填或空值时取`<outputPrefix>SystemImpl`，例如 `BcmSystemImpl`                          |
 
-只有能唯一确定时才自动推导，存在歧义时必须显式配置；目标 Composition 属于工程设计选择，始终必填。
+绿表模式只有能唯一确定时才自动推导，存在歧义时必须显式配置；目标 Composition 属于工程设计选择，必须配置。
 
 单个 System 的 `ROOT-SOFTWARE-COMPOSITION` 为可选单值关系，可以在明确选定 System 后读取。工具按 `System` 短名或完整路径查找；不存在、没有根原型或存在多个同名 System 时失败。遇到同名歧义须配置完整路径或显式配置 `RootSwCompositionPrototype`。
 
@@ -155,15 +159,19 @@ Conti_SWC_FDLib = { type = "/ContiPackage/Conti_SWC_FDLib", prototype = "Conti_S
 
 普通装配连接必须为 P-port 到 R-port。所有使用的端口必须引用已加载的 PortInterface，缺失接口、未知端口或错误端口方向始终报错，不能通过以下参数绕过。
 
-| config 中的`interfaceMismatch` | 两端 interface 完整引用不一致时                                                     |
+两端接口不同时，先查找并复用唯一有效的已有映射，所有策略均可正常连线。已有映射不完整或存在歧义时仍报错；没有可复用映射时才应用以下策略：
+
+| config 中的`interfaceMismatch` | 没有可复用的已有接口映射时                                                     |
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `error`                        | 默认；报错，整次失败，不发布任何本次产物                                            |
 | `skip`                         | 记录 WARNING，包含白表位置及两端端口/接口路径，不生成这条装配连接，其他有效记录继续 |
-| `map`                          | 创建接口映射并在装配连接上写入`MAPPING-REF`；无法确定有效映射时仍报错             |
+| `map`                          | 允许创建映射并在装配连接上写入 `MAPPING-REF`；无法确定有效映射时仍报错 |
 
 `skip` 是用户显式选择的过滤行为，不是忽略 ERROR；它只处理接口不一致，不能跳过信号方向、信号组或其他错误。白表保留原始连接请求，因此 skip 模式下白表连接数可大于最终 ARXML 连接数。
 
-当前 `map` 支持两端均为 SenderReceiverInterface 的情况：默认按数据元素短名配对，要求两侧非空、元素名集合一致，并解析到最终数据类型后检查一致性。它不按元素顺序或“只有一个元素”猜测对应关系，不进行数值/类型转换。元素名不同须显式指定：
+当前 `map` 支持两端均为 SenderReceiverInterface 的情况，绿表、白表模式行为一致。先校验显式配对的元素存在且目标不重复，再查找输入 ARXML 中覆盖两侧全部数据元素且一一对应的 `VARIABLE-AND-PARAMETER-INTERFACE-MAPPING`，支持正向或反向记录；直接引用原路径，不重复输出映射。若配置了部分 `interfaceMappings`，已有映射必须包含这些指定配对；存在多个匹配映射或不完整配对时报错。
+
+没有可复用映射且策略为 `map` 时，保留显式配对，排除已占用的源和目标元素，再将剩余同名元素自动配对。原本两端接口各只有一个数据元素且未显式配置时，允许不同名自动配对；多元素接口即使最后各剩一个不同名元素，也必须显式指定，不猜测对应关系。不会解析或比较数据元素类型。例如只需配置不同名的一对，其余同名元素自动补齐：
 
 ```toml
 interfaceMismatch = "map"
@@ -177,18 +185,9 @@ requesterInterface = "/Interfaces/RequesterStatus"
 OutputValue = "InputValue"
 ```
 
-`dataElements` 的键是 provider 元素短名，值是 requester 元素短名；必须完整覆盖两侧元素且一一对应。最终类型不一致、缺失定义、不完整配对或非 SenderReceiverInterface 的自动映射均报错，不降级为直接连接。ClientServer、ModeSwitch 等接口仍可在两端引用相同时正常连接，但当前不自动生成它们的跨接口映射。
+`dataElements` 的键是 provider 元素短名，值是 requester 元素短名，可只写部分配对。手写配对优先，不会被同名配对覆盖；最终合并结果必须完整覆盖两侧元素且一一对应。元素缺失、目标重复、补齐后仍不完整或非 SenderReceiverInterface 的自动映射均报错，不降级为直接连接。ClientServer、ModeSwitch 等接口仍可在两端引用相同时正常连接，但当前不自动生成它们的跨接口映射。
 
-### 最终数据类型检查
-
-- 不通过类型短名猜测类型，也不只比较引用路径。沿 `TYPE_REFERENCE`、`IMPLEMENTATION-DATA-TYPE-REF`、`BASE-TYPE-REF` 解析到基础类型，要求 `BASE-TYPE-SIZE` 和 `BASE-TYPE-ENCODING` 一致；声明的 byte order 也参与比较。
-- 例如 uint8/uint16 位宽不同、uint8/sint8 符号编码不同，均拒绝。相同位宽的整数和浮点也不能配对。不同类型路径但最终均为相同表示的 uint8，可以配对。
-- 当前支持的标量编码为 `NONE`（无符号）、`2C`、`1C`、`SM`、`IEEE754`、`BOOLEAN`，编码须精确一致，不做符号或数值转换。缺失位宽、缺失/未知编码、错误 DEST、缺失或循环类型引用均报错，不因两端恰好引用同一路径而放行。
-- ApplicationDataType 优先按各端组件 InternalBehavior 引用的 DataTypeMappingSet 解析；多个不同实现目标为歧义错误。没有组件级映射的 ApplicationPrimitiveDataType 仅在有明确 implementation/base type 属性时继续解析，应用数组/记录必须有组件级实现映射。
-- 固定大小数组递归比较长度和元素最终类型；结构递归比较字段名称、顺序及最终类型。动态数组、可选成员、指针、位域和元素级类型覆盖目前无法可靠自动匹配，明确报错。
-- **相同 SenderReceiverInterface 的装配连接也执行最终类型检查**：同一应用类型在两个组件中分别实现为 uint8 和 uint16 时仍会失败。`skip` 只是不生成接口不同的连接，不会放行已连接的数据类型错误。
-
-此处保证已支持类型的最终表示和形状一致，不代替数据约束、CompuMethod、单位/缩放、服务语义或完整 RTE 兼容性验证。
+接口映射只校验端口和接口引用有效、两侧数据元素存在、映射完整且一一对应；不检查数据类型、位宽、编码、数组/结构形状或数据转换。生成成功仅表示连接与 mapping 引用可以写出，不代表两端数据语义或 RTE 运行时兼容，相关兼容性应由后续 AUTOSAR/RTE 集成验证确认。
 
 映射写在目标 Composition 同包的 `<Composition短名>_InterfaceMappings` 下，为 `PORT-INTERFACE-MAPPING-SET` / `VARIABLE-AND-PARAMETER-INTERFACE-MAPPING`。同一元素配对集合复用一个稳定命名的映射，实际元素类型/接口仍由输入模型提供。相同完整路径的已有映射不会被静默覆盖。
 
