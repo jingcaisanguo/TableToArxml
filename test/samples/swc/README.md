@@ -1,7 +1,7 @@
 # table-to-swc-arxml 命令测试
 
-返回 [../README.md](../../README.md)。配置为 [TableToSwcArxml.json](TableToSwcArxml.json)，工作簿为 [SwcTestPorts.xlsx](SwcTestPorts.xlsx)，
-使用共享清单 [../common/arxml.lst](../../data/common/arxml.lst)。工作簿格式见 [workbook-format.md](../../../docs/user/swc/workbook-format.md)。
+返回 [../README.md](../../README.md)。配置为 [TableToSwcArxml.toml](TableToSwcArxml.toml)，工作簿为 [SwcTestPorts.xlsx](SwcTestPorts.xlsx)，
+使用共享清单 [arxml.lst](../../data/common/arxml.lst)。工作簿格式见 [workbook-format.md](../../../docs/user/swc/workbook-format.md)。
 
 ## 空白模板与格式维护
 
@@ -33,11 +33,11 @@ LIT 与 Horn 的端口方向互补，可用于后续测试 BCM 与 MC 组件连�
 
 ## 运行
 
-在仓库根目录安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../../docs/dev/release.md)）后执行。命令行相对路径按当前目录解析，配置中的 `projectRoot`（`../..`）指向仓库根目录：
+在仓库根目录安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../../docs/dev/release.md)）后执行。命令行相对路径按当前目录解析，配置中的 `projectRoot`（`../../..`）指向仓库根目录：
 
 ```powershell
 python -m pip install ./dist/table_to_arxml-0.3.0-py3-none-any.whl
-table-to-swc-arxml --config test/samples/swc/TableToSwcArxml.json
+table-to-swc-arxml --config test/samples/swc/TableToSwcArxml.toml
 ```
 
 - 预期退出码为 0，汇总包含 `Validated 4 of 4 requested ports: 4 to create, 0 already valid, 0 skipped` 和 `2 ARXML file(s) affected`。

@@ -1,0 +1,12 @@
+# table-to-swc-arxml 样例配置。
+# 相对路径均以本文件所在目录为基准；命令行参数优先于这里的配置。
+
+projectRoot = "../../.."
+arxmlFileList = "../../data/common/arxml.lst"
+workbook = "SwcTestPorts.xlsx"
+logDir = "log/SwcTest"
+# 输出方式三选一：outputDir、inPlace = true、dryRun = true（都不写时只验证）
+outputDir = "output/SwcTest"
+# false：清单中缺失或非 ARXML 的条目只记 WARNING 并跳过
+strictList = false
+logLevel = "INFO"

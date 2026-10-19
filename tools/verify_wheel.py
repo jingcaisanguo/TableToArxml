@@ -60,9 +60,9 @@ def verify(python: Path) -> None:
         run(scripts / f"table-to-swc-arxml{'.exe' if os.name == 'nt' else ''}", expected=2)
 
         for label, tool, config, baseline in (
-            ("bcm", "system", "BcmTableToSystemArxmlConfig.json", "BcmTest"),
-            ("mc", "system", "McTableToSystemArxmlConfig.json", "McTest"),
-            ("swc", "swc", "TableToSwcArxml.json", ""),
+            ("bcm", "system", "BcmTableToSystemArxmlConfig.toml", "BcmTest"),
+            ("mc", "system", "McTableToSystemArxmlConfig.toml", "McTest"),
+            ("swc", "swc", "TableToSwcArxml.toml", ""),
         ):
             sample = ROOT / "test" / "samples" / tool
             output = temporary / label

@@ -42,8 +42,8 @@ python -m pytest
 - ARXML 统一换行符后与 `expected/` 逐字节比对；Excel 按单元格值比对。有意改变输出时，用新产物替换对应基线并在提交说明中写明原因。
 - SWC 样例工作簿和空白模板由 [tools/generate_swc_workbooks.py](../tools/generate_swc_workbooks.py) 生成；
   [e2e/swc/test_workbooks.py](e2e/swc/test_workbooks.py) 检查两者的布局、样式和数据验证，并确认重新生成的结果与仓库文件一致。
-- 契约测试覆盖 CI 指定的 armodel 1.8.7、1.9.2，不是允许安装范围内的所有版本；“缺陷仍存在”类断言失败时须调查库行为变化。
-- CI（[tests.yml](../.github/workflows/tests.yml)）在 Ubuntu/Windows、Python 3.9/3.13、armodel 1.8.7/1.9.2 的组合上运行 ruff 和全部测试。
+- 契约测试覆盖 CI 指定的 armodel 1.8.7、1.9.2、1.9.8，确认 `armodel_compat.py` 在新旧版本下得到相同的输出；依赖不设上限，armodel 新版本发布后应先在本地运行全部测试。
+- CI（[tests.yml](../.github/workflows/tests.yml)）在 Ubuntu/Windows、Python 3.9/3.13、armodel 1.8.7/1.9.2/1.9.8 的组合上运行 ruff 和全部测试。
 - 新增回归覆盖输入/输出路径重合、大小写冲突、空表头、跨文件定义冲突、解析失败、严格类型、名称长度和写入失败清理。
 - 文档契约测试检查文件链接、交付目录的独立性和规范目录结构；wheel 的实际命令与三组转换基线另由
   [verify_wheel.py](../tools/verify_wheel.py) 在安装后的独立环境验证。

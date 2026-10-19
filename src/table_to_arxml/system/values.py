@@ -9,7 +9,7 @@ DEFAULT_AR_RELEASE = "R19-11"
 
 
 def norm(value: object) -> str:
-    """把 Excel、JSON 读到的值转成去掉首尾空白的字符串；``None`` 为空串。"""
+    """把 Excel、配置文件读到的值转成去掉首尾空白的字符串；``None`` 为空串。"""
 
     return "" if value is None else str(value).strip()
 

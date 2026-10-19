@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..common.config_file import read_config_file
 from ..common.errors import ConfigError
 from ..common.logs import LOG_LEVELS
 from ..common.messages import clean_message
@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 WHITE_TABLE_SUFFIX = "WhiteTable.xlsx"
 MERGED_GREEN_TABLE_SUFFIX = "GreenTables.xlsx"
 SYSTEM_ARXML_SUFFIX = "System.arxml"
-DEFAULT_CONFIG_NAME = "config.json"
 DEFAULT_BUILD_TYPE = "Debug"
 # CMB 约定的 tresos 生成目录，EB 导入器把它作为 TRESOS_OUTPUT_BASE_DIR。
 DEFAULT_TRESOS_OUTPUT_BASE_DIR = "build/${variant}.${buildType}"
@@ -56,13 +55,7 @@ class RunOptions:
 
 
 def _load_config(config_path: Path) -> dict:
-    try:
-        with config_path.open("r", encoding="utf-8-sig") as handle:
-            config = json.load(handle)
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ConfigError(f"Cannot read config file {config_path}: {clean_message(error)}") from error
-    if not isinstance(config, dict):
-        raise ConfigError(f"Config must be a JSON object: {config_path}")
+    config = read_config_file(config_path)
     unknown = sorted(set(config) - CONFIG_KEYS)
     if unknown:
         raise ConfigError(
@@ -423,8 +416,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         action="append",
-        help="Path to a tool configuration; repeat to process several configs with one ARXML load, "
-             f"in the given order. Default: {DEFAULT_CONFIG_NAME} in the current working directory",
+        required=True,
+        help="Path to a TOML tool configuration (required); repeat to process several configs with one "
+             "ARXML load, in the given order",
     )
     parser.add_argument(
         "--project-root",

@@ -7,7 +7,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [configuration.md](configuration.md) | JSON 参数、路径基准、优先级、General 与 AUTOSAR 引用 |
+| [configuration.md](configuration.md) | TOML 配置参数、路径基准、优先级、General 与 AUTOSAR 引用 |
 | [green-table-rules.md](green-table-rules.md) | 绿表命名、列定义、连接方向、CAN/LIN、去重、转换示例 |
 | [white-table-format.md](white-table-format.md) | 白表页签、列定义、取值规则及生成语义 |
 | [arxml-and-errors.md](arxml-and-errors.md) | EB 清单生成、lst 读取、排除规则、日志、退出码及排错 |
@@ -16,7 +16,7 @@
 
 ## 环境与输入
 
-- 安装方式见 [../README.md](../README.md)。安装 wheel 会自动安装 Python 依赖：`armodel>=1.8.7,<1.9.4`、`openpyxl>=3.1.2`、`packaging>=21.3`。实测 armodel 1.8.7 和 1.9.2 可用，1.9.4 及以后缺少 `ISignalPort` 导出，不能使用；升级 armodel 后应重新验证生成结果。
+- 安装方式见 [../README.md](../README.md)。安装 wheel 会自动安装 Python 依赖：`armodel>=1.8.7,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另装 `tomli>=1.1.0`。armodel 不设上限，已在 armodel 1.8.7、1.9.2、1.9.4、1.9.7、1.9.8 上通过全部测试；1.9.1 的包入口不完整，不能使用。升级 armodel 后应重新验证生成结果。
 - 使用 EB 模式时，`PrefSystemImporter` 必须能从当前进程的 `PATH` 找到；使用已有 lst 时不需要启动该命令。
 - 输入应包含绿表引用的组件类型、端口、接口、实现、信号，以及 General 引用的系统和拓扑定义。lst 只是路径清单，不能代替缺失的定义。
 - 工具不负责生成 BSW/SWC 的前置 ARXML；先用工程已有流程准备这些输入。
@@ -29,10 +29,11 @@
 | `openpyxl` | 读绿表、写白表及合并工作簿 | 必需 | 必需 |
 | `armodel` | 解析和写出 ARXML、访问 AUTOSAR 模型 | 必需 | 必需 |
 | `packaging` | 按版本规范检查 armodel 版本范围 | 必需 | 必需 |
+| `tomli` | Python 3.11 以下读取 TOML 配置（3.11 起使用标准库） | Python < 3.11 必需 | Python < 3.11 必需 |
 | `PrefSystemImporter` | 从 tresos preference XDM 生成 lst | 不检查、不调用 | 必须在 `PATH` 中 |
 | XDM 及 EB 运行环境 | EB 导入器的输入和运行条件 | 全部忽略 | 必需 |
 
-执行时先初始化日志，再实际导入依赖并检查 armodel 版本满足 `>=1.8.7,<1.9.4`，不是只检查包名是否安装。缺失、导入损坏或版本不在范围内会在控制台及日志中记录 `ERROR`，包含具体原因和当前解释器，并返回 `1`。该检查不自动安装软件。
+执行时先初始化日志，再实际导入依赖并检查 armodel 版本满足 `>=1.8.7,!=1.9.1`，不是只检查包名是否安装。缺失、导入损坏或版本不在范围内会在控制台及日志中记录 `ERROR`，包含具体原因和当前解释器，并返回 `1`。该检查不自动安装软件。
 
 `--help` 不加载第三方转换依赖，不要求 EB。EB 模式若找不到或无法启动 `PrefSystemImporter`，错误也会写入日志；其内部的许可证、运行时等问题以实际启动结果为准。配置可读取且日志目录可写，文件日志才能建立。
 
@@ -40,43 +41,43 @@
 
 ## 运行方式
 
-产物和日志目录均必须显式指定：在配置中提供 `outputDir`、`logDir`，或传入 `--output-dir`、`--log-dir`；缺少任一目录就打印用法并以退出码 `2` 结束，不创建默认目录。
+必须用 `--config` 指定至少一个配置文件，不读取任何默认配置；产物和日志目录也必须显式指定：在配置中提供 `outputDir`、`logDir`，或传入 `--output-dir`、`--log-dir`。缺少任一项就打印用法并以退出码 `2` 结束，不创建默认目录。
 
-退出码：`0` 成功并已发布；`1` 运行失败（输入表、ARXML、转换或写出错误），不发布本次产物；`2` 命令行或配置错误（含配置文件缺失、JSON 无法解析、未知键、必填项缺失），打印用法，不创建日志。
+退出码：`0` 成功并已发布；`1` 运行失败（输入表、ARXML、转换或写出错误），不发布本次产物；`2` 命令行或配置错误（含未指定 `--config`、配置文件缺失、语法错误、未知键、必填项缺失），打印用法，不创建日志。
 
 ```powershell
-# 默认读取当前目录的 config.json。
-table-to-system-arxml
+# 指定配置文件。
+table-to-system-arxml --config ./config/system.toml
 
 # 指定配置和变体。
-table-to-system-arxml --config ./config/system.json --variant variantA
+table-to-system-arxml --config ./config/system.toml --variant variantA
 
 # 多个配置一次执行，只加载一次 ARXML；按给定顺序生成。
-table-to-system-arxml --config ./config/a.json --config ./config/b.json --output-dir ./output/ab --log-dir ./log/ab
+table-to-system-arxml --config ./config/a.toml --config ./config/b.toml --output-dir ./output/ab --log-dir ./log/ab
 
 # 复用已有 lst，跳过 EB 清单生成。
-table-to-system-arxml --config ./config/system.json --arxml-file-list ./cfg/variantA.lst
+table-to-system-arxml --config ./config/system.toml --arxml-file-list ./cfg/variantA.lst
 
 # 直接由白表生成 ARXML。
-table-to-system-arxml --config ./config/system.json --white-table ./tables/BcmWhiteTable.xlsx
+table-to-system-arxml --config ./config/system.toml --white-table ./tables/BcmWhiteTable.xlsx
 
 # 查看参数或输出更详细的诊断。
 table-to-system-arxml --help
-table-to-system-arxml --config ./config/system.json --log-level DEBUG
+table-to-system-arxml --config ./config/system.toml --log-level DEBUG
 ```
 
 命令不在 `PATH` 时，可用同一虚拟环境的 `python -m table_to_arxml.system`，参数相同。
-JSON 中的相对路径始终基于 JSON 所在目录；命令行传入的相对路径基于启动时的工作目录。
+配置文件中的相对路径始终基于配置文件所在目录；命令行传入的相对路径基于启动时的工作目录。
 
-config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可以省略，保留时也不会检查；清单不存在直接失败，不回退 EB。只有删除 `arxmlFileList` 且未传 `--arxml-file-list` 时才使用 `tresosPreferenceFiles`。空字符串或 `null` 不是切换到 XDM 的方式。
+config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可以省略，保留时也不会检查；清单不存在直接失败，不回退 EB。只有删除 `arxmlFileList` 且未传 `--arxml-file-list` 时才使用 `tresosPreferenceFiles`。写成空字符串不是切换到 XDM 的方式。
 
-可在命令行覆盖的 JSON 项采用统一命名（如 `outputDir` 对应 `--output-dir`）；并非所有 JSON 项都有 CLI 参数，接口映射等只支持 JSON。参数名须完整书写，不接受缩写。
+可在命令行覆盖的配置项采用统一命名（如 `outputDir` 对应 `--output-dir`）；并非所有配置项都有 CLI 参数，接口映射等只能写在配置文件中。参数名须完整书写，不接受缩写。
 
 | 参数 | 作用 |
 | --- | --- |
-| `--config` | 指定配置文件，默认是当前目录的 `config.json`；可重复指定多个，见下文“多配置” |
+| `--config` | **必填**，指定 TOML 配置文件，相对路径基于启动时的工作目录；可重复指定多个，见下文“多配置” |
 | `--variant` | 覆盖 `defaultVariant`，用于展开 `${variant}` |
-| `--project-root` | 覆盖 `projectRoot`，影响 lst 内相对路径解析和默认构建目录，不改变 JSON 路径基准；与 `projectRoot` 至少提供一个 |
+| `--project-root` | 覆盖 `projectRoot`，影响 lst 内相对路径解析和默认构建目录，不改变配置文件中的路径基准；与 `projectRoot` 至少提供一个 |
 | `--arxml-file-list` | 覆盖 `arxmlFileList`，使用已有清单 |
 | `--strict-list` | 覆盖 `strictList`：清单中有缺失、非 `.arxml` 或无匹配的条目时直接失败，而不是警告后跳过 |
 | `--exclude-arxml` | 排除 ARXML 文件名或相对 `projectRoot` 的路径，可重复；提供时覆盖 `excludeArxml` |

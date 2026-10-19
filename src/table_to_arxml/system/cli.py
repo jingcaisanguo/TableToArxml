@@ -2,7 +2,7 @@
 
 两个阶段在同一进程内共用一个 AUTOSAR 文档，避免重复解析 ARXML。
 
-工具本身与具体工程解耦：所有工程相关的路径、车型、命名都放在 config.json 中。产物和日志目录必须通过
+工具本身与具体工程解耦：所有工程相关的路径、车型、命名都放在 TOML 配置文件中。产物和日志目录必须通过
 命令行或配置文件显式指定，不提供默认目录；需要分发到工程其他位置时由外部（例如 CMB 动作中的 cp 命令）复制。
 
 退出码：0 成功；1 运行失败（输入错误、生成失败等），不发布任何产物；2 命令行或配置错误（不创建日志）。
@@ -34,7 +34,7 @@ from .tresos_list import (
     tresos_project_dir,
 )
 from .options import (
-    DEFAULT_CONFIG_NAME, DEFAULT_TRESOS_OUTPUT_BASE_DIR, MERGED_GREEN_TABLE_SUFFIX,
+    DEFAULT_TRESOS_OUTPUT_BASE_DIR, MERGED_GREEN_TABLE_SUFFIX,
     SYSTEM_ARXML_SUFFIX, WHITE_TABLE_SUFFIX, Job, RunOptions, build_argument_parser,
     prepare_jobs, resolve_log_level, resolve_run_directory,
 )
@@ -233,9 +233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     started = perf_counter()
     try:
         options = RunOptions(
-            config_paths=tuple(
-                filesystem_path(path).resolve() for path in args.config or [str(Path.cwd() / DEFAULT_CONFIG_NAME)]
-            ),
+            config_paths=tuple(filesystem_path(path).resolve() for path in args.config),
             project_root=args.project_root,
             variant=args.variant,
             output_dir=args.output_dir,

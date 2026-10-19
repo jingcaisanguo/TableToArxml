@@ -2,36 +2,40 @@
 
 返回 [README.md](README.md)。
 
-配置使用 UTF-8 JSON 对象，兼容 UTF-8 BOM，字段名区分大小写，不支持 JSON 注释。下例路径和 AUTOSAR 标识均为示意，使用时替换为工程实际值。
+配置文件使用 TOML 格式（`.toml`，可用 `#` 写注释），字段名区分大小写，格式规则见 [配置文件格式](../README.md#配置文件格式)。下例路径和 AUTOSAR 标识均为示意，使用时替换为工程实际值。
 
 ## 完整示例
 
 以下为使用 XDM 的 EB 模式示例，不能包含 `arxmlFileList` 字段。
 
-```json
-{
-    "defaultVariant": "variantA",
-    "buildType": "Debug",
-    "projectRoot": "..",
-    "logLevel": "INFO",
-    "outputDir": "output",
-    "logDir": "log",
-    "outputPrefix": "Bcm",
-    "interfaceMismatch": "error",
-    "greenTables": [
-        "tables/common/Bcm/*.xlsx",
-        "tables/${variant}/Bcm/*.xlsx"
-    ],
-    "tresosPreferenceFiles": [
-        "../app/variants/${variant}/tresos/.prefs/pref_imp_exp_Bsw__Importer.xdm",
-        "../app/variants/${variant}/tresos/.prefs/pref_imp_exp_SysD.xdm"
-    ],
-    "general": {
-        "Composition": "/ARDesign/SystemDesign/TopLevelComposition",
-        "System": "PrototypeSystem",
-        "EcuInstance": "/ARDesign/TopologyDesign/FLZCU"
-    }
-}
+```toml
+# system.toml：相对路径以本文件所在目录为基准
+defaultVariant = "variantA"
+buildType = "Debug"
+projectRoot = ".."
+logLevel = "INFO"
+outputDir = "output"
+logDir = "log"
+outputPrefix = "Bcm"
+interfaceMismatch = "error"
+
+# 绿表模式（与 whiteTable 二选一）
+greenTables = [
+    "tables/common/Bcm/*.xlsx",
+    "tables/${variant}/Bcm/*.xlsx",
+]
+
+# EB 模式：由 PrefSystemImporter 根据 XDM 生成 ARXML 清单
+tresosPreferenceFiles = [
+    "../app/variants/${variant}/tresos/.prefs/pref_imp_exp_Bsw__Importer.xdm",
+    "../app/variants/${variant}/tresos/.prefs/pref_imp_exp_SysD.xdm",
+]
+
+# 表必须写在所有顶层字段之后
+[general]
+Composition = "/ARDesign/SystemDesign/TopLevelComposition"
+System = "PrototypeSystem"
+EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
 ```
 
 ## 顶层参数
@@ -59,7 +63,7 @@
 | `e2eWrapperComponent`   | 字符串             | 可选，默认`E2EWrapper`；该名称按普通组件处理，空字符串禁用特殊分支                                                                                                                                                                                                                                                |
 | `signalPathTemplate`    | 字符串             | 可选，默认`/${channel}/Signal/${signal}`；必须是绝对 AUTOSAR 路径并含 `${signal}`，只支持 `${channel}`、`${signal}`                                                                                                                                                                                         |
 | `arRelease`             | 字符串             | 可选，默认`R19-11`；必须是当前 armodel 支持的 release，否则失败且不发布产物                                                                                                                                                                                                                                       |
-| `interfaceMismatch`     | 字符串             | 仅支持 JSON 配置；缺省为`error`，可选 `error`、`skip`、`map`；不提供命令行覆盖                                                                                                                                                                                                                              |
+| `interfaceMismatch`     | 字符串             | 仅支持在配置文件中设置；缺省为`error`，可选 `error`、`skip`、`map`；不提供命令行覆盖                                                                                                                                                                                                                              |
 | `interfaceMappings`     | 对象数组           | 可选，在`map` 模式下为不同名称的数据元素显式配对，格式见下文                                                                                                                                                                                                                                                      |
 | `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 在已加载 ARXML 中存在时，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
 
@@ -83,10 +87,10 @@
 | `tresosPreferenceFiles`   | 当前配置文件所在目录                                        | `${variant}`                             |
 | `arxmlFileList`           | 当前配置文件所在目录                                        | `${variant}`                             |
 | 显式`tresosOutputBaseDir` | 当前配置文件所在目录                                        | `${variant}`、`${buildType}`           |
-| lst**内部**的路径     | 复用 lst 时仅`projectRoot`；EB 模式另尝试 tresos 工程目录 | 不展开 JSON 占位符；支持 glob              |
+| lst**内部**的路径     | 复用 lst 时仅`projectRoot`；EB 模式另尝试 tresos 工程目录 | 不展开配置文件占位符；支持 glob              |
 | 命令行路径参数              | 启动时工作目录                                              | 不自动展开`${variant}`                   |
 
-上述文件系统路径均可使用本机绝对路径，相对路径兼容 `/` 和 `\`。JSON 推荐使用 `/`；Windows 的 `\` 在 JSON 字符串中需要写成 `\\`。POSIX 平台拒绝 Windows 盘符/UNC 路径，迁移时应使用相对路径或本机绝对路径。未展开的 `${...}` 会报错；不自动展开 `~`、`%ENV%` 或任意环境变量。`general` 中 `/ARDesign/...` 是 AUTOSAR 模型引用路径，不做文件系统分隔符替换。
+上述文件系统路径均可使用本机绝对路径，相对路径兼容 `/` 和 `\`。推荐使用 `/`；Windows 的 `\` 在双引号字符串中需要写成 `\\`，也可改用单引号字面字符串（如 `'D:\Work'`）。POSIX 平台拒绝 Windows 盘符/UNC 路径，迁移时应使用相对路径或本机绝对路径。未展开的 `${...}` 会报错；不自动展开 `~`、`%ENV%` 或任意环境变量。`general` 中 `/ARDesign/...` 是 AUTOSAR 模型引用路径，不做文件系统分隔符替换。
 
 例如清单位于配置目录上一级的 `cfg/` 下时，可将 `arxmlFileList` 设置为 `../cfg/${variant}.lst`。此路径指向 lst 本身；lst 内部条目不会因此改成相对 lst 所在目录解析。
 
@@ -94,13 +98,11 @@
 
 使用清单模式只需：
 
-```json
-{
-    "arxmlFileList": "../cfg/${variant}.lst"
-}
+```toml
+arxmlFileList = "../cfg/${variant}.lst"
 ```
 
-以上为输入模式相关字段片段，其他必填配置保留。`tresosPreferenceFiles` 可省略；同时写了两个字段也不是冲突，而是只使用清单，忽略 XDM。要切换到 XDM 模式，删除 `arxmlFileList` 并提供 `tresosPreferenceFiles`，不能将前者设为 `""` 或 `null` 来切换。
+以上为输入模式相关字段片段，其他必填配置保留。`tresosPreferenceFiles` 可省略；同时写了两个字段也不是冲突，而是只使用清单，忽略 XDM。要切换到 XDM 模式，删除 `arxmlFileList` 并提供 `tresosPreferenceFiles`，不能将前者设为 `""` 来切换。
 
 **复用模式的注意事项：** 只要选中了已有 lst，就完全忽略 `tresosPreferenceFiles`、`tresosOutputBaseDir` 和 `buildType`，不检查 XDM 路径或 EB 命令，即使这些配置无效也不影响复用。lst 内部必须是有效的绝对路径或相对 `projectRoot` 的路径；不再借助 XDM 推导基准，也不自动补齐 EB 构建目录中的 `tresos` 层。Python 转换依赖及同名 ARXML 排除仍然生效。
 
@@ -127,25 +129,22 @@
 
 AUTOSAR 允许不同包下存在相同 SHORT-NAME 的组件类型，它们是独立对象，不应合并。工具按完整路径保留类型，短名只有唯一时可用。绿表文件名不能包含完整 AUTOSAR 路径，可用别名消歧：
 
-```json
-{
-    "prototypePrefix": "its",
-    "componentAliases": {
-        "LampFront": "/Front/Swc/Lamp",
-        "LampRear": "/Rear/Swc/Lamp",
-        "ExistingDriver": "/ARDesign/SystemDesign/TopLevelComposition/itsDriver"
-    }
-}
+```toml
+prototypePrefix = "its"
+
+[componentAliases]
+LampFront = "/Front/Swc/Lamp"
+LampRear = "/Rear/Swc/Lamp"
+ExistingDriver = "/ARDesign/SystemDesign/TopLevelComposition/itsDriver"
 ```
 
 对应绿表可以命名为 `LampFront.xlsx`、`LampRear.xlsx`，I 列也可以使用这些别名。没有目标 Composition 内的已有实例时，类型别名生成 `itsLampFront`、`itsLampRear`；有已有实例时复用其短名。一个类型有多个目标实例时，别名必须指向具体 prototype 路径。多个别名指向同一无实例类型时，第一个别名确定新实例名，其他别名为同义名，不创建多实例。
 
 新实例名不想带 `prototypePrefix` 时，用对象形式显式指定实例名；Composition 类型（如 `Conti_SWC_FDLib`）不参与短名匹配，只能通过别名引用：
 
-```json
-"componentAliases": {
-    "Conti_SWC_FDLib": {"type": "/ContiPackage/Conti_SWC_FDLib", "prototype": "Conti_SWC_FDLib"}
-}
+```toml
+[componentAliases]
+Conti_SWC_FDLib = { type = "/ContiPackage/Conti_SWC_FDLib", prototype = "Conti_SWC_FDLib" }
 ```
 
 该类型在目标 Composition 中已有其他名称的实例时报错。
@@ -166,19 +165,16 @@ AUTOSAR 允许不同包下存在相同 SHORT-NAME 的组件类型，它们是独
 
 当前 `map` 支持两端均为 SenderReceiverInterface 的情况：默认按数据元素短名配对，要求两侧非空、元素名集合一致，并解析到最终数据类型后检查一致性。它不按元素顺序或“只有一个元素”猜测对应关系，不进行数值/类型转换。元素名不同须显式指定：
 
-```json
-{
-    "interfaceMismatch": "map",
-    "interfaceMappings": [
-        {
-            "providerInterface": "/Interfaces/ProviderStatus",
-            "requesterInterface": "/Interfaces/RequesterStatus",
-            "dataElements": {
-                "OutputValue": "InputValue"
-            }
-        }
-    ]
-}
+```toml
+interfaceMismatch = "map"
+
+# 每个 [[interfaceMappings]] 是一条映射，可重复书写
+[[interfaceMappings]]
+providerInterface = "/Interfaces/ProviderStatus"
+requesterInterface = "/Interfaces/RequesterStatus"
+
+[interfaceMappings.dataElements]
+OutputValue = "InputValue"
 ```
 
 `dataElements` 的键是 provider 元素短名，值是 requester 元素短名；必须完整覆盖两侧元素且一一对应。最终类型不一致、缺失定义、不完整配对或非 SenderReceiverInterface 的自动映射均报错，不降级为直接连接。ClientServer、ModeSwitch 等接口仍可在两端引用相同时正常连接，但当前不自动生成它们的跨接口映射。

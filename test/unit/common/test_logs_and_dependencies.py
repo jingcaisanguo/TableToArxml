@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import sys
 
 import pytest
 
@@ -59,8 +61,21 @@ def test_armodel_requirement_matches_requirements_txt():
     assert f"armodel{dependencies.ARMODEL_REQUIREMENT}" in lines
 
 
-def test_dependency_check(monkeypatch):
+def test_tomli_is_required_only_before_python_3_11():
+    lines = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    assert 'tomli>=1.1.0; python_version < "3.11"' in lines
+    assert ("tomli" in dependencies.REQUIRED_MODULES) == (sys.version_info < (3, 11))
+
+
+@pytest.mark.parametrize("installed", ["1.8.6", "1.9.1"])
+def test_dependency_check(monkeypatch, installed):
     dependencies.check_dependencies()
-    monkeypatch.setattr(dependencies, "version", lambda name: "1.9.8")
-    with pytest.raises(RuntimeError, match=r"armodel>=1\.8\.7,<1\.9\.4 is required; installed: 1\.9\.8"):
+    monkeypatch.setattr(dependencies, "version", lambda name: installed)
+    with pytest.raises(RuntimeError, match=rf"armodel>=1\.8\.7,!=1\.9\.1 is required; installed: {re.escape(installed)}"):
         dependencies.check_dependencies()
+
+
+@pytest.mark.parametrize("installed", ["1.8.7", "1.9.2", "1.9.8", "2.0.0"])
+def test_dependency_check_has_no_upper_bound(monkeypatch, installed):
+    monkeypatch.setattr(dependencies, "version", lambda name: installed)
+    dependencies.check_dependencies()
