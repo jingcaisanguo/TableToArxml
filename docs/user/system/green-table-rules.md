@@ -77,14 +77,14 @@ C 为 `CAN`/`LIN` 且 I 不精确等于 `E2EWrapper` 时，写入 `SenderReceive
 - J 以 `/` 开头时直接作为完整信号路径；否则按 `signalPathTemplate` 展开，默认 `/${channel}/Signal/${signal}`。这是可配置的工具约定，不是 AUTOSAR 固定包结构。
 - INPUT 的方向固定为 `IN`，且 B 必须为 R-port；OUTPUT 固定为 `OUT`，且 B 必须为 P-port。`DataElement` 优先 H，H 空时使用 B，端口必须使用已定义的 SenderReceiverInterface。
 - `#` 仅用于本分支的 I 列；多个 J 信号需分行填写。即使 J 已是完整路径，也必须提供有效的 I 通道。
-- 白表阶段验证通道和信号方向：通过选定通道的 `I-SIGNAL-TRIGGERING -> I-SIGNAL -> SYSTEM-SIGNAL-REF` 关联 J 所指的完整 SystemSignal 路径，再检查属于 `general.EcuInstance` 的 `I-SIGNAL-PORT` 的 `COMMUNICATION-DIRECTION`。INPUT 要求包含 IN，OUTPUT 要求包含 OUT；两者同时存在时允许对应方向。不会用其他 ECU 的方向替代目标 ECU 的方向，缺少/无效方向也报错。
-- 同名不同路径的信号不会合并。物理通道短名存在歧义时拒绝，不任取一个；J 即使填写完整路径也必须在 I 指定的通道找到对应方向证据。
-- 生成器还检查组件、端口方向、interface、DataElement 和信号引用，并再次检查目标 ECU 的方向与组成员身份。错误整次失败，不发布本次产物；不提供完整的数据类型、位宽、单位或缩放兼容性校验。
+- 验证通道存在且 CAN/LIN 类型匹配、信号引用为 SystemSignal；不追踪 triggering、I-SignalPort 或目标 ECU 的实际通信方向，也不要求信号已绑定到该通道。
+- 同名不同路径的信号不会合并。物理通道短名存在歧义时拒绝，不任取一个。
+- 生成器检查组件、表格方向对应的 R/P 端口、interface、DataElement、信号和 ECU 引用；不比较数据类型、位宽、单位或缩放。引用错误整次失败，不发布本次产物。
 - 只有实际出现总线映射行时才要求相应通道存在；仅普通组件连接的模型不需要 CAN/LIN 通道。
 
 ### 信号组限制
 
-普通 `SenderReceiverToSignal` 映射禁止使用 `SYSTEM-SIGNAL-GROUP` / `I-SIGNAL-GROUP` 对象，也禁止直接使用它们的成员信号。成员关系按完整引用检查，覆盖 SystemSignalGroup 的成员、ISignalGroup 的 I-Signal 成员及 triggering 的组引用。报错会提示信号及所属组，不能通过 `interfaceMismatch=skip` 或 `map` 绕过。
+普通 `SenderReceiverToSignal` 映射禁止将 `SYSTEM-SIGNAL-GROUP` / `I-SIGNAL-GROUP` 对象当作普通信号。组成员信号允许单独映射，但记录 WARNING，提示后续集成确认组语义；不会自动提升为整个组映射。
 
 工具不会自动将组成员提升为整个组映射，也不拆组绕过检查。绿表当前没有完整的组映射输入定义，组信号应走工程明确设计的组映射流程；现有白表生成器的 `SenderReceiverToSignalGroup` 页能力并不意味着绿表可自动创建完整字段级组映射。
 
@@ -116,7 +116,7 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 
 白表每次重新创建 6 个页签：`General`、`Components`、`AssemblySwConnection`、`DelegationSwConnection`、`SenderReceiverToSignal`、`SenderReceiverToSignalGroup`。其中 `DelegationSwConnection` 和 `SenderReceiverToSignalGroup` 当前只创建表头，绿表转换不填充这两类记录。
 
-读取白表时按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成 ARXML 时也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，连接名为 `dlc_<外端口>_<内prototype>_<内端口>`；信号组要求 DataElement 的 ImplementationDataType 为 STRUCTURE，输出组引用，不自动展开字段级类型映射。绿表模式每次都重新生成白表；手工修改后的白表可用白表模式（配置 `whiteTable` 或命令行 `--white-table`）直接生成 ARXML。
+读取白表时按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成 ARXML 时也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，连接名为 `dlc_<外端口>_<内prototype>_<内端口>`；信号组输出组引用，不检查 DataElement 的数据类型，不自动展开字段级映射。绿表模式每次都重新生成白表；手工修改后的白表可用白表模式（配置 `whiteTable` 或命令行 `--white-table`）直接生成 ARXML。
 
 合并绿表输出保留 INPUT/OUTPUT 的单元格内容、主要样式和工作表格式，以 `<模块>_INPUT`、`<模块>_OUTPUT` 命名页签并限制在 31 字符内；工具按不区分大小写的规则检查重复，冲突时依次追加 `~2`、`~3` 等序号，并为序号预留长度。它不保证复制图片、图表等所有 Excel 对象，也不改变源绿表。白表则只保留转换所需的值，不复制绿表格式。
 

@@ -104,9 +104,9 @@ excludeArxmlPatterns = [
 | `channel ... is not defined` | I 列不是相应 CAN/LIN 物理通道名，整次失败 |
 | `interface mismatch` | 装配连接两端接口不同且没有可复用映射；默认失败，可显式选择 `interfaceMismatch=skip` 或允许新建映射的 `map` |
 | `Cannot infer interface mapping` | 无法确定完整的一一元素映射；在 config 中显式配置 `interfaceMappings` |
-| `Signal direction mismatch` / `No valid signal direction` | 选定通道和目标 ECU 的 I-SIGNAL-PORT 方向不符或缺失；不参考其他 ECU 的方向 |
+| `ECU instance is not defined` | 信号映射引用的目标 ECU 不存在；不要求提供完整通信拓扑或实际方向 |
 | `must be R-PORT-PROTOTYPE` / `must be P-PORT-PROTOTYPE` | 普通装配要求 P 到 R；总线 INPUT 使用 R，OUTPUT 使用 P |
-| `group members cannot be mapped directly` / `cannot be mapped as an individual signal` | 信号属于组或本身是组对象，不能作为普通信号直接映射 |
+| `cannot be mapped as an individual signal` | 信号组对象不能当作普通信号；组成员单独映射只记录 WARNING，不阻断生成 |
 | `column I or J is empty` / `column B is empty` | 必要字段不完整，按提示位置修正绿表 |
 | `<sheet> row <n>: ...` | 无效端口、信号或 DataElement 等引用导致整次失败 |
 | `no implementation` | 新增组件缺少 SWC-IMPLEMENTATION；补齐输入后重试 |

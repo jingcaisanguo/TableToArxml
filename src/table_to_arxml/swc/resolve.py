@@ -23,7 +23,6 @@ from .constants import (
     DEFAULT_ACCESS_KINDS,
     DIRECTION_LABELS,
     DIRECTION_PROVIDED,
-    DIRECTION_REQUIRED,
     SENDER_RECEIVER_INTERFACE,
 )
 from .store import SourceStore
@@ -236,14 +235,10 @@ def _warn_ignored_port_fields(port: PortSpec, interface_dest: str) -> None:
     data_interface = interface_dest == SENDER_RECEIVER_INTERFACE
     if not port.create_rte_artifact:
         artifact_fields = (
-            ("Runnable Name",)
-            if port.direction == DIRECTION_REQUIRED
-            else (
-                "Runnable Name",
-                "Runnable Symbol",
-                "Minimum Start Interval",
-                "Can Be Invoked Concurrently",
-            )
+            "Runnable Name",
+            "Runnable Symbol",
+            "Minimum Start Interval",
+            "Can Be Invoked Concurrently",
         )
         ignored.extend(name for name in artifact_fields if name in provided)
         if "Access Kind" in provided:

@@ -118,4 +118,4 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 转换错误由工具自身阻断，不需要另写脚本扫描 ERROR。退出码 0 表示转换和发布成功，但不替代工程集成及完整 AUTOSAR XSD/语义验证。具体边界见 [arxml-and-errors.md](arxml-and-errors.md)。
 
-普通连接两端接口不同时，先复用已有的唯一有效映射，不受 `interfaceMismatch` 策略影响；没有可复用映射时，默认报错，`skip` 警告并跳过连接，`map` 允许新建映射。接口映射目前只支持 SenderReceiverInterface，并校验数据元素存在且配对完整、一一对应，不检查类型或结构兼容性。CAN/LIN 映射检查目标 ECU、选定通道的实际信号方向以及应用端 R/P 方向，组成员不允许直接映射。生成成功不代表两端数据语义或 RTE 运行时兼容。
+普通连接两端接口不同时，先复用已有的唯一有效映射，不受 `interfaceMismatch` 策略影响；没有可复用映射时，默认报错，`skip` 警告并跳过连接，`map` 允许新建映射。接口映射目前只支持 SenderReceiverInterface，并校验数据元素存在且配对完整、一一对应，不检查类型或结构兼容性。信号映射只检查目标 ECU、接口、数据元素和信号引用存在，以及表格方向对应的 R/P 方向，不追踪总线实际方向；组成员单独映射只警告，组映射不检查数据类型。生成成功不代表两端数据语义或 RTE 运行时兼容。

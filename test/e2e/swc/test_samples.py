@@ -8,7 +8,7 @@ import pytest
 from openpyxl import load_workbook
 
 from helpers import NS, ROOT, SWC, assert_matches_baseline, run_tool
-from swc_fixtures import TWINS, run_twins
+from swc_fixtures import TWINS, run_prepared_twins, run_twins
 
 def test_swc_sample(tmp_path):
     workbook = load_workbook(ROOT / "test/samples/swc/SwcTestPorts.xlsx")
@@ -184,6 +184,91 @@ def test_swc_port_access_kind_creates_implicit_sr_accesses(tmp_path):
     assert short_names(runnable, "ar:DATA-SEND-POINTS/*") == []
 
 
+def test_swc_creates_missing_sr_access_container_in_schema_order(tmp_path):
+    result = run_twins(tmp_path, {
+        "Components": [{"SW_C": "B", "Component_Path": "/Pkg/B"}],
+        "R-Ports": [{"SW_C": "B", "Port_Name": "r_Read", "Port_Interface_Ref": "/Pkg/If",
+                     "Create_RTE_Artifact": "Y", "Runnable_Name": "Run",
+                     "Access_Kind": "ReceiveByValue"}],
+    })
+    assert result.returncode == 0, result.stderr
+
+    output = ET.parse(tmp_path / "out" / "twins.arxml").getroot()
+    runnable = next(
+        element for element in output.iter(f"{{{NS['ar']}}}RUNNABLE-ENTITY")
+        if element.findtext("ar:SHORT-NAME", namespaces=NS) == "Run"
+        and element.find("ar:DATA-RECEIVE-POINT-BY-VALUES", NS) is not None
+    )
+    access_names = short_names(runnable, "ar:DATA-RECEIVE-POINT-BY-VALUES/*")
+    assert access_names == ["drpval_r_Read"]
+    child_tags = [child.tag.rsplit("}", maxsplit=1)[-1] for child in runnable]
+    assert child_tags.index("DATA-RECEIVE-POINT-BY-VALUES") < child_tags.index("DATA-SEND-POINTS")
+
+
+def test_swc_ignores_invalid_rte_fields_when_rte_artifacts_are_disabled(tmp_path):
+    result = run_twins(tmp_path, {
+        "Components": [{"SW_C": "B", "Component_Path": "/Pkg/B"}],
+        "P-Ports": [{
+            "SW_C": "B",
+            "Port_Name": "p_Test",
+            "Port_Interface_Ref": "/Pkg/If",
+            "Create_RTE_Artifact": "N",
+            "Runnable_Name": "bad/name",
+            "Runnable_Symbol": "not a symbol",
+            "Access_Kind": "Unknown",
+            "Minimum_Start_Interval": "not a number",
+            "Can_Be_Invoked_Concurrently": "maybe",
+        }],
+    })
+    assert result.returncode == 0, result.stderr
+    assert "will be ignored" in result.stderr
+    assert "unknown Access Kind" not in result.stderr
+    assert "Minimum Start Interval must" not in result.stderr
+
+
+def test_swc_checks_only_explicit_com_spec_fields_for_existing_port(tmp_path):
+    result = run_twins(tmp_path, {
+        "Components": [{"SW_C": "B", "Component_Path": "/Pkg/B"}],
+        "P-Ports": [{
+            "SW_C": "B",
+            "Port_Name": "p_Test",
+            "Port_Interface_Ref": "/Pkg/If",
+            "Transmission_Acknowledge_Timeout": "1",
+            "Uses_End_To_End_Protection": "Y",
+        }],
+    })
+    assert result.returncode == 0, result.stderr
+
+    (tmp_path / "twins.arxml").write_bytes((tmp_path / "out" / "twins.arxml").read_bytes())
+    workbook = load_workbook(tmp_path / "ports.xlsx")
+    sheet = workbook["P-Ports"]
+    columns = {cell.value: cell.column for cell in sheet[1]}
+    sheet.cell(row=2, column=columns["Uses End To End Protection"], value=None)
+    workbook.save(tmp_path / "ports.xlsx")
+    workbook.close()
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 0, result.stderr
+
+    workbook = load_workbook(tmp_path / "ports.xlsx")
+    sheet = workbook["P-Ports"]
+    columns = {cell.value: cell.column for cell in sheet[1]}
+    sheet.cell(row=2, column=columns["Transmission Acknowledge Timeout"], value=None)
+    workbook.save(tmp_path / "ports.xlsx")
+    workbook.close()
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 0, result.stderr
+
+    workbook = load_workbook(tmp_path / "ports.xlsx")
+    sheet = workbook["P-Ports"]
+    columns = {cell.value: cell.column for cell in sheet[1]}
+    sheet.cell(row=2, column=columns["Transmission Acknowledge Timeout"], value=2)
+    workbook.save(tmp_path / "ports.xlsx")
+    workbook.close()
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 1
+    assert "Transmission Acknowledge Timeout" in result.stderr
+
+
 def test_swc_port_access_kind_must_match_direction(tmp_path):
     result = run_twins(tmp_path, {
         "Components": [{"SW_C": "B", "Component_Path": "/Pkg/B"}],
@@ -290,15 +375,15 @@ def test_swc_conflicting_zero_argument_declarations(tmp_path, order):
     assert not (tmp_path / "out").exists()
 
 
-def test_swc_invalid_inactive_field_remains_an_error(tmp_path):
+def test_swc_invalid_rte_field_is_ignored_when_rte_artifacts_are_disabled(tmp_path):
     result = run_twins(tmp_path, {
         "Components": [{"SW_C": "B", "Component_Path": "/Pkg/B"}],
         "P-Ports": [{"SW_C": "B", "Port_Name": "p_Test", "Port_Interface_Ref": "/Pkg/If",
                      "Create_RTE_Artifact": "N", "Minimum_Start_Interval": "abc"}],
     }, minimal=True)
-    assert result.returncode == 1
-    assert "Minimum Start Interval must be a non-negative number" in result.stderr
-    assert not (tmp_path / "out").exists()
+    assert result.returncode == 0, result.stderr
+    assert "Minimum Start Interval do not apply" in result.stderr
+    assert (tmp_path / "out" / "twins.arxml").exists()
 
 
 @pytest.mark.parametrize("timeout,e2e,expected", [(None, "N", False), ("0", "N", True), (None, "Y", True)])

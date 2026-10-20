@@ -97,8 +97,42 @@ def test_removed_access_kind_values_are_rejected(reader, kind, caplog):
     _, ports = reader.read_workbook({
         "Components": [("SW-C", "Component Path"), ("A", "/Pkg/A")],
         "R-Ports": [
-            ("SW-C", "Port Name", "Port Interface Ref", "Access Kind"),
-            ("A", "r_Test", "/Pkg/If", kind),
+            ("SW-C", "Port Name", "Port Interface Ref", "Access Kind", "Create RTE Artifact"),
+            ("A", "r_Test", "/Pkg/If", kind, "Y"),
+        ],
+    })
+    assert ports == []
+    assert "Access Kind must be one of" in caplog.text
+
+
+def test_disabled_rte_fields_are_not_validated(reader, caplog):
+    _, ports = reader.read_workbook({
+        "Components": [("SW-C", "Component Path"), ("A", "/Pkg/A")],
+        "P-Ports": [
+            (
+                "SW-C", "Port Name", "Port Interface Ref", "Create RTE Artifact", "Runnable Name",
+                "Runnable Symbol", "Access Kind", "Minimum Start Interval",
+                "Can Be Invoked Concurrently",
+            ),
+            ("A", "p_Test", "/Pkg/If", "N", "bad/name", "not a symbol", "Unknown", "abc", "maybe"),
+        ],
+    })
+    assert len(ports) == 1
+    assert not ports[0].create_rte_artifact
+    assert ports[0].provided_fields >= {
+        "Runnable Name", "Runnable Symbol", "Access Kind",
+        "Minimum Start Interval", "Can Be Invoked Concurrently",
+    }
+    assert not [record for record in caplog.records if record.levelname == "ERROR"]
+
+
+def test_enabled_rte_fields_are_still_validated(reader, caplog):
+    _, ports = reader.read_workbook({
+        "Components": [("SW-C", "Component Path"), ("A", "/Pkg/A")],
+        "P-Ports": [
+            ("SW-C", "Port Name", "Port Interface Ref", "Create RTE Artifact",
+             "Runnable Name", "Access Kind"),
+            ("A", "p_Test", "/Pkg/If", "Y", "Run", "Unknown"),
         ],
     })
     assert ports == []

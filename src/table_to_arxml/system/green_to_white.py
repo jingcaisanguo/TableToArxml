@@ -100,7 +100,6 @@ def process_green_table(
     e2e_wrapper: str,
     signal_path_template: str,
     model: ArxmlModel,
-    ecu_path: str,
     errors: list[str],
 ) -> dict[str, int]:
     """把一个绿表写入白表工作簿；出错的组件或行记入 ``errors`` 后继续处理其余内容。
@@ -157,7 +156,7 @@ def process_green_table(
                         if channel not in channel_sets[module_name]:
                             raise ValueError(f"channel '{channel}' is not defined in the {module_name} ARXML")
                         signal_path = _build_signal_path(channel, row.peer_port, signal_path_template)
-                        model.validate_signal_mapping(signal_path, direction, ecu_path, module_name, channel)
+                        model.validate_signal_mapping(signal_path)
                         # DataElement 优先取绿表 H 列，未填时与 app 端口同名。
                         signal_key = (signal_path, direction, app_prototype, row.app_port,
                                       row.data_element or row.app_port)
@@ -211,7 +210,7 @@ def generate_white_table(
     for green_info in green_infos:
         counters = process_green_table(
             green_info, component_type_map, app_names, channel_sets, workbook,
-            e2e_wrapper, signal_path_template, model, norm(general.get("EcuInstance")), errors)
+            e2e_wrapper, signal_path_template, model, errors)
         LOGGER.info(
             "Processed %s: +%s Components, +%s AssemblySwConnection, +%s SenderReceiverToSignal",
             green_info.app_name, counters["components"], counters["assembly"], counters["signal"])
