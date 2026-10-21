@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "setuptools-scm>=8,<9", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -21,8 +21,11 @@ include-package-data = false
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = { attr = "table_to_arxml.__version__" }
 dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools_scm]
+version_file = "src/table_to_arxml/_version.py"
+tag_regex = '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
