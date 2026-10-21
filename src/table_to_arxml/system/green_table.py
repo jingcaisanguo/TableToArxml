@@ -1,7 +1,7 @@
 """绿表的读取、收集与合并。
 
 绿表按列号 A..K 取值：B 为 app 自身端口，C 为对端模块，H 为数据元素，I 为对端组件（总线行为通道），
-J 为对端端口（总线行为信号），K 为备注。INPUT、OUTPUT 两页结构相同，只是端口方向相反。
+J 为对端端口（总线行为信号），K 为备注。R-Port、P-Port 两页结构相同，只是端口方向相反。
 """
 
 from __future__ import annotations
@@ -20,8 +20,14 @@ from .values import norm
 
 LOGGER = logging.getLogger(__name__)
 
-INPUT_SHEET = "INPUT"
-OUTPUT_SHEET = "OUTPUT"
+R_PORT_SHEET = "R-Port"
+P_PORT_SHEET = "P-Port"
+LEGACY_INPUT_SHEET = "INPUT"
+LEGACY_OUTPUT_SHEET = "OUTPUT"
+_GREEN_SHEET_PAIRS = (
+    (R_PORT_SHEET, P_PORT_SHEET),
+    (LEGACY_INPUT_SHEET, LEGACY_OUTPUT_SHEET),
+)
 GREEN_COLUMN_COUNT = 11
 # 表头只校验关键列，防止列错位；空串表示该列只要求非空。
 GREEN_REQUIRED_HEADERS = {1: "", 2: "", 8: "component", 9: "port"}
@@ -30,9 +36,9 @@ RESERVED_REMARK_KEYWORDS = ("预留", "保留", "备用")
 
 @dataclass(frozen=True)
 class GreenRow:
-    """绿表 INPUT/OUTPUT 页的一行有效数据。
+    """绿表 R-Port/P-Port 页的一行有效数据。
 
-    ``app_port`` 在 INPUT 页是 app 的 R-port，在 OUTPUT 页是 P-port；``peer``、``peer_port``
+    ``app_port`` 在 R-Port 页是 app 的 R-port，在 P-Port 页是 P-port；``peer``、``peer_port``
     是对端组件和端口，对端模块为 CAN/LIN 时分别是通道名和信号名。
     """
 
@@ -50,8 +56,24 @@ class GreenWorkbookInfo:
     """单个绿表抽象后的完整信息。"""
 
     app_name: str
-    input_rows: list[GreenRow]
-    output_rows: list[GreenRow]
+    r_port_rows: list[GreenRow]
+    p_port_rows: list[GreenRow]
+
+
+def _green_sheet_names(sheetnames: list[str], green_path: Path) -> tuple[str, str]:
+    """返回实际使用的 R-Port/P-Port 页签名；仅兼容旧 INPUT/OUTPUT 工作簿。"""
+
+    present = set(sheetnames)
+    available = [pair for pair in _GREEN_SHEET_PAIRS if set(pair) <= present]
+    recognized = {name for pair in _GREEN_SHEET_PAIRS for name in pair} & present
+    if len(available) != 1 or len(recognized) != 2:
+        choices = f"{R_PORT_SHEET}/{P_PORT_SHEET}"
+        legacy = f"{LEGACY_INPUT_SHEET}/{LEGACY_OUTPUT_SHEET}"
+        raise ValueError(
+            f"Green table must contain exactly one complete {choices} or legacy {legacy} sheet pair: "
+            f"{green_path}"
+        )
+    return available[0]
 
 
 def _is_reserved_remark(remark: str) -> bool:
@@ -94,19 +116,17 @@ def _read_green_rows(ws, location: str, errors: list[str]) -> list[GreenRow]:
 
 
 def parse_green_workbook(green_path: Path, app_name: str) -> GreenWorkbookInfo:
-    """读取单个绿表的 INPUT/OUTPUT 页；逐行记录全部错误后统一失败。
+    """读取单个绿表的 R-Port/P-Port 页；兼容旧页名，逐行记录全部错误后统一失败。
 
     按固定列号取值而不依赖表头文案，避免换行、空格、全角字符差异导致匹配失败。
     """
 
     workbook = load_workbook(green_path, read_only=True, data_only=True)
     try:
-        if INPUT_SHEET not in workbook.sheetnames or OUTPUT_SHEET not in workbook.sheetnames:
-            raise ValueError(
-                f"Green table must contain {INPUT_SHEET}/{OUTPUT_SHEET} sheets: {green_path}")
+        receive_sheet, send_sheet = _green_sheet_names(workbook.sheetnames, green_path)
         errors: list[str] = []
         rows: dict[str, list[GreenRow]] = {}
-        for sheet in (INPUT_SHEET, OUTPUT_SHEET):
+        for sheet in (receive_sheet, send_sheet):
             _check_green_header(workbook[sheet], green_path, sheet)
             rows[sheet] = _read_green_rows(workbook[sheet], f"{green_path} {sheet}", errors)
     finally:
@@ -115,7 +135,7 @@ def parse_green_workbook(green_path: Path, app_name: str) -> GreenWorkbookInfo:
         LOGGER.error("%s", message)
     if errors:
         raise ValueError(f"{green_path}: {len(errors)} invalid row(s)")
-    return GreenWorkbookInfo(app_name, rows[INPUT_SHEET], rows[OUTPUT_SHEET])
+    return GreenWorkbookInfo(app_name, rows[receive_sheet], rows[send_sheet])
 
 
 def collect_green_workbooks(
@@ -184,16 +204,19 @@ def merge_green_workbooks(
     used_names: set[str] = set()
     for index, (app_name, green_workbook_path) in enumerate(green_workbooks):
         source_workbook = load_workbook(green_workbook_path, read_only=False, data_only=False)
-        input_name = _merged_sheet_name(app_name, INPUT_SHEET, used_names)
+        receive_sheet_name, send_sheet_name = _green_sheet_names(
+            source_workbook.sheetnames, green_workbook_path,
+        )
+        receive_name = _merged_sheet_name(app_name, R_PORT_SHEET, used_names)
         if index == 0:
-            input_sheet = placeholder_sheet
-            input_sheet.title = input_name
+            receive_sheet = placeholder_sheet
+            receive_sheet.title = receive_name
         else:
-            input_sheet = merged_workbook.create_sheet(input_name)
+            receive_sheet = merged_workbook.create_sheet(receive_name)
 
-        output_sheet = merged_workbook.create_sheet(_merged_sheet_name(app_name, OUTPUT_SHEET, used_names))
-        copy_worksheet(input_sheet, source_workbook[INPUT_SHEET])
-        copy_worksheet(output_sheet, source_workbook[OUTPUT_SHEET])
+        send_sheet = merged_workbook.create_sheet(_merged_sheet_name(app_name, P_PORT_SHEET, used_names))
+        copy_worksheet(receive_sheet, source_workbook[receive_sheet_name])
+        copy_worksheet(send_sheet, source_workbook[send_sheet_name])
         source_workbook.close()
 
     merged_workbook.save(output_file)

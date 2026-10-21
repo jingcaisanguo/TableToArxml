@@ -96,7 +96,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 - 未传 `--output-dir` 或 `--log-dir` 时，每份配置必须提供对应的 `outputDir` 或 `logDir`，且各自解析后的目录必须一致。
 - 任一配置失败则全部不发布。
 
-输入表格在加载 ARXML 前校验：绿表须有 INPUT/OUTPUT 页，表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。全部输入表检查完后再报错退出，一次列出所有问题；后续的绿表转换和白表引用解析同样逐行记录错误，处理完再失败。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
+输入表格在加载 ARXML 前校验：绿表须有 R-Port/P-Port 页（仅兼容旧 INPUT/OUTPUT 工作簿；RECEIVE/SEND 不兼容），表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。R-Port/P-Port 分别对应当前模块的接收端口和发送端口。全部输入表检查完后再报错退出，一次列出所有问题；后续的绿表转换和白表引用解析同样逐行记录错误，处理完再失败。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
 
 接口策略仅在 config 中配置：`"interfaceMismatch": "error"`，也可选 `skip`、`map`；没有配置该字段时默认 `error`，不提供命令行覆盖。完整映射配置见 [configuration.md](configuration.md)。
 
@@ -107,7 +107,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | 产物名 | 用途 |
 | --- | --- |
 | `BcmWhiteTable.xlsx` | 白表：General、组件、装配连接和信号映射，也是生成 ARXML 的中间输入；白表输入模式不生成 |
-| `BcmGreenTables.xlsx` | 合并本次所有绿表的 INPUT/OUTPUT 页，便于检索；白表输入模式不生成 |
+| `BcmGreenTables.xlsx` | 合并本次所有绿表的 R-Port/P-Port 页，便于检索；白表输入模式不生成 |
 | `BcmSystem.arxml` | 本次生成的 Composition、System 及映射，不是全工程模型的完整导出 |
 | `variantA.lst` | 仅 EB 模式在产物目录生成；复用已有 lst 时不会复制或重新生成此文件 |
 | `table_to_system_arxml_<时间含微秒>_<进程号>.log` | 在显式指定的 `--log-dir` 或 `logDir` 下记录本次运行日志 |
