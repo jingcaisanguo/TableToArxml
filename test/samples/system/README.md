@@ -27,7 +27,7 @@ MC 白表声明 `itsAUXL`、`itsHorn` 两个 `Add` 实例，测试以下两条�
 
 ## 准备
 
-使用 Python 3.9 或更新版本，在独立虚拟环境中安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../../docs/dev/release.md)），依赖为 wheel 声明的 `armodel>=1.8.7,!=1.9.1`。
+使用 Python 3.9 或更新版本，在独立虚拟环境中安装本地构建的 wheel（构建方式见 [docs/dev/release.md](../../../docs/dev/release.md)），依赖为 wheel 声明的 `armodel>=1.8.7,<=1.9.8,!=1.9.1`。
 以下命令都从**仓库根目录**执行；命令行相对路径按当前工作目录解析，配置文件中的路径按配置文件所在目录解析。
 
 ```powershell

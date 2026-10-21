@@ -20,7 +20,7 @@
 table-to-swc-arxml --config ./config/swc.toml
 ```
 
-- 依赖为 `armodel>=1.8.7,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另需 `tomli>=1.1.0`（读取 TOML 配置），安装 wheel 时自动安装。armodel 不设上限，已在 armodel 1.8.7、1.9.2、1.9.4、1.9.7、1.9.8 上通过全部测试；安装了范围外的版本时工具启动即报版本错误。
+- 依赖为 `armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另需 `tomli>=1.1.0`（读取 TOML 配置），安装 wheel 时自动安装。armodel 上限固定在已验证的 `1.9.8`，新版本通过兼容测试后才更新上限；安装了范围外的版本时工具启动即报版本错误。
 - 配置、工作簿、清单和日志由使用工具的项目提供。
 
 参数和路径规则见 [configuration.md](configuration.md)。

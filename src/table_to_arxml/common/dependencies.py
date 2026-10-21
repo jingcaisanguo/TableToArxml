@@ -6,8 +6,8 @@ import importlib
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
-# 不设上限；1.9.1 的顶层包只导出 4 个名称（1.9.2 已恢复），工具无法导入，因此单独排除。
-ARMODEL_REQUIREMENT = ">=1.8.7,!=1.9.1"
+# 上限随兼容测试更新；1.9.1 的包入口不完整，单独排除。
+ARMODEL_REQUIREMENT = ">=1.8.7,<=1.9.8,!=1.9.1"
 REQUIRED_MODULES = ("packaging", "openpyxl", "armodel") + (("tomli",) if sys.version_info < (3, 11) else ())
 
 
