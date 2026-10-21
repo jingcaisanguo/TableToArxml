@@ -5,7 +5,9 @@
 ## 文件、模块与页签
 
 1. 一个绿表文件名（去掉 `.xlsx`）代表一个待加入目标 Composition 的模块，例如 `LIT.xlsx` 对应 `LIT`。不是用文件夹名或页签名作为模块名。
-2. 必须包含大小写完全一致的 `INPUT`、`OUTPUT` 两个页签，可以只有表头而无数据；其他页签不参与转换和合并。
+2. 新绿表必须包含大小写完全一致的 `RECEIVE`、`SEND` 两个页签，可以只有表头而无数据；其他页签不参与转换和合并。
+   `RECEIVE` 表示数据流向当前模块（应用端使用 R-port），`SEND` 表示数据从当前模块流出（应用端使用 P-port）。
+   为兼容旧工作簿，也接受完整的 `INPUT`、`OUTPUT` 页签组合；同一工作簿不能混用或同时包含两套名称。
 3. 第 1 行作为表头跳过，从第 2 行读取；不识别表头文字，按固定列位置取值，不能随意移动列。
 4. 数据读取使用 `data_only=True`：公式读取 Excel 保存的缓存结果，不在 Python 中计算公式。使用公式时先在 Excel 中计算并保存。
 5. 单元格值统一转字符串并去除首尾空白；空值按空串处理，`nan` 等文本原样保留。数字格式不会自动还原成显示文本，含前导零的名称应使用文本单元格。
@@ -16,7 +18,7 @@
 
 ## 固定列定义
 
-| 列 | INPUT 页 | OUTPUT 页 |
+| 列 | RECEIVE 页 | SEND 页 |
 | --- | --- | --- |
 | B | 当前模块接收端口 R-port | 当前模块发送端口 P-port |
 | C | 上游类型；`CAN`/`LIN` 触发总线映射，其他值按普通组件 | 下游类型；`CAN`/`LIN` 触发总线映射，其他值按普通组件 |
@@ -62,8 +64,8 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 
 | 方向 | Provider SW-C | PPort | Requester SW-C | RPort |
 | --- | --- | --- | --- | --- |
-| INPUT | I：上游组件 | J：上游 P-port | 当前绿表模块 | B：当前 R-port |
-| OUTPUT | 当前绿表模块 | B：当前 P-port | I：下游组件 | J：下游 R-port |
+| RECEIVE | I：上游组件 | J：上游 P-port | 当前绿表模块 | B：当前 R-port |
+| SEND | 当前绿表模块 | B：当前 P-port | I：下游组件 | J：下游 R-port |
 
 最终连接名由工具取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`；超过 128 字符时截断并以 8 位哈希结尾。同名但端点不同的连接会报错退出。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
 
@@ -75,7 +77,7 @@ C 为 `CAN`/`LIN` 且 I 不精确等于 `E2EWrapper` 时，写入 `SenderReceive
 
 - I 必须是对应总线的物理通道短名。支持 `通道A#通道B`，逐个拆分、去除空白并验证；任一通道无效则整次失败，不发布本次产物。
 - J 以 `/` 开头时直接作为完整信号路径；否则按 `signalPathTemplate` 展开，默认 `/${channel}/Signal/${signal}`。这是可配置的工具约定，不是 AUTOSAR 固定包结构。
-- INPUT 的方向固定为 `IN`，且 B 必须为 R-port；OUTPUT 固定为 `OUT`，且 B 必须为 P-port。`DataElement` 优先 H，H 空时使用 B，端口必须使用已定义的 SenderReceiverInterface。
+- RECEIVE 的方向固定为 `IN`，且 B 必须为 R-port；SEND 固定为 `OUT`，且 B 必须为 P-port。`DataElement` 优先 H，H 空时使用 B，端口必须使用已定义的 SenderReceiverInterface。
 - `#` 仅用于本分支的 I 列；多个 J 信号需分行填写。即使 J 已是完整路径，也必须提供有效的 I 通道。
 - 验证通道存在且 CAN/LIN 类型匹配、信号引用为 SystemSignal；不追踪 triggering、I-SignalPort 或目标 ECU 的实际通信方向，也不要求信号已绑定到该通道。
 - 同名不同路径的信号不会合并。物理通道短名存在歧义时拒绝，不任取一个。
@@ -98,11 +100,11 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 
 | 页签 | B | C | H | I | J | 结果 |
 | --- | --- | --- | --- | --- | --- | --- |
-| INPUT | `RpRequest` | `APP` | 空 | `Switch` | `PpRequest` | `Switch.PpRequest` -> `Lamp.RpRequest` |
-| OUTPUT | `PpStatus` | `APP` | 空 | `Display` | `RpStatus` | `Lamp.PpStatus` -> `Display.RpStatus` |
-| INPUT | `RpSpeed` | `CAN` | `Speed` | `CAN_A#CAN_B` | `VehicleSpeed` | 两条 `IN` 映射，信号分别为 `/CAN_A/Signal/VehicleSpeed`、`/CAN_B/Signal/VehicleSpeed` |
-| OUTPUT | `PpState` | `LIN` | 空 | `LIN_A` | `/Network/Signals/LampState` | 一条 `OUT` 映射，DataElement 为 `PpState` |
-| INPUT | `RpSafe` | `CAN` | 空 | `E2EWrapper` | `PpSafe` | 普通连接 `E2EWrapper.PpSafe` -> `Lamp.RpSafe` |
+| RECEIVE | `RpRequest` | `APP` | 空 | `Switch` | `PpRequest` | `Switch.PpRequest` -> `Lamp.RpRequest` |
+| SEND | `PpStatus` | `APP` | 空 | `Display` | `RpStatus` | `Lamp.PpStatus` -> `Display.RpStatus` |
+| RECEIVE | `RpSpeed` | `CAN` | `Speed` | `CAN_A#CAN_B` | `VehicleSpeed` | 两条 `IN` 映射，信号分别为 `/CAN_A/Signal/VehicleSpeed`、`/CAN_B/Signal/VehicleSpeed` |
+| SEND | `PpState` | `LIN` | 空 | `LIN_A` | `/Network/Signals/LampState` | 一条 `OUT` 映射，DataElement 为 `PpState` |
+| RECEIVE | `RpSafe` | `CAN` | 空 | `E2EWrapper` | `PpSafe` | 普通连接 `E2EWrapper.PpSafe` -> `Lamp.RpSafe` |
 
 ## 去重与输出页签
 
@@ -118,7 +120,7 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 
 读取白表时按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成 ARXML 时也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，连接名为 `dlc_<外端口>_<内prototype>_<内端口>`；信号组输出组引用，不检查 DataElement 的数据类型，不自动展开字段级映射。绿表模式每次都重新生成白表；手工修改后的白表可用白表模式（配置 `whiteTable` 或命令行 `--white-table`）直接生成 ARXML。
 
-合并绿表输出保留 INPUT/OUTPUT 的单元格内容、主要样式和工作表格式，以 `<模块>_INPUT`、`<模块>_OUTPUT` 命名页签并限制在 31 字符内；工具按不区分大小写的规则检查重复，冲突时依次追加 `~2`、`~3` 等序号，并为序号预留长度。它不保证复制图片、图表等所有 Excel 对象，也不改变源绿表。白表则只保留转换所需的值，不复制绿表格式。
+合并绿表输出保留 RECEIVE/SEND 的单元格内容、主要样式和工作表格式，以 `<模块>_RECEIVE`、`<模块>_SEND` 命名页签并限制在 31 字符内；旧工作簿中的 INPUT/OUTPUT 页也会在合并结果中使用新名称。工具按不区分大小写的规则检查重复，冲突时依次追加 `~2`、`~3` 等序号，并为序号预留长度。它不保证复制图片、图表等所有 Excel 对象，也不改变源绿表。白表则只保留转换所需的值，不复制绿表格式。
 
 ## 白表显示格式
 
