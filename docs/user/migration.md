@@ -9,7 +9,7 @@
 
 - 旧的 JSON 配置文件仍兼容，可继续使用，无需修改。
 - `table-to-system-arxml` 必须用 `--config` 指定至少一个配置文件，不再默认读取启动目录中的 `config.json`。以前依赖该默认值、直接运行 `table-to-system-arxml` 的脚本，需补上 `--config <配置文件路径>`；否则打印用法并返回 `2`。
-- armodel 依赖改为 `>=1.8.7,!=1.9.1`，取消 `<1.9.4` 上限，已在 armodel 1.8.7、1.9.2、1.9.4、1.9.7、1.9.8 上通过全部测试。已有环境无需升级 armodel；升级到新版本后建议重新核对生成结果。
+- armodel 依赖限定为 `>=1.8.7,<=1.9.8,!=1.9.1`，避免自动安装尚未验证的新版本；后续版本通过兼容测试后才更新上限。已有范围内版本可继续使用，升级到兼容最新版的安装方式见 [使用说明](README.md#安装)。
 - Python 3.11 以下新增依赖 `tomli>=1.1.0`，安装 wheel 时自动安装；离线环境需同时准备该依赖包。
 - 仓库回归样例配置已改为 TOML：`test/samples/system/*TableToSystemArxmlConfig.toml`、`test/samples/swc/TableToSwcArxml.toml`。
 

@@ -13,6 +13,8 @@ from typing import Any, Callable
 from armodel import ARXMLWriter
 from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSAR
 from armodel.parser.arxml_parser import ARXMLParser
+from armodel.models.M2.MSR.AsamHdo.Constraints.GlobalConstraints import PhysConstrs
+from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.PrimitiveTypes import Limit
 
 from .logs import ARMODEL_DIAGNOSTIC
 from .messages import clean_message
@@ -196,6 +198,23 @@ def _renamed(obj: Any, old: str, new: str) -> Callable[..., Any]:
     if method is None:
         raise AttributeError(f"{type(obj).__name__} has neither {old} nor {new}")
     return method
+
+
+def get_phys_constraint_limits(phys: PhysConstrs) -> tuple[Limit | None, Limit | None]:
+    """新版约束提供 getter，旧版使用 snake_case 属性。"""
+
+    if hasattr(phys, "getLowerLimit"):
+        return phys.getLowerLimit(), phys.getUpperLimit()
+    return phys.lower_limit, phys.upper_limit
+
+
+def set_phys_constraint_limits(phys: PhysConstrs, lower: Limit, upper: Limit) -> None:
+    if hasattr(phys, "setLowerLimit"):
+        phys.setLowerLimit(lower)
+        phys.setUpperLimit(upper)
+    else:
+        phys.lower_limit = lower
+        phys.upper_limit = upper
 
 
 def get_enable_update(com_spec: Any) -> Any:

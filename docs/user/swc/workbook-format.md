@@ -53,6 +53,10 @@
 
 工作表和列名只接受本文规定的名称，不识别别名。请从当前模板开始填写。
 
+同一完整 AUTOSAR 路径若在多个 ARXML 中都有定义，工具按 `arxmlFileList` 顺序采用第一个定义并给出 `WARNING`；
+后续副本不由工具逐一比较，由 EB 导入工程时处理。创建对象时，如果该路径已存在，会复用首个定义并与工作簿请求比较；
+只有路径不存在时才会在 `Target ARXML` 中创建。
+
 ### 单元格
 
 - 单元格可以是文本、数字或 Excel 布尔值；首尾空白会去掉。数字按原值转为文本，整数形式的浮点数（如 `8.0`）按整数处理。
@@ -272,8 +276,12 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 
 `Enable Update=Y` 与正数 `Queue Length` 互斥，同时填写记录 `ERROR`。
 端口的 Runnable/RTE 配置列仅在相应端口方向、接口类型和 `Create RTE Artifact` 设置下生效；
-取值合法但当前不生效的非空列记录 `WARNING` 并忽略；非法取值仍记录 `ERROR`。
-例如 `Create RTE Artifact=N` 时填写合法的最小启动间隔会警告，但填 `abc` 会报错。
+`Create RTE Artifact=N` 时，RTE 配置列中的非空值（包括格式或取值不合法的内容）均记录 `WARNING` 并忽略；
+不会因为未启用的 RTE 配置阻止端口生成。启用 RTE 时，适用字段仍执行格式和值校验；合法但不适用的非空列记录 `WARNING` 并忽略，非法值记录 `ERROR`。
+
+为已有端口填写 ComSpec 列时，只比较工作簿中**非空**的 ComSpec 字段；留空表示不声明该项，不检查 ARXML 中对应项是否为空。
+例如只填写 `Transmission Acknowledge Timeout` 时，不会因为 ARXML 中的保护配置与默认值不同而冲突。
+显式填写 `N` 或 `Queue Length=0` 则会检查对应 ComSpec 不存在；填写启用值时仍要求相应 ComSpec 与接口数据元素匹配。
 
 ### ComSpec
 
@@ -306,7 +314,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 
 | 端口 | 生成内容 | 前提 |
 | --- | --- | --- |
-| SR P-Port，`Access Kind=Send`（默认） | 每个数据元素一个 `DATA-SEND-POINT`（`VARIABLE-ACCESS`） | `Runnable Name` 指向已有 runnable，且其中已有对应容器 |
+| SR P-Port，`Access Kind=Send`（默认） | 每个数据元素一个 `DATA-SEND-POINT`（`VARIABLE-ACCESS`） | `Runnable Name` 指向已有 runnable |
 | SR P-Port，`Access Kind=Write` | 每个数据元素一个 `DATA-WRITE-ACCESS` | 同上 |
 | SR R-Port，`Access Kind=ReceiveByArgument`（默认） | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-ARGUMENT` | 同上 |
 | SR R-Port，`Access Kind=ReceiveByValue` | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-VALUE` | 同上 |
@@ -348,7 +356,7 @@ CS 生成对象的名称：
 | `Read` | `DATA-READ-ACCESSS` | R | `dra_` |
 | `Write` | `DATA-WRITE-ACCESSS` | P | `dwa_` |
 
-类别与端口方向不符时记录 `ERROR`。runnable 中必须已有对应容器，工具不新建访问点容器。
+类别与端口方向不符时记录 `ERROR`。runnable 必须已存在；缺少访问点容器时，工具会按 AUTOSAR schema 顺序创建容器。
 
 ```xml
 <VARIABLE-ACCESS>

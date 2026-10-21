@@ -353,6 +353,8 @@ def read_sheet_rows(
         if not any(cells):
             continue
         record = dict(zip(headers, cells))
+        rte_flag = record.get("Create RTE Artifact", "")
+        rte_disabled = not rte_flag or BOOLEAN_LABELS.get(rte_flag.casefold()) is False
         missing = [name for name in required if not record.get(name)]
         if missing:
             LOGGER.error(
@@ -367,6 +369,8 @@ def read_sheet_rows(
         try:
             for name, value in record.items():
                 if not value:
+                    continue
+                if rte_disabled and name in ("Runnable Name", "Runnable Symbol"):
                     continue
                 if name.endswith((" Path", " Ref")):
                     autosar_path(value, name, 2 if name in ("Type Path", "Interface Path") else 1)
@@ -740,8 +744,12 @@ def _read_port(
     if create_rte_artifact is None:
         return None
     access_kind_label = row.get("Access Kind", "")
-    access_kind = ACCESS_KIND_LABELS.get(access_kind_label.casefold(), "")
-    if access_kind_label and not access_kind:
+    access_kind = (
+        ACCESS_KIND_LABELS.get(access_kind_label.casefold(), "")
+        if create_rte_artifact
+        else ""
+    )
+    if create_rte_artifact and access_kind_label and not access_kind:
         LOGGER.error(
             "Skipped port %s in %s: Access Kind must be one of %s: %s",
             port_name,
@@ -750,7 +758,7 @@ def _read_port(
             access_kind_label,
         )
         return None
-    if access_kind and ACCESS_DIRECTIONS[access_kind] != direction:
+    if create_rte_artifact and access_kind and ACCESS_DIRECTIONS[access_kind] != direction:
         LOGGER.error(
             "Skipped port %s in %s: Access Kind %s requires a %s-Port",
             port_name,
@@ -768,7 +776,7 @@ def _read_port(
         return None
     minimum_start_interval = 0.0
     concurrent = False
-    if direction == DIRECTION_PROVIDED:
+    if create_rte_artifact and direction == DIRECTION_PROVIDED:
         interval_text = row.get("Minimum Start Interval", "")
         if interval_text:
             interval = parse_non_negative(interval_text, "Minimum Start Interval", context)
@@ -804,6 +812,10 @@ def _read_port(
                 "Minimum Start Interval",
                 "Can Be Invoked Concurrently",
                 "Access Kind",
+                "Enable Update",
+                "Queue Length",
+                "Transmission Acknowledge Timeout",
+                "Uses End To End Protection",
             )
             if row.get(name, "")
         ),

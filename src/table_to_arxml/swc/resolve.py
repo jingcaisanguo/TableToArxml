@@ -23,7 +23,6 @@ from .constants import (
     DEFAULT_ACCESS_KINDS,
     DIRECTION_LABELS,
     DIRECTION_PROVIDED,
-    DIRECTION_REQUIRED,
     SENDER_RECEIVER_INTERFACE,
 )
 from .store import SourceStore
@@ -99,10 +98,10 @@ def find_definition(
     kind: str,
     store: SourceStore,
 ) -> tuple[Path, str] | None:
-    """在清单范围内定位一个 AUTOSAR 路径的唯一定义，结果在文件未修改前复用。
+    """在清单范围内定位 AUTOSAR 路径，结果在文件未修改前复用。
 
     ``kind`` 为 ``component`` 或 ``interface``；接口返回其 ``DEST``，组件返回空串。
-    找不到或存在多个定义时记录 error 并返回 ``None``，由调用方跳过相关条目；
+    存在多个定义时使用清单中的第一个，并记录 warning。
     单个候选文件的解析失败不中断流程，但会在错误信息中一并报告。
     """
     memo_key = (kind, autosar_path)
@@ -135,7 +134,13 @@ def _find_definition(
         if interface is None:
             continue
         if not interface.dest:
-            LOGGER.error("Unsupported port interface type at %s: %s", autosar_path, interface.type_name)
+            if not matches:
+                LOGGER.error(
+                    "Unsupported port interface type at %s: %s",
+                    autosar_path,
+                    interface.type_name,
+                )
+                return None
             continue
         matches.append((candidate, interface.dest))
 
@@ -147,12 +152,20 @@ def _find_definition(
         return None
     if len(matches) == 1:
         return matches[0]
+    if matches:
+        LOGGER.warning(
+            "Multiple definitions found for %s %s: %s; using %s for SWC resolution. "
+            "The AUTOSAR importer should validate duplicate definitions",
+            kind,
+            autosar_path,
+            ", ".join(str(path) for path, _ in matches),
+            matches[0][0],
+        )
+        return matches[0]
     if not matches:
         detail = f"; parser failures: {'; '.join(failures)}" if failures else ""
         LOGGER.error("No %s found at %s in listed ARXML%s", kind, autosar_path, detail)
         return None
-    matched_files = ", ".join(str(path) for path, _ in matches)
-    LOGGER.error("Multiple definitions found for %s: %s", autosar_path, matched_files)
     return None
 
 
@@ -236,14 +249,10 @@ def _warn_ignored_port_fields(port: PortSpec, interface_dest: str) -> None:
     data_interface = interface_dest == SENDER_RECEIVER_INTERFACE
     if not port.create_rte_artifact:
         artifact_fields = (
-            ("Runnable Name",)
-            if port.direction == DIRECTION_REQUIRED
-            else (
-                "Runnable Name",
-                "Runnable Symbol",
-                "Minimum Start Interval",
-                "Can Be Invoked Concurrently",
-            )
+            "Runnable Name",
+            "Runnable Symbol",
+            "Minimum Start Interval",
+            "Can Be Invoked Concurrently",
         )
         ignored.extend(name for name in artifact_fields if name in provided)
         if "Access Kind" in provided:

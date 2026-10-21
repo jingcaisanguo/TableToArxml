@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Iterable, Optional
 
-from armodel import CompositionSwComponentType, EcuInstance, System
+from armodel import CompositionSwComponentType, System
 from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSAR
 from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.ARPackage import (
     ARPackage,
@@ -28,7 +28,7 @@ from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreTopol
     CommunicationCluster,
 )
 
-from ..common.armodel_compat import ISignalPort, new_parser, reset_document
+from ..common.armodel_compat import new_parser, reset_document
 from .values import ref_value
 
 LOGGER = logging.getLogger(__name__)
@@ -58,7 +58,6 @@ class ArxmlModel:
         self.diagnostics = diagnostics
         self._document = document
         self._elements: Optional[list] = None
-        self._directions: dict[str, dict[tuple[str, str, str], set[str]]] = {}
         self._groups: Optional[dict[str, set[str]]] = None
         self._composition_children: Optional[dict[str, list[tuple[str, str]]]] = None
 
@@ -95,7 +94,6 @@ class ArxmlModel:
         """底层文档被外部改写后清空查询缓存。"""
 
         self._elements = None
-        self._directions.clear()
         self._groups = None
         self._composition_children = None
 
@@ -257,40 +255,6 @@ class ArxmlModel:
                     result[name] = module
         return result
 
-    def signal_directions(self, ecu_path: str) -> dict[tuple[str, str, str], set[str]]:
-        """按目标 ECU 返回 (总线类型, 通道短名, SystemSignal 完整路径) 的方向。"""
-
-        if ecu_path in self._directions:
-            return self._directions[ecu_path]
-        if not isinstance(self._document.find(ecu_path), EcuInstance):
-            raise ValueError(f"ECU instance is not defined: {ecu_path}")
-        self.channels()
-        directions: dict[tuple[str, str, str], set[str]] = {}
-        for cluster in self._elements_of(CommunicationCluster):
-            module = bus_module(cluster)
-            if not module:
-                continue
-            for channel in cluster.getPhysicalChannels():
-                for triggering in channel.getISignalTriggerings():
-                    signal = self._document.find(ref_value(triggering.getISignalRef()))
-                    if not isinstance(signal, ISignal):
-                        continue
-                    system_path = ref_value(signal.getSystemSignalRef())
-                    if not system_path:
-                        continue
-                    key = (module, channel.getShortName(), system_path)
-                    signal_directions = directions.setdefault(key, set())
-                    for port_ref in triggering.getISignalPortRefs():
-                        port_path = ref_value(port_ref)
-                        if not port_path.startswith(ecu_path.rstrip("/") + "/"):
-                            continue
-                        port = self._document.find(port_path)
-                        if not isinstance(port, ISignalPort):
-                            raise ValueError(f"I-SIGNAL-PORT is not defined: {port_path}")
-                        signal_directions.add(ref_value(port.getCommunicationDirection()).upper())
-        self._directions[ecu_path] = directions
-        return directions
-
     def signal_groups(self) -> dict[str, set[str]]:
         """按 SystemSignal 完整路径返回其所属的 System/I-SignalGroup 完整路径。"""
 
@@ -317,10 +281,7 @@ class ArxmlModel:
         self._groups = group_members
         return group_members
 
-    def validate_signal_mapping(
-        self, signal_path: str, direction: str, ecu_path: str,
-        module: str | None = None, channel: str | None = None,
-    ) -> None:
+    def validate_signal_mapping(self, signal_path: str) -> None:
         signal = self._document.find(signal_path)
         if isinstance(signal, (SystemSignalGroup, ISignalGroup)):
             raise ValueError(f"Signal group '{signal_path}' cannot be mapped as an individual signal")
@@ -328,18 +289,6 @@ class ArxmlModel:
             raise ValueError(f"SystemSignal is not defined: {signal_path}")
         groups = self.signal_groups().get(signal_path, set())
         if groups:
-            raise ValueError(
+            LOGGER.warning(
                 f"Signal '{signal_path}' belongs to signal group(s) {', '.join(sorted(groups))}; "
-                "group members cannot be mapped directly")
-        actual: set[str] = set()
-        for (bus, channel_name, path), directions in self.signal_directions(ecu_path).items():
-            if path == signal_path and (module is None or module == bus) and (channel is None or channel == channel_name):
-                actual.update(directions)
-        if not actual or not actual.issubset({"IN", "OUT"}):
-            raise ValueError(
-                f"No valid signal direction for '{signal_path}', ECU '{ecu_path}', "
-                f"channel '{channel or '*'}': {sorted(actual)}")
-        if direction not in actual:
-            raise ValueError(
-                f"Signal direction mismatch for '{signal_path}', ECU '{ecu_path}', "
-                f"channel '{channel or '*'}': expected {direction}, actual {', '.join(sorted(actual))}")
+                "mapping the member individually; verify group semantics during integration")

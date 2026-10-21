@@ -22,6 +22,7 @@ from table_to_arxml.common.armodel_compat import (
     SystemArxmlWriter,
     get_accessed_variable,
     get_enable_update,
+    get_phys_constraint_limits,
     new_parser,
     reset_document,
     serialize,
@@ -47,6 +48,27 @@ MINIMAL = """<?xml version="1.0" encoding="UTF-8"?>
 def test_tool_modules_import_with_this_armodel_version():
     import table_to_arxml.swc.arxml_model  # noqa: F401
     import table_to_arxml.system.arxml_generator  # noqa: F401
+
+
+def test_physical_constraint_limits_survive_arxml_round_trip(tmp_path):
+    from table_to_arxml.swc.arxml_model import load_document
+    from table_to_arxml.swc.store import load_bytes
+
+    path = tmp_path / "constraints.arxml"
+    path.write_text(MINIMAL.format(name="Pkg"), encoding="utf-8")
+    document, _ = load_document(path)
+    fragment = document.add_data_constr("/Pkg", "Range", "0", "255")
+    source = MINIMAL.format(name="Pkg").replace(
+        "</AR-PACKAGE>", f"<ELEMENTS>{fragment}</ELEMENTS></AR-PACKAGE>"
+    )
+    reloaded, _ = load_bytes(source.encode("utf-8"))
+    assert reloaded.data_constr_definition("/Pkg/Range") == (("0", "255"),)
+
+
+def test_empty_physical_constraint_limits():
+    from armodel.models.M2.MSR.AsamHdo.Constraints.GlobalConstraints import PhysConstrs
+
+    assert get_phys_constraint_limits(PhysConstrs()) == (None, None)
 
 
 def test_document_is_a_global_singleton_cleared_by_reset(tmp_path):

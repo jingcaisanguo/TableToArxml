@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Sequence, Union
 
@@ -63,7 +62,7 @@ def check_existing_definition(context: str, existing: object, expected: object) 
 
 
 def check_port(existing: PortInfo | None, port: ResolvedPort) -> None:
-    """校验端口方向、接口引用和本身的 ComSpec，不解析引用对象。
+    """校验端口方向、接口引用和工作簿显式填写的 ComSpec 字段。
 
     同名端口已存在但内容不同时报错，使脚本可重复执行而不会静默覆盖已有配置。
     """
@@ -82,11 +81,40 @@ def check_port(existing: PortInfo | None, port: ResolvedPort) -> None:
             f"DEST={existing.interface_dest!r}, interface={existing.interface_path!r}; "
             "please choose a different port name"
         )
-    for label, actual, expected in (
-        ("Enable Update elements", existing.update_elements, port.update_elements),
-        ("QueueLength elements", existing.queued_elements, port.queued_elements),
-        ("sender ComSpec elements", existing.sender_elements, port.sender_elements),
-    ):
+    provided = port.spec.provided_fields
+    comparisons: list[tuple[str, object, object]] = []
+    if "Enable Update" in provided:
+        expected = port.update_elements if port.spec.enable_update else ()
+        comparisons.append(("Enable Update elements", existing.update_elements, expected))
+    if "Queue Length" in provided:
+        expected_queue = port.queued_elements if port.spec.queue_length > 0 else ()
+        comparisons.append(("QueueLength elements", existing.queued_elements, expected_queue))
+    if "Transmission Acknowledge Timeout" in provided:
+        comparisons.append((
+            "Transmission Acknowledge Timeout",
+            tuple((path, timeout) for path, timeout, _ in existing.sender_elements),
+            tuple((path, timeout) for path, timeout, _ in port.sender_elements),
+        ))
+    if "Uses End To End Protection" in provided:
+        actual_protection = tuple(
+            (path, protection) for path, _, protection in existing.sender_elements
+        )
+        if port.spec.uses_protection:
+            expected_protection = tuple(
+                (path, protection) for path, _, protection in port.sender_elements
+            )
+            comparisons.append((
+                "Uses End To End Protection",
+                actual_protection,
+                expected_protection,
+            ))
+        elif any(protection for _, protection in actual_protection):
+            comparisons.append((
+                "Uses End To End Protection",
+                actual_protection,
+                tuple((path, False) for path, _ in actual_protection),
+            ))
+    for label, actual, expected in comparisons:
         if actual != expected:
             raise ValueError(
                 f"{port.port_path} conflicts with workbook: {label}={list(actual)}; "
@@ -146,32 +174,26 @@ def apply_enumerations(
     """
     result = StepResult()
     for spec in enumerations:
-        if not store.check_definition_target(
-            (spec.compu_method_path, spec.path, spec.data_constr_path), spec.target_file
-        ):
-            result.skipped += 1
-            continue
-        document = store.load(spec.target_file)
-
         lower, upper = spec.limits
         elements = (
             (
                 spec.compu_method_path,
-                partial(document.add_compu_method, values=spec.values),
                 "COMPU-METHOD",
-                document.compu_method_definition,
+                "compu_method_definition",
+                "add_compu_method",
+                {"values": spec.values},
                 ("TEXTTABLE", tuple((value, value, label) for value, label in spec.values)),
             ),
             (
                 spec.path,
-                partial(
-                    document.add_enum_data_type,
-                    base_type_path=spec.base_type,
-                    compu_method_path=spec.compu_method_path,
-                    data_constr_path=spec.data_constr_path,
-                ),
                 "IMPLEMENTATION-DATA-TYPE",
-                document.implementation_type_definition,
+                "implementation_type_definition",
+                "add_enum_data_type",
+                {
+                    "base_type_path": spec.base_type,
+                    "compu_method_path": spec.compu_method_path,
+                    "data_constr_path": spec.data_constr_path,
+                },
                 ImplementationTypeInfo(
                     "TYPE_REFERENCE", spec.base_type, spec.compu_method_path,
                     spec.data_constr_path,
@@ -179,24 +201,28 @@ def apply_enumerations(
             ),
             (
                 spec.data_constr_path,
-                partial(document.add_data_constr, lower_limit=lower, upper_limit=upper),
                 "DATA-CONSTR",
-                document.data_constr_definition,
+                "data_constr_definition",
+                "add_data_constr",
+                {"lower_limit": lower, "upper_limit": upper},
                 ((lower, upper),),
             ),
         )
 
         failed = False
         inserted = 0
-        for element_path, build_fragment, label, read_definition, expected in elements:
-            if document.element_exists(element_path):
+        for element_path, label, read_method, add_method, arguments, expected in elements:
+            existing_file = store.find_element_file(element_path)
+            if existing_file is not None:
+                existing_document = store.load(existing_file)
                 if not check_existing_definition(
-                    f"{label} {element_path} in {spec.target_file}",
-                    read_definition(element_path),
+                    f"{label} {element_path} in {existing_file}",
+                    getattr(existing_document, read_method)(element_path),
                     expected,
                 ):
                     failed = True
                 continue
+            document = store.load(spec.target_file)
             package_path, _, name = element_path.rpartition("/")
             context = f"enumeration {spec.path} ({label})"
             if not document.package_exists(package_path):
@@ -206,7 +232,7 @@ def apply_enumerations(
                 failed = True
                 break
             try:
-                fragment = build_fragment(package_path, name)
+                fragment = getattr(document, add_method)(package_path, name, **arguments)
             except ValueError as error:
                 LOGGER.error("Skipped %s: %s", context, clean_message(error))
                 failed = True
@@ -248,11 +274,9 @@ def apply_composite_types(
             result.skipped += 1
             continue
         seen_paths.add(spec.path)
-        if not store.check_definition_target((spec.path,), spec.target_file):
-            result.skipped += 1
-            continue
-        document = store.load(spec.target_file)
-        if document.element_exists(spec.path):
+        existing_file = store.find_element_file(spec.path)
+        if existing_file is not None:
+            document = store.load(existing_file)
             if isinstance(spec, ArraySpec):
                 expected = ImplementationTypeInfo("ARRAY", members=((
                     spec.element_name, "TYPE_REFERENCE", spec.element_type_ref,
@@ -264,11 +288,12 @@ def apply_composite_types(
                     for name, type_ref in spec.members
                 ))
             if not check_existing_definition(
-                f"{kind} {spec.path} in {spec.target_file}",
+                f"{kind} {spec.path} in {existing_file}",
                 document.implementation_type_definition(spec.path), expected,
             ):
                 result.skipped += 1
             continue
+        document = store.load(spec.target_file)
         if not document.package_exists(spec.package_path):
             LOGGER.error(
                 "Skipped %s %s: package %s not found in %s",
@@ -317,33 +342,32 @@ def apply_interfaces(
     """
     result = StepResult()
     for spec in interfaces:
-        if not store.check_definition_target((spec.path,), spec.target_file):
-            result.skipped += 1
-            continue
-        document = store.load(spec.target_file)
         if isinstance(spec, InterfaceSpec):
             label, dest, members = "SR interface", SENDER_RECEIVER_INTERFACE, spec.data_elements
-            read_definition, add_interface = document.sender_receiver_definition, document.add_sr_interface
+            read_method, add_method = "sender_receiver_definition", "add_sr_interface"
             expected: list = list(spec.data_elements)
             created_detail = f"{len(spec.data_elements)} data element(s)"
         else:
             label, dest, members = "CS interface", CLIENT_SERVER_INTERFACE, spec.operations
-            read_definition, add_interface = document.client_server_definition, document.add_cs_interface
+            read_method, add_method = "client_server_definition", "add_cs_interface"
             expected = [(operation, list(arguments)) for operation, arguments in spec.operations]
             created_detail = f"{len(spec.operations)} operation(s)"
 
-        if document.element_exists(spec.path):
+        existing_file = store.find_element_file(spec.path)
+        if existing_file is not None:
+            document = store.load(existing_file)
             if not check_existing_definition(
-                f"{label} {spec.path} in {spec.target_file}",
+                f"{label} {spec.path} in {existing_file}",
                 (
                     document.interface_dest(spec.path),
-                    read_definition(spec.path),
+                    getattr(document, read_method)(spec.path),
                     document.interface_is_service(spec.path),
                 ),
                 (dest, expected, spec.is_service),
             ):
                 result.skipped += 1
             continue
+        document = store.load(spec.target_file)
         if not document.package_exists(spec.package_path):
             LOGGER.error(
                 "Skipped %s %s: package %s not found in %s",
@@ -355,7 +379,9 @@ def apply_interfaces(
             result.skipped += 1
             continue
         try:
-            fragment = add_interface(spec.package_path, spec.name, members, spec.is_service)
+            fragment = getattr(document, add_method)(
+                spec.package_path, spec.name, members, spec.is_service
+            )
         except ValueError as error:
             LOGGER.error("Skipped %s %s: %s", label, spec.path, clean_message(error))
             result.skipped += 1
@@ -561,6 +587,7 @@ def build_changes(
         source = store.read(source_file)
         fragments_by_component: dict[str, list[str]] = defaultdict(list)
         fragments_by_runnable: dict[tuple[str, str], list[str]] = defaultdict(list)
+        accesses_by_runnable: dict[tuple[str, str], list[ResolvedAccess]] = defaultdict(list)
         created_ports: list[ResolvedPort] = []
         existing_ports: list[ResolvedPort] = []
         created_accesses: list[str] = []
@@ -572,7 +599,8 @@ def build_changes(
                 if existing is not None:
                     check_port(existing, port)
                     LOGGER.warning(
-                        "Port %s already exists with the same definition (including ComSpec); skipped",
+                        "Port %s already exists with the same definition for explicitly provided "
+                        "fields; skipped",
                         port.port_path,
                     )
                     existing_ports.append(port)
@@ -619,8 +647,6 @@ def build_changes(
                         access.access_path,
                     )
                     continue
-                if not container_ready(source, access.runnable_path, container):
-                    continue
                 access_fragment = document.add_access(
                     access.runnable_path, access.name, access.kind, access.port_path, access.data_path
                 )
@@ -629,8 +655,7 @@ def build_changes(
                 LOGGER.error("Skipped data access %s: %s", access.access_path, clean_message(error))
                 continue
             fragments_by_runnable[(access.runnable_path, container)].append(access_fragment)
-            created_accesses.append(access.access_path)
-            checked_accesses.append(access)
+            accesses_by_runnable[(access.runnable_path, container)].append(access)
             LOGGER.info("create %s %s -> %s", container, access.access_path, access.data_path)
 
         source = xml_patch.insert_many(
@@ -638,12 +663,24 @@ def build_changes(
             [
                 (xml_patch.container_end(source, component_path, "PORTS"), fragments)
                 for component_path, fragments in fragments_by_component.items()
-            ]
-            + [
-                (xml_patch.container_end(source, runnable_path, container), fragments)
-                for (runnable_path, container), fragments in fragments_by_runnable.items()
             ],
         )
+        for (runnable_path, container), fragments in fragments_by_runnable.items():
+            try:
+                source = xml_patch.insert_or_create_child_container(
+                    source, runnable_path, container, fragments
+                )
+            except ValueError as error:
+                LOGGER.error(
+                    "Skipped data accesses in %s: %s",
+                    runnable_path,
+                    clean_message(error),
+                )
+                result.skipped += len(fragments)
+                continue
+            group_accesses = accesses_by_runnable[(runnable_path, container)]
+            checked_accesses.extend(group_accesses)
+            created_accesses.extend(access.access_path for access in group_accesses)
         LOGGER.info("Re-parsing ARXML for validation: %s", source_file)
         validate_document(source, checked_ports, checked_accesses)
         store.write(source_file, source)

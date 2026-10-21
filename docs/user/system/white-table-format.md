@@ -33,7 +33,7 @@
 | `Composition` | 完整路径，如 `/SwComponentTypes/TopComposition` | 目标 `COMPOSITION-SW-COMPONENT-TYPE`，新组件实例和连接写入其中 |
 | `System` | 完整路径或短名，如 `/VehicleProject/MySystem` | 生成的 SYSTEM；与已加载 System 同路径时沿用其 CATEGORY、SYSTEM-VERSION，并按拆分合并到该 System |
 | `RootSwCompositionPrototype` | 完整路径，如 `/VehicleProject/MySystem/TopLevelComposition` | System 的根组合原型；`Composition` 必须在其下被唯一地逐层实例化 |
-| `EcuInstance` | 完整路径，如 `/EcuInstances/MyEcu` | SwcToEcuMapping 及信号方向校验使用的 ECU |
+| `EcuInstance` | 完整路径，如 `/EcuInstances/MyEcu` | SwcToEcuMapping 及信号映射使用的 ECU |
 
 绿表模式下这些值来自 config `general`（未填的项按 [configuration.md](configuration.md) 推导）；白表模式下只使用白表中的值，不读取 config `general` 的这 4 项（`systemMapping` 仍取自 config）。
 
@@ -87,7 +87,7 @@
 | `Port` | 端口短名，接口须为 SenderReceiverInterface |
 | `DataElement` | 接口中的数据元素短名 |
 
-会校验信号在 `EcuInstance` 上的 I-SIGNAL-PORT 通信方向与 `Direction` 一致。
+仅校验表格方向与 R/P 端口方向一致，以及接口、数据元素、SystemSignal 和 ECU 引用存在；不追踪 I-SIGNAL-PORT 实际通信方向。组成员单独映射仅记录 WARNING。
 
 ## SenderReceiverToSignalGroup
 
@@ -98,7 +98,7 @@
 | `SignalGroup` | SystemSignalGroup 完整路径 |
 | `SW-C` | 组件 |
 | `Port` | 端口短名，接口须为 SenderReceiverInterface |
-| `DataElement` | 数据元素短名，其实现数据类型须为 `STRUCTURE` |
+| `DataElement` | 接口中已存在的数据元素短名，不检查数据类型 |
 
 不自动展开字段级类型映射。
 

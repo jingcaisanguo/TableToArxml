@@ -15,7 +15,7 @@ from armodel import (
     ARLiteral, AUTOSAR, ApplicationSwComponentType,
     AtomicSwComponentType, ComplexDeviceDriverSwComponentType,
     ComponentInSystemInstanceRef, CompositionSwComponentType,
-    EcuAbstractionSwComponentType, PPortInCompositionInstanceRef, PPortPrototype,
+    EcuAbstractionSwComponentType, EcuInstance, PPortInCompositionInstanceRef, PPortPrototype,
     RPortInCompositionInstanceRef, RPortPrototype, RefType,
     SenderReceiverToSignalGroupMapping, SenderReceiverToSignalMapping,
     ServiceSwComponentType, TRefType, VariableDataPrototypeInSystemInstanceRef,
@@ -410,15 +410,12 @@ class _Resolver:
         signal_path = values["SignalGroup" if group else "Signal"]
         autosar_path(signal_path, "SignalGroup" if group else "Signal")
         if not group:
-            self.model.validate_signal_mapping(signal_path, direction, self.data.general["EcuInstance"])
+            self.model.validate_signal_mapping(signal_path)
         signal = self.lookup("findSystemSignalGroup" if group else "findSystemSignal", signal_path)
         if signal is None:
             raise ValueError(f"signal{' group' if group else ''} '{signal_path}' is not defined")
-        if group:
-            type_path = ref_value(data_element.getTypeTRef())
-            data_type = self.lookup("findImplementationDataType", type_path)
-            if data_type is None or ref_value(data_type.getCategory()) != "STRUCTURE":
-                raise ValueError(f"signal group DataElement '{data_path}' requires a STRUCTURE implementation type")
+        if not isinstance(self.lookup("find", self.data.general["EcuInstance"]), EcuInstance):
+            raise ValueError(f"ECU instance is not defined: {self.data.general['EcuInstance']}")
         self.signals.append(_SignalMapping(endpoint, data_path, signal.getFullName(), direction, group))
 
     def resolve_system(self) -> None:

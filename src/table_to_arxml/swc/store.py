@@ -41,7 +41,11 @@ class SourceStore:
     """
 
     def __init__(self, source_files: Sequence[Path] = ()) -> None:
-        self.source_files = set(source_files)
+        self.source_files: set[Path] = set()
+        self._ordered_files: list[Path] = []
+        self.element_files: dict[str, Path | None] = {}
+        for path in source_files:
+            self._register_file(path)
         self._buffers: dict[Path, bytes] = {}
         self._versions: dict[Path, int] = defaultdict(int)
         self._short_name_index: dict[str, list[Path]] | None = None
@@ -52,16 +56,17 @@ class SourceStore:
         self.definitions: dict[tuple[str, str], tuple[Path, str] | None] = {}
 
     def read(self, path: Path) -> bytes:
-        self.source_files.add(path)
+        self._register_file(path)
         return self._buffers[path] if path in self._buffers else path.read_bytes()
 
     def write(self, path: Path, document: bytes) -> None:
-        self.source_files.add(path)
+        self._register_file(path)
         self._buffers[path] = document
         self._versions[path] += 1
         self._short_name_index = None
         self._short_name_index_key = None
         self.definitions.clear()
+        self.element_files.clear()
 
     def modified(self) -> dict[Path, bytes]:
         return dict(self._buffers)
@@ -79,40 +84,51 @@ class SourceStore:
             except UnicodeDecodeError as error:
                 LOGGER.error("Cannot read UTF-8 ARXML %s: %s", arxml_file, clean_message(error))
                 continue
-            # 同一文件里重复出现的简称只记一次，否则同一个定义会被误报为多个定义。
+            # 同一文件里重复出现的简称只记一次，以完整路径再确认定义。
             for short_name in {match.group(1) for match in SHORT_NAME_PATTERN.finditer(text)}:
                 index[short_name].append(arxml_file)
         self._short_name_index = dict(index)
         self._short_name_index_key = key
         return self._short_name_index
 
-    def check_definition_target(self, element_paths: Sequence[str], target_file: Path) -> bool:
-        """A package element must not duplicate a definition in another input or target."""
+    def find_element_file(self, element_path: str) -> Path | None:
+        """返回清单及目标文件顺序中首次定义完整路径的文件。"""
 
-        self.source_files.add(target_file)
-        index = self.short_name_index(sorted(self.source_files))
-        valid = True
-        for element_path in element_paths:
-            name = element_path.rsplit("/", 1)[-1]
-            for candidate in index.get(name, ()):
-                if candidate == target_file:
-                    continue
-                try:
-                    exists = self.load(candidate).element_exists(element_path)
-                except (OSError, ValueError, RuntimeError, SyntaxError) as error:
-                    LOGGER.error(
-                        "Cannot check definition %s in %s: %s", element_path, candidate, clean_message(error)
-                    )
-                    valid = False
-                    continue
-                if exists:
-                    LOGGER.error(
-                        "Definition %s already exists in another file: %s; "
-                        "Target ARXML %s would duplicate it; use the existing file or a different name",
-                        element_path, candidate, target_file,
-                    )
-                    valid = False
-        return valid
+        if element_path in self.element_files:
+            return self.element_files[element_path]
+        short_name = element_path.rsplit("/", 1)[-1]
+        matches: list[Path] = []
+        for candidate in self.short_name_index(self._ordered_files).get(short_name, ()):
+            try:
+                if self.load(candidate).element_exists(element_path):
+                    matches.append(candidate)
+            except (OSError, ValueError, RuntimeError, SyntaxError) as error:
+                LOGGER.error(
+                    "Cannot check definition %s in %s: %s",
+                    element_path,
+                    candidate,
+                    clean_message(error),
+                )
+                raise ValueError(f"Cannot determine first definition of {element_path}") from error
+        if len(matches) > 1:
+            LOGGER.warning(
+                "Multiple definitions found for %s: %s; using %s. "
+                "The AUTOSAR importer should validate duplicate definitions",
+                element_path,
+                ", ".join(str(path) for path in matches),
+                matches[0],
+            )
+        first_match = matches[0] if matches else None
+        self.element_files[element_path] = first_match
+        return first_match
+
+    def _register_file(self, path: Path) -> None:
+        if path not in self.source_files:
+            self.source_files.add(path)
+            self._ordered_files.append(path)
+            self._short_name_index = None
+            self._short_name_index_key = None
+            self.element_files.clear()
 
     def load(self, path: Path) -> ArxmlDocument:
         """按缓存内容加载文档；原始文件的解析诊断只在首次解析时记录一次。"""
