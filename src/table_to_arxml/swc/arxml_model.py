@@ -82,11 +82,13 @@ from ..common.armodel_compat import (
     VariableInAtomicSWCTypeInstanceRef,
     get_accessed_variable,
     get_enable_update,
+    get_phys_constraint_limits,
     new_parser,
     reset_document,
     serialize,
     set_accessed_variable,
     set_enable_update,
+    set_phys_constraint_limits,
     strip_handle_timeout_type,
     to_fragment,
 )
@@ -776,9 +778,10 @@ class ArxmlDocument:
             phys = rule.physConstrs
             if phys is None:
                 return None
+            lower, upper = get_phys_constraint_limits(phys)
             limits.append((
-                self._value_text(phys.lower_limit),
-                self._value_text(phys.upper_limit),
+                self._value_text(lower),
+                self._value_text(upper),
             ))
         return tuple(limits)
 
@@ -945,8 +948,9 @@ class ArxmlDocument:
         constr = package.createDataConstr(constr_name)
         rule = DataConstrRule()
         phys = PhysConstrs()
-        phys.lower_limit = Limit().setValue(lower_limit)
-        phys.upper_limit = Limit().setValue(upper_limit)
+        set_phys_constraint_limits(
+            phys, Limit().setValue(lower_limit), Limit().setValue(upper_limit)
+        )
         rule.physConstrs = phys
         constr.getDataConstrRules().append(rule)
         return self._serialize(ARXMLWriter().writeDataConstr, constr)

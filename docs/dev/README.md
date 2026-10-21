@@ -123,7 +123,8 @@ table-to-swc-arxml --help
 armodel 是两个工具的直接依赖，代码中不再为它做可替换的抽象层。依赖 armodel/openpyxl 内部行为的代码集中在
 `common/armodel_compat.py` 和 `common/openpyxl_compat.py`，由 [test/contract](../../test/contract) 中的契约测试覆盖；
 armodel 1.9.4 和 1.9.8 先后改名或移动了部分类和方法（如 `ARBoolean` → `Boolean`、`setEnableUpdated` → `setEnableUpdate`），
-1.9.8 还删除了 `SenderReceiverToSignalMapping` 的 `COMMUNICATION-DIRECTION`；`armodel_compat.py` 按实际版本选择，
+1.9.8 还删除了 `SenderReceiverToSignalMapping` 的 `COMMUNICATION-DIRECTION`；物理约束上下限的读写兼容旧版属性和新版 getter/setter。
+`armodel_compat.py` 按实际版本选择，
 其余代码只从这里导入受影响的类和方法，生成结果在各版本下一致。
 CI 对 armodel 1.8.7、1.9.2、1.9.8 运行这些测试；依赖范围不设上限，armodel 发布新版本后应先补充验证。
 若“缺陷仍存在”类断言失败，应调查库行为变化，不能直接认定绕行代码可以删除。
