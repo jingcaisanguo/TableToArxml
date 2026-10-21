@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Sequence, Union
 
@@ -175,32 +174,26 @@ def apply_enumerations(
     """
     result = StepResult()
     for spec in enumerations:
-        if not store.check_definition_target(
-            (spec.compu_method_path, spec.path, spec.data_constr_path), spec.target_file
-        ):
-            result.skipped += 1
-            continue
-        document = store.load(spec.target_file)
-
         lower, upper = spec.limits
         elements = (
             (
                 spec.compu_method_path,
-                partial(document.add_compu_method, values=spec.values),
                 "COMPU-METHOD",
-                document.compu_method_definition,
+                "compu_method_definition",
+                "add_compu_method",
+                {"values": spec.values},
                 ("TEXTTABLE", tuple((value, value, label) for value, label in spec.values)),
             ),
             (
                 spec.path,
-                partial(
-                    document.add_enum_data_type,
-                    base_type_path=spec.base_type,
-                    compu_method_path=spec.compu_method_path,
-                    data_constr_path=spec.data_constr_path,
-                ),
                 "IMPLEMENTATION-DATA-TYPE",
-                document.implementation_type_definition,
+                "implementation_type_definition",
+                "add_enum_data_type",
+                {
+                    "base_type_path": spec.base_type,
+                    "compu_method_path": spec.compu_method_path,
+                    "data_constr_path": spec.data_constr_path,
+                },
                 ImplementationTypeInfo(
                     "TYPE_REFERENCE", spec.base_type, spec.compu_method_path,
                     spec.data_constr_path,
@@ -208,24 +201,28 @@ def apply_enumerations(
             ),
             (
                 spec.data_constr_path,
-                partial(document.add_data_constr, lower_limit=lower, upper_limit=upper),
                 "DATA-CONSTR",
-                document.data_constr_definition,
+                "data_constr_definition",
+                "add_data_constr",
+                {"lower_limit": lower, "upper_limit": upper},
                 ((lower, upper),),
             ),
         )
 
         failed = False
         inserted = 0
-        for element_path, build_fragment, label, read_definition, expected in elements:
-            if document.element_exists(element_path):
+        for element_path, label, read_method, add_method, arguments, expected in elements:
+            existing_file = store.find_element_file(element_path)
+            if existing_file is not None:
+                existing_document = store.load(existing_file)
                 if not check_existing_definition(
-                    f"{label} {element_path} in {spec.target_file}",
-                    read_definition(element_path),
+                    f"{label} {element_path} in {existing_file}",
+                    getattr(existing_document, read_method)(element_path),
                     expected,
                 ):
                     failed = True
                 continue
+            document = store.load(spec.target_file)
             package_path, _, name = element_path.rpartition("/")
             context = f"enumeration {spec.path} ({label})"
             if not document.package_exists(package_path):
@@ -235,7 +232,7 @@ def apply_enumerations(
                 failed = True
                 break
             try:
-                fragment = build_fragment(package_path, name)
+                fragment = getattr(document, add_method)(package_path, name, **arguments)
             except ValueError as error:
                 LOGGER.error("Skipped %s: %s", context, clean_message(error))
                 failed = True
@@ -277,11 +274,9 @@ def apply_composite_types(
             result.skipped += 1
             continue
         seen_paths.add(spec.path)
-        if not store.check_definition_target((spec.path,), spec.target_file):
-            result.skipped += 1
-            continue
-        document = store.load(spec.target_file)
-        if document.element_exists(spec.path):
+        existing_file = store.find_element_file(spec.path)
+        if existing_file is not None:
+            document = store.load(existing_file)
             if isinstance(spec, ArraySpec):
                 expected = ImplementationTypeInfo("ARRAY", members=((
                     spec.element_name, "TYPE_REFERENCE", spec.element_type_ref,
@@ -293,11 +288,12 @@ def apply_composite_types(
                     for name, type_ref in spec.members
                 ))
             if not check_existing_definition(
-                f"{kind} {spec.path} in {spec.target_file}",
+                f"{kind} {spec.path} in {existing_file}",
                 document.implementation_type_definition(spec.path), expected,
             ):
                 result.skipped += 1
             continue
+        document = store.load(spec.target_file)
         if not document.package_exists(spec.package_path):
             LOGGER.error(
                 "Skipped %s %s: package %s not found in %s",
@@ -346,33 +342,32 @@ def apply_interfaces(
     """
     result = StepResult()
     for spec in interfaces:
-        if not store.check_definition_target((spec.path,), spec.target_file):
-            result.skipped += 1
-            continue
-        document = store.load(spec.target_file)
         if isinstance(spec, InterfaceSpec):
             label, dest, members = "SR interface", SENDER_RECEIVER_INTERFACE, spec.data_elements
-            read_definition, add_interface = document.sender_receiver_definition, document.add_sr_interface
+            read_method, add_method = "sender_receiver_definition", "add_sr_interface"
             expected: list = list(spec.data_elements)
             created_detail = f"{len(spec.data_elements)} data element(s)"
         else:
             label, dest, members = "CS interface", CLIENT_SERVER_INTERFACE, spec.operations
-            read_definition, add_interface = document.client_server_definition, document.add_cs_interface
+            read_method, add_method = "client_server_definition", "add_cs_interface"
             expected = [(operation, list(arguments)) for operation, arguments in spec.operations]
             created_detail = f"{len(spec.operations)} operation(s)"
 
-        if document.element_exists(spec.path):
+        existing_file = store.find_element_file(spec.path)
+        if existing_file is not None:
+            document = store.load(existing_file)
             if not check_existing_definition(
-                f"{label} {spec.path} in {spec.target_file}",
+                f"{label} {spec.path} in {existing_file}",
                 (
                     document.interface_dest(spec.path),
-                    read_definition(spec.path),
+                    getattr(document, read_method)(spec.path),
                     document.interface_is_service(spec.path),
                 ),
                 (dest, expected, spec.is_service),
             ):
                 result.skipped += 1
             continue
+        document = store.load(spec.target_file)
         if not document.package_exists(spec.package_path):
             LOGGER.error(
                 "Skipped %s %s: package %s not found in %s",
@@ -384,7 +379,9 @@ def apply_interfaces(
             result.skipped += 1
             continue
         try:
-            fragment = add_interface(spec.package_path, spec.name, members, spec.is_service)
+            fragment = getattr(document, add_method)(
+                spec.package_path, spec.name, members, spec.is_service
+            )
         except ValueError as error:
             LOGGER.error("Skipped %s %s: %s", label, spec.path, clean_message(error))
             result.skipped += 1
