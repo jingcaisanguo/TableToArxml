@@ -42,6 +42,7 @@ table-to-swc-arxml --config ./config/swc.toml
 
 所有修改先在内存中进行，后面的步骤读取的是前面步骤修改后的内容。因此同一次运行中，
 端口可以引用本次新建的接口，接口可以引用本次新建的数据类型，`--dry-run` 也能完整校验整条链路。
+汇总中的“to create”仅表示内存中准备的新对象，不表示已经写盘；实际写出成功后另行报告文件数量。
 
 ## 检查规则
 
@@ -60,6 +61,7 @@ table-to-swc-arxml --config ./config/swc.toml
 | 清单条目扩展名为 `.arxml` 且文件存在，通配符条目至少匹配一个文件 | 默认 `WARNING` 后跳过该条目；`strictList=true` 时直接失败 |
 | 清单中同一文件重复出现 | 只保留第一次，`INFO` 记录 |
 | 多个 ARXML 中存在同一完整 AUTOSAR 路径的组件、接口或类型定义 | 按清单顺序采用第一个定义并记录 `WARNING`；不比较后续副本，由 EB 导入工程时检查冲突 |
+| 清单或生成目标中存在 XML 语法损坏、无法读取的文件 | `ERROR`，阻止写出；即使已找到首个定义，也不忽略后续文件的解析失败。首文件优先不表示允许损坏输入 |
 | 清单中至少有一个可用文件 | `ERROR`，退出码 `1` |
 
 ### 工作簿检查
@@ -88,7 +90,8 @@ table-to-swc-arxml --config ./config/swc.toml
 | `Enable Update=Y` 与正数 `Queue Length` 不同时出现 | `R-Ports` |
 | `Create RTE Artifact=Y` 时，SR P-Port 和所有 R-Port 填写 `Runnable Name` | 端口页 |
 | 端口页 `Access Kind` 与端口方向匹配（P：`Send`/`Write`；R：`ReceiveByArgument`/`ReceiveByValue`/`Read`） | 端口页 |
-| 合法但在当前接口或 `Create RTE Artifact` 设置下不生效的 Runnable/RTE 列 | `WARNING`，列值忽略；非法值仍 `ERROR` |
+| 端口页 `Create RTE Artifact` 未启用时的 Runnable/RTE 列 | `WARNING` 后忽略，不校验这些不生效列的值；开关本身仍须合法 |
+| `Data Accesses` 的 `Runnable Name` | 始终按 SHORT-NAME 校验，不受端口页的 RTE 开关影响 |
 | CS 参数名、方向、类型全填或全空（全空代表无参数 operation） | `CS-Interfaces` |
 
 唯一性和一致性检查：
@@ -260,6 +263,7 @@ table-to-swc-arxml --config ./config/swc.toml
 - 只写出内容确实变化的文件。
 - `outputDir` 模式的最终文件路径不得与任何输入 ARXML 重合，包括符号链接、硬链接等别名；否则整次失败。需要覆盖源文件时必须显式使用 `inPlace`。
 - 每个文件先写临时文件再原子替换；多个文件写出中途失败时，尝试把已替换的文件恢复原样。
+- 恢复某个文件再次失败时，仍继续恢复其他文件，并在最终错误中汇总未恢复路径和最初的写出错误；应检查这些路径后再重试，不保证断电或存储故障下的跨文件事务。
 - `armodel` 使用全局模型单例，不要在同一进程中并行执行多个任务。
 
 ## 日志与退出码

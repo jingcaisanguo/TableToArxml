@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-import re
 import tempfile
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
-from typing import Sequence
+from typing import Literal, Sequence
 
 from ..common.output import write_files_atomically
 from ..common.messages import clean_message
@@ -15,7 +15,7 @@ from ..common.paths import validate_output_paths
 from .arxml_model import ArxmlDocument, DocumentSummary, load_document, load_generation
 
 LOGGER = logging.getLogger(__name__)
-SHORT_NAME_PATTERN = re.compile(r"<SHORT-NAME>\s*([^<]*?)\s*</SHORT-NAME>")
+DefinitionKind = Literal["component", "interface"]
 
 
 def load_bytes(source: bytes) -> tuple[ArxmlDocument, list[str]]:
@@ -41,19 +41,22 @@ class SourceStore:
     """
 
     def __init__(self, source_files: Sequence[Path] = ()) -> None:
-        self.source_files: set[Path] = set()
-        self._ordered_files: list[Path] = []
-        self.element_files: dict[str, Path | None] = {}
-        for path in source_files:
-            self._register_file(path)
+        self._source_files: dict[Path, None] = {}
+        self._definition_file_cache: dict[str, Path | None] = {}
         self._buffers: dict[Path, bytes] = {}
-        self._versions: dict[Path, int] = defaultdict(int)
+        self._file_revisions: dict[Path, int] = defaultdict(int)
         self._short_name_index: dict[str, list[Path]] | None = None
         self._short_name_index_key: tuple[Path, ...] | None = None
-        self._loaded: tuple[Path, int, int, ArxmlDocument] | None = None
+        self._loaded_document_cache: tuple[Path, int, int, ArxmlDocument] | None = None
         self._summaries: dict[tuple[Path, int], DocumentSummary] = {}
         self._parsed: set[tuple[Path, int]] = set()
-        self.definitions: dict[tuple[str, str], tuple[Path, str] | None] = {}
+        self.definitions: dict[tuple[tuple[Path, ...], DefinitionKind, str], tuple[Path, str] | None] = {}
+        for path in source_files:
+            self._register_file(path)
+
+    @property
+    def source_files(self) -> tuple[Path, ...]:
+        return tuple(self._source_files)
 
     def read(self, path: Path) -> bytes:
         self._register_file(path)
@@ -62,11 +65,11 @@ class SourceStore:
     def write(self, path: Path, document: bytes) -> None:
         self._register_file(path)
         self._buffers[path] = document
-        self._versions[path] += 1
+        self._file_revisions[path] += 1
         self._short_name_index = None
         self._short_name_index_key = None
         self.definitions.clear()
-        self.element_files.clear()
+        self._definition_file_cache.clear()
 
     def modified(self) -> dict[Path, bytes]:
         return dict(self._buffers)
@@ -84,21 +87,29 @@ class SourceStore:
             except UnicodeDecodeError as error:
                 LOGGER.error("Cannot read UTF-8 ARXML %s: %s", arxml_file, clean_message(error))
                 continue
-            # 同一文件里重复出现的简称只记一次，以完整路径再确认定义。
-            for short_name in {match.group(1) for match in SHORT_NAME_PATTERN.finditer(text)}:
-                index[short_name].append(arxml_file)
+            try:
+                root = ET.fromstring(text)
+            except ET.ParseError as error:
+                LOGGER.error("Cannot index ARXML %s; parser failures: %s", arxml_file, clean_message(error))
+                continue
+            names = {
+                (element.text or "").strip() for element in root.iter()
+                if element.tag.rsplit("}", 1)[-1] == "SHORT-NAME"
+            }
+            for element_short_name in names:
+                index[element_short_name].append(arxml_file)
         self._short_name_index = dict(index)
         self._short_name_index_key = key
         return self._short_name_index
 
-    def find_element_file(self, element_path: str) -> Path | None:
+    def find_first_definition_file(self, element_path: str) -> Path | None:
         """返回清单及目标文件顺序中首次定义完整路径的文件。"""
 
-        if element_path in self.element_files:
-            return self.element_files[element_path]
-        short_name = element_path.rsplit("/", 1)[-1]
+        if element_path in self._definition_file_cache:
+            return self._definition_file_cache[element_path]
+        element_short_name = element_path.rsplit("/", 1)[-1]
         matches: list[Path] = []
-        for candidate in self.short_name_index(self._ordered_files).get(short_name, ()):
+        for candidate in self.short_name_index(self.source_files).get(element_short_name, ()):
             try:
                 if self.load(candidate).element_exists(element_path):
                     matches.append(candidate)
@@ -119,23 +130,23 @@ class SourceStore:
                 matches[0],
             )
         first_match = matches[0] if matches else None
-        self.element_files[element_path] = first_match
+        self._definition_file_cache[element_path] = first_match
         return first_match
 
     def _register_file(self, path: Path) -> None:
-        if path not in self.source_files:
-            self.source_files.add(path)
-            self._ordered_files.append(path)
+        if path not in self._source_files:
+            self._source_files[path] = None
             self._short_name_index = None
             self._short_name_index_key = None
-            self.element_files.clear()
+            self._definition_file_cache.clear()
+            self.definitions.clear()
 
     def load(self, path: Path) -> ArxmlDocument:
         """按缓存内容加载文档；原始文件的解析诊断只在首次解析时记录一次。"""
 
-        version = self._versions[path]
-        if self._loaded is not None:
-            loaded_path, loaded_version, generation, document = self._loaded
+        version = self._file_revisions[path]
+        if self._loaded_document_cache is not None:
+            loaded_path, loaded_version, generation, document = self._loaded_document_cache
             if (loaded_path, loaded_version, generation) == (path, version, load_generation()) and not document.dirty:
                 return document
 
@@ -151,13 +162,13 @@ class SourceStore:
             if first:
                 for diagnostic in diagnostics:
                     LOGGER.warning("armodel: %s: %s", path, diagnostic)
-        self._loaded = (path, version, load_generation(), document)
+        self._loaded_document_cache = (path, version, load_generation(), document)
         return document
 
     def summary(self, path: Path) -> DocumentSummary:
         """返回文件中全部组件和端口接口的摘要，每个文件版本只解析一次。"""
 
-        key = (path, self._versions[path])
+        key = (path, self._file_revisions[path])
         if key not in self._summaries:
             self._summaries[key] = self.load(path).summarize()
         return self._summaries[key]

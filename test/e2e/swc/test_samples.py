@@ -38,6 +38,7 @@ def test_swc_sample(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     produced = sorted((tmp_path / "out").rglob("*.arxml"))
+    assert "Successfully wrote 2 ARXML file(s)" in result.stdout
     assert sorted(path.name for path in produced) == ["Horn.arxml", "LIT.arxml"]
     for path in produced:
         assert_matches_baseline(path, ROOT / "test/samples/swc/expected" / path.name)
@@ -243,8 +244,11 @@ def test_swc_checks_only_explicit_com_spec_fields_for_existing_port(tmp_path):
     workbook = load_workbook(tmp_path / "ports.xlsx")
     sheet = workbook["P-Ports"]
     columns = {cell.value: cell.column for cell in sheet[1]}
-    sheet.cell(row=2, column=columns["Uses End To End Protection"], value=None)
+    sheet.cell(row=2, column=columns["Uses End To End Protection"]).value = None
     workbook.save(tmp_path / "ports.xlsx")
+    workbook.close()
+    workbook = load_workbook(tmp_path / "ports.xlsx")
+    assert workbook["P-Ports"].cell(2, columns["Uses End To End Protection"]).value is None
     workbook.close()
     result = run_prepared_twins(tmp_path)
     assert result.returncode == 0, result.stderr
@@ -252,8 +256,11 @@ def test_swc_checks_only_explicit_com_spec_fields_for_existing_port(tmp_path):
     workbook = load_workbook(tmp_path / "ports.xlsx")
     sheet = workbook["P-Ports"]
     columns = {cell.value: cell.column for cell in sheet[1]}
-    sheet.cell(row=2, column=columns["Transmission Acknowledge Timeout"], value=None)
+    sheet.cell(row=2, column=columns["Transmission Acknowledge Timeout"]).value = None
     workbook.save(tmp_path / "ports.xlsx")
+    workbook.close()
+    workbook = load_workbook(tmp_path / "ports.xlsx")
+    assert workbook["P-Ports"].cell(2, columns["Transmission Acknowledge Timeout"]).value is None
     workbook.close()
     result = run_prepared_twins(tmp_path)
     assert result.returncode == 0, result.stderr
@@ -267,6 +274,35 @@ def test_swc_checks_only_explicit_com_spec_fields_for_existing_port(tmp_path):
     result = run_prepared_twins(tmp_path)
     assert result.returncode == 1
     assert "Transmission Acknowledge Timeout" in result.stderr
+
+
+@pytest.mark.parametrize("field,value,expected", [
+    ("Transmission Acknowledge Timeout", 1, 0),
+    ("Transmission Acknowledge Timeout", 0, 1),
+    ("Uses End To End Protection", "Y", 0),
+    ("Uses End To End Protection", "N", 1),
+])
+def test_existing_sender_com_spec_checks_only_selected_field(tmp_path, field, value, expected):
+    result = run_twins(tmp_path, {
+        "Components": [{"SW_C": "B", "Component_Path": "/Pkg/B"}],
+        "P-Ports": [{
+            "SW_C": "B", "Port_Name": "p_Test", "Port_Interface_Ref": "/Pkg/If",
+            "Transmission_Acknowledge_Timeout": "1", "Uses_End_To_End_Protection": "Y",
+        }],
+    })
+    assert result.returncode == 0, result.stderr
+    (tmp_path / "twins.arxml").write_bytes((tmp_path / "out" / "twins.arxml").read_bytes())
+    workbook = load_workbook(tmp_path / "ports.xlsx")
+    sheet = workbook["P-Ports"]
+    columns = {cell.value: cell.column for cell in sheet[1]}
+    for header in ("Transmission Acknowledge Timeout", "Uses End To End Protection"):
+        sheet.cell(2, columns[header]).value = value if header == field else None
+    workbook.save(tmp_path / "ports.xlsx")
+    workbook.close()
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == expected, result.stderr
+    if expected:
+        assert field in result.stderr
 
 
 def test_swc_port_access_kind_must_match_direction(tmp_path):

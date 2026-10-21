@@ -37,8 +37,8 @@ test/                           测试代码、测试数据和基线产物，见
 
 ```bash
 source ./init_venv.sh
-python -m pip install -r requirements.txt pytest ruff build "setuptools>=68" "setuptools-scm>=8,<9"
-python -m pip install -e .            # 可编辑安装，得到两个命令
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"     # 运行依赖、开发工具及两个命令统一安装
 table-to-system-arxml --help
 table-to-swc-arxml --help
 ```
@@ -46,9 +46,10 @@ table-to-swc-arxml --help
 - 新环境优先 Python 3.13，可在创建环境前设置 `TTA_PYTHON` 指定解释器。已有 `.venv` 只要满足最低版本就直接复用，不自动重建；
   若需要更换解释器，先自行备份并处理旧环境。
 - 不安装时可设置 `PYTHONPATH=src`，再用 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` 运行，参数与命令完全相同。
-- 依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明。armodel 的版本范围在代码中只有一处
+- 运行依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明，开发依赖在 [pyproject.toml](../../pyproject.toml) 的 `dev` extra 中声明。armodel 的版本范围在代码中只有一处
   （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。`tomli` 只在 Python 3.11 以下需要（3.11 起用标准库 `tomllib`），由环境标记控制。
 - 版本号由 `setuptools-scm` 从 Git tag 自动推导；源码运行需要开发依赖 `setuptools-scm`，安装后的 wheel 使用构建时生成的版本文件，不需要 Git 或 `setuptools-scm`。不要手改版本常量。
+- 源码版本检测同时检查 `src/table_to_arxml` 布局和 Git 标记；安装包即使位于某个 Git 工作区内，也不会误用该工作区的版本。
 
 ## 源码模块
 
@@ -62,7 +63,7 @@ table-to-swc-arxml --help
 | [dependencies.py](../../src/table_to_arxml/common/dependencies.py) | 依赖可导入性与 armodel 版本检查 |
 | [logs.py](../../src/table_to_arxml/common/logs.py) | 日志文件与控制台输出、ERROR 收集 |
 | [arxml_list.py](../../src/table_to_arxml/common/arxml_list.py) | ARXML 清单读取和 `excludeArxml`/正则排除，两个工具同一套规则 |
-| [output.py](../../src/table_to_arxml/common/output.py) | 多文件原子写出，失败时回滚 |
+| [output.py](../../src/table_to_arxml/common/output.py) | 单文件原子替换；批量失败时尽力回滚并汇总恢复失败路径 |
 | [paths.py](../../src/table_to_arxml/common/paths.py) | 字面路径优先的 glob 展开、文件身份与输出冲突检查 |
 | [names.py](../../src/table_to_arxml/common/names.py) | SHORT-NAME、AUTOSAR 路径、C 标识符校验及稳定长名称 |
 | [armodel_compat.py](../../src/table_to_arxml/common/armodel_compat.py) | armodel 的用法约定与缺陷绕行：全局文档复位、解析器日志接管、片段序列化、writer 修补 |
@@ -115,6 +116,8 @@ table-to-swc-arxml --help
 
 - 新元素只以 XML 片段插入原文件字节，其余字节不变，避免 armodel 整文件重新序列化带来的格式差异。
 - armodel 的 `AUTOSAR` 是全局单例，每次加载都会清空；文档对象带加载代次，过期使用会报错。`SourceStore` 按文件版本缓存解析结果。
+- 定义查询按清单顺序采用第一个完整路径，缓存键包含查询范围和顺序。SHORT-NAME 预索引由 XML 解析构建，不依赖标签排版；XML 损坏仍阻止输出，包括后续重复候选文件损坏的情况。
+- `StepResult.planned`、`FileChange.planned_ports/planned_accesses` 及汇总只描述内存中准备的新增对象；dry-run 不表示已写盘。实际写出成功后另行记录文件数量，端口和访问点的失败数量分别统计。
 - 需要新建的父容器（`ELEMENTS`、`EVENTS`、`RUNNABLES`、`SERVER-CALL-POINTS`）按 [xml_patch.py](../../src/table_to_arxml/swc/xml_patch.py)
   中 `CHILD_ORDER` 的顺序插入。新增可创建的容器时须同时补充该表，否则会明确报错而不是插到错误位置。
 
@@ -149,7 +152,7 @@ CI 对 armodel 1.8.7、1.9.2、1.9.8 运行这些测试；依赖上限为 `1.9.8
 
 ## 版本与迁移
 
-当前版本为 **0.4.0**。对外行为变化和升级要求统一维护在 [迁移说明](../user/migration.md)，
+当前版本由 Git tag 自动推导，不在文档中重复维护固定版本号。对外行为变化和升级要求统一维护在 [迁移说明](../user/migration.md)，
 本页不重复维护历史参数表或兼容入口。
 
 用户说明只使用 `docs/user/system`、`docs/user/swc`；样例使用 `test/samples/system`、`test/samples/swc`，

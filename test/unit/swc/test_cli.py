@@ -56,6 +56,8 @@ def test_json_config_is_still_supported(tmp_path):
     result = run_tool(SWC, "--config", config)
     assert result.returncode == 0, result.stderr
     assert "Dry run successful" in result.stdout
+    assert "All counts describe in-memory changes, not files written" in result.stdout
+    assert "Successfully wrote" not in result.stdout
 
 
 @pytest.mark.parametrize("content, message", [
@@ -86,3 +88,17 @@ def test_cli_output_choice_replaces_config_output_choice(tmp_path):
 def test_program_name_is_the_command_name(tmp_path):
     result = run_tool(SWC, "--project-root", tmp_path)
     assert result.stderr.startswith("usage: table-to-swc-arxml")
+
+
+def test_config_list_diagnostics_include_source_index_and_value(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({
+        "projectRoot": ".", "arxmlFileList": "a.lst", "workbook": "w.xlsx",
+        "logDir": "log", "excludeArxml": ["good.arxml", 42],
+    }), encoding="utf-8")
+    result = run_tool(SWC, "--config", config)
+    assert result.returncode == 2
+    assert str(config) in result.stderr
+    assert "excludeArxml[1]" in result.stderr
+    assert "42" in result.stderr
+    assert not (tmp_path / "log").exists()

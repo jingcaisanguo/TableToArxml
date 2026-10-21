@@ -6,12 +6,12 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence, Union
+from typing import Callable, Sequence, Union
 
 from . import xml_patch
 from ..common.messages import clean_message
 from ..common.names import generated_name
-from .arxml_model import AccessInfo, ImplementationTypeInfo, PortInfo
+from .arxml_model import AccessInfo, ArxmlDocument, ImplementationTypeInfo, PortInfo
 from .constants import CLIENT_SERVER_INTERFACE, DIRECTION_REQUIRED, SENDER_RECEIVER_INTERFACE
 from .resolve import ResolvedAccess, ResolvedPort, interface_summary
 from .store import SourceStore, load_bytes
@@ -28,10 +28,11 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class StepResult:
-    """一个处理步骤的结果：新建对象的路径和被跳过的请求数。"""
+    """一个处理步骤的结果：已在内存中准备的新增对象路径和失败的请求数。"""
 
-    created: list[str] = field(default_factory=list)
+    planned: list[str] = field(default_factory=list)
     skipped: int = 0
+    skipped_accesses: int = 0
 
 
 @dataclass
@@ -40,9 +41,18 @@ class FileChange:
 
     source_file: Path
     document: bytes
-    created_ports: list[ResolvedPort]
+    planned_ports: list[ResolvedPort]
     existing_ports: list[ResolvedPort]
-    created_accesses: list[str]
+    planned_accesses: list[str]
+
+
+@dataclass(frozen=True)
+class _DefinitionOperation:
+    path: str
+    label: str
+    read: Callable[[ArxmlDocument, str], object]
+    create: Callable[[ArxmlDocument, str, str], str]
+    expected: object
 
 
 def check_existing_definition(context: str, existing: object, expected: object) -> bool:
@@ -176,49 +186,47 @@ def apply_enumerations(
     for spec in enumerations:
         lower, upper = spec.limits
         elements = (
-            (
+            _DefinitionOperation(
                 spec.compu_method_path,
                 "COMPU-METHOD",
-                "compu_method_definition",
-                "add_compu_method",
-                {"values": spec.values},
+                lambda document, path: document.compu_method_definition(path),
+                lambda document, package, name, spec=spec: document.add_compu_method(package, name, spec.values),
                 ("TEXTTABLE", tuple((value, value, label) for value, label in spec.values)),
             ),
-            (
+            _DefinitionOperation(
                 spec.path,
                 "IMPLEMENTATION-DATA-TYPE",
-                "implementation_type_definition",
-                "add_enum_data_type",
-                {
-                    "base_type_path": spec.base_type,
-                    "compu_method_path": spec.compu_method_path,
-                    "data_constr_path": spec.data_constr_path,
-                },
+                lambda document, path: document.implementation_type_definition(path),
+                lambda document, package, name, spec=spec: document.add_enum_data_type(
+                    package, name, spec.base_type, spec.compu_method_path, spec.data_constr_path,
+                ),
                 ImplementationTypeInfo(
                     "TYPE_REFERENCE", spec.base_type, spec.compu_method_path,
                     spec.data_constr_path,
                 ),
             ),
-            (
+            _DefinitionOperation(
                 spec.data_constr_path,
                 "DATA-CONSTR",
-                "data_constr_definition",
-                "add_data_constr",
-                {"lower_limit": lower, "upper_limit": upper},
+                lambda document, path: document.data_constr_definition(path),
+                lambda document, package, name, lower=lower, upper=upper: document.add_data_constr(
+                    package, name, lower, upper,
+                ),
                 ((lower, upper),),
             ),
         )
 
         failed = False
         inserted = 0
-        for element_path, label, read_method, add_method, arguments, expected in elements:
-            existing_file = store.find_element_file(element_path)
+        for operation in elements:
+            element_path, label = operation.path, operation.label
+            existing_file = store.find_first_definition_file(element_path)
             if existing_file is not None:
                 existing_document = store.load(existing_file)
                 if not check_existing_definition(
                     f"{label} {element_path} in {existing_file}",
-                    getattr(existing_document, read_method)(element_path),
-                    expected,
+                    operation.read(existing_document, element_path),
+                    operation.expected,
                 ):
                     failed = True
                 continue
@@ -232,7 +240,7 @@ def apply_enumerations(
                 failed = True
                 break
             try:
-                fragment = getattr(document, add_method)(package_path, name, **arguments)
+                fragment = operation.create(document, package_path, name)
             except ValueError as error:
                 LOGGER.error("Skipped %s: %s", context, clean_message(error))
                 failed = True
@@ -248,9 +256,9 @@ def apply_enumerations(
         if not inserted:
             continue
 
-        result.created.append(spec.path)
+        result.planned.append(spec.path)
         LOGGER.info(
-            "create enumeration %s with %d value(s) in %s",
+            "Prepared enumeration %s with %d value(s) in memory for %s",
             spec.path,
             len(spec.values),
             spec.target_file,
@@ -274,7 +282,7 @@ def apply_composite_types(
             result.skipped += 1
             continue
         seen_paths.add(spec.path)
-        existing_file = store.find_element_file(spec.path)
+        existing_file = store.find_first_definition_file(spec.path)
         if existing_file is not None:
             document = store.load(existing_file)
             if isinstance(spec, ArraySpec):
@@ -325,8 +333,8 @@ def apply_composite_types(
         ):
             result.skipped += 1
             continue
-        result.created.append(spec.path)
-        LOGGER.info("create %s %s in %s", kind, spec.path, spec.target_file)
+        result.planned.append(spec.path)
+        LOGGER.info("Prepared %s %s in memory for %s", kind, spec.path, spec.target_file)
     return result
 
 
@@ -343,24 +351,23 @@ def apply_interfaces(
     result = StepResult()
     for spec in interfaces:
         if isinstance(spec, InterfaceSpec):
-            label, dest, members = "SR interface", SENDER_RECEIVER_INTERFACE, spec.data_elements
-            read_method, add_method = "sender_receiver_definition", "add_sr_interface"
-            expected: list = list(spec.data_elements)
+            label, dest = "SR interface", SENDER_RECEIVER_INTERFACE
+            expected: object = list(spec.data_elements)
             created_detail = f"{len(spec.data_elements)} data element(s)"
         else:
-            label, dest, members = "CS interface", CLIENT_SERVER_INTERFACE, spec.operations
-            read_method, add_method = "client_server_definition", "add_cs_interface"
+            label, dest = "CS interface", CLIENT_SERVER_INTERFACE
             expected = [(operation, list(arguments)) for operation, arguments in spec.operations]
             created_detail = f"{len(spec.operations)} operation(s)"
 
-        existing_file = store.find_element_file(spec.path)
+        existing_file = store.find_first_definition_file(spec.path)
         if existing_file is not None:
             document = store.load(existing_file)
             if not check_existing_definition(
                 f"{label} {spec.path} in {existing_file}",
                 (
                     document.interface_dest(spec.path),
-                    getattr(document, read_method)(spec.path),
+                    document.sender_receiver_definition(spec.path) if isinstance(spec, InterfaceSpec)
+                    else document.client_server_definition(spec.path),
                     document.interface_is_service(spec.path),
                 ),
                 (dest, expected, spec.is_service),
@@ -379,9 +386,14 @@ def apply_interfaces(
             result.skipped += 1
             continue
         try:
-            fragment = getattr(document, add_method)(
-                spec.package_path, spec.name, members, spec.is_service
-            )
+            if isinstance(spec, InterfaceSpec):
+                fragment = document.add_sr_interface(
+                    spec.package_path, spec.name, spec.data_elements, spec.is_service,
+                )
+            else:
+                fragment = document.add_cs_interface(
+                    spec.package_path, spec.name, spec.operations, spec.is_service,
+                )
         except ValueError as error:
             LOGGER.error("Skipped %s %s: %s", label, spec.path, clean_message(error))
             result.skipped += 1
@@ -391,8 +403,8 @@ def apply_interfaces(
         ):
             result.skipped += 1
             continue
-        result.created.append(spec.path)
-        LOGGER.info("create %s %s with %s in %s", label, spec.path, created_detail, spec.target_file)
+        result.planned.append(spec.path)
+        LOGGER.info("Prepared %s %s with %s in memory for %s", label, spec.path, created_detail, spec.target_file)
     return result
 
 
@@ -466,7 +478,7 @@ def apply_client_server_artifacts(
                     call_fragments[runnable_path].append(
                         document.add_server_call(runnable_path, name, port.port_path, operation_path)
                     )
-                    result.created.append(f"{runnable_path}/{name}")
+                    result.planned.append(f"{runnable_path}/{name}")
                     continue
 
                 runnable_name = port.spec.runnable_name or f"RE_{port.spec.name}_{operation}"
@@ -496,7 +508,7 @@ def apply_client_server_artifacts(
                             port.spec.can_be_invoked_concurrently,
                         )
                     )
-                    result.created.append(runnable_path)
+                    result.planned.append(runnable_path)
 
                 event_name = generated_name(f"oie_{port.spec.name}_{operation}")
                 existing_event = document.read_operation_event(behavior_path, event_name)
@@ -516,7 +528,7 @@ def apply_client_server_artifacts(
                         behavior_path, event_name, runnable_path, port.port_path, operation_path
                     )
                 )
-                result.created.append(f"{behavior_path}/{event_name}")
+                result.planned.append(f"{behavior_path}/{event_name}")
 
         for runnable_path, fragments in call_fragments.items():
             source = xml_patch.insert_or_create_child_container(
@@ -586,13 +598,13 @@ def build_changes(
         document = store.load(source_file)
         source = store.read(source_file)
         fragments_by_component: dict[str, list[str]] = defaultdict(list)
-        fragments_by_runnable: dict[tuple[str, str], list[str]] = defaultdict(list)
-        accesses_by_runnable: dict[tuple[str, str], list[ResolvedAccess]] = defaultdict(list)
-        created_ports: list[ResolvedPort] = []
+        access_fragments_by_container: dict[tuple[str, str], list[str]] = defaultdict(list)
+        accesses_by_container: dict[tuple[str, str], list[ResolvedAccess]] = defaultdict(list)
+        planned_ports: list[ResolvedPort] = []
         existing_ports: list[ResolvedPort] = []
-        created_accesses: list[str] = []
-        checked_ports: list[ResolvedPort] = []
-        checked_accesses: list[ResolvedAccess] = []
+        planned_accesses: list[str] = []
+        ports_to_validate: list[ResolvedPort] = []
+        accesses_to_validate: list[ResolvedAccess] = []
         for port in ports_by_file.get(source_file, []):
             try:
                 existing = document.read_port(port.component_path, port.spec.name)
@@ -624,9 +636,9 @@ def build_changes(
                 result.skipped += 1
                 continue
             fragments_by_component[port.component_path].append(fragment)
-            created_ports.append(port)
-            result.created.append(port.port_path)
-            checked_ports.append(port)
+            planned_ports.append(port)
+            result.planned.append(port.port_path)
+            ports_to_validate.append(port)
 
         for access in accesses_by_file.get(source_file, []):
             container = access.container
@@ -638,7 +650,7 @@ def build_changes(
                         "Data access %s already exists with the same definition; skipped",
                         access.access_path,
                     )
-                    checked_accesses.append(access)
+                    accesses_to_validate.append(access)
                     continue
                 if document.element_exists(access.access_path):
                     LOGGER.error(
@@ -646,6 +658,7 @@ def build_changes(
                         "please choose a different access name",
                         access.access_path,
                     )
+                    result.skipped_accesses += 1
                     continue
                 access_fragment = document.add_access(
                     access.runnable_path, access.name, access.kind, access.port_path, access.data_path
@@ -653,10 +666,10 @@ def build_changes(
                 check_access(document.read_access(access.runnable_path, access.name, access.kind), access)
             except ValueError as error:
                 LOGGER.error("Skipped data access %s: %s", access.access_path, clean_message(error))
+                result.skipped_accesses += 1
                 continue
-            fragments_by_runnable[(access.runnable_path, container)].append(access_fragment)
-            accesses_by_runnable[(access.runnable_path, container)].append(access)
-            LOGGER.info("create %s %s -> %s", container, access.access_path, access.data_path)
+            access_fragments_by_container[(access.runnable_path, container)].append(access_fragment)
+            accesses_by_container[(access.runnable_path, container)].append(access)
 
         source = xml_patch.insert_many(
             source,
@@ -665,7 +678,7 @@ def build_changes(
                 for component_path, fragments in fragments_by_component.items()
             ],
         )
-        for (runnable_path, container), fragments in fragments_by_runnable.items():
+        for (runnable_path, container), fragments in access_fragments_by_container.items():
             try:
                 source = xml_patch.insert_or_create_child_container(
                     source, runnable_path, container, fragments
@@ -676,13 +689,15 @@ def build_changes(
                     runnable_path,
                     clean_message(error),
                 )
-                result.skipped += len(fragments)
+                result.skipped_accesses += len(fragments)
                 continue
-            group_accesses = accesses_by_runnable[(runnable_path, container)]
-            checked_accesses.extend(group_accesses)
-            created_accesses.extend(access.access_path for access in group_accesses)
+            group_accesses = accesses_by_container[(runnable_path, container)]
+            accesses_to_validate.extend(group_accesses)
+            planned_accesses.extend(access.access_path for access in group_accesses)
         LOGGER.info("Re-parsing ARXML for validation: %s", source_file)
-        validate_document(source, checked_ports, checked_accesses)
+        validate_document(source, ports_to_validate, accesses_to_validate)
+        for access_path in planned_accesses:
+            LOGGER.info("Prepared data access %s in memory for %s", access_path, source_file)
         store.write(source_file, source)
-        changes.append(FileChange(source_file, source, created_ports, existing_ports, created_accesses))
+        changes.append(FileChange(source_file, source, planned_ports, existing_ports, planned_accesses))
     return changes, result

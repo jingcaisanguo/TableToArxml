@@ -29,9 +29,10 @@ test/
 
 ## 自动测试
 
-在装好根目录 `requirements.txt` 依赖、`pytest` 和 `ruff` 的环境中，从仓库根目录执行：
+在独立虚拟环境中统一安装开发依赖，然后从仓库根目录执行：
 
 ```powershell
+python -m pip install -e ".[dev]"
 python -m ruff check
 python -m pytest
 ```
@@ -45,6 +46,9 @@ python -m pytest
 - 契约测试覆盖 CI 指定的 armodel 1.8.7、1.9.2、1.9.8，确认 `armodel_compat.py` 在新旧版本下得到相同的输出；依赖上限为 `1.9.8`。新版本须补充兼容测试、加入 CI 矩阵并通过全部测试后，才能提交更新依赖上限。
 - CI（[tests.yml](../.github/workflows/tests.yml)）在 Ubuntu/Windows、Python 3.9/3.13、armodel 1.8.7/1.9.2/1.9.8 的组合上运行 ruff 和全部测试。
 - 新增回归覆盖输入/输出路径重合、大小写冲突、空表头、跨文件定义冲突、解析失败、严格类型、名称长度和写入失败清理。
+- 定义查询还覆盖合法 XML 标签空白、CDATA、字符引用、注释误匹配、反向清单与缓存范围；损坏候选位于首定义前后都阻止输出。
+- 发布契约覆盖同提交多标签的显式版本、脏工作区、sdist 无 Git 重建 wheel、无 Git/源码导入的安装版本，以及发布前检查和仅补缺失附件（模拟 GitHub CLI，不修改远程资源）。
+- 写出故障注入包含恢复再次失败：其余文件仍尝试恢复，并保留原始错误和恢复失败路径。
 - 文档契约测试检查文件链接、交付目录的独立性和规范目录结构；wheel 的实际命令与三组转换基线另由
   [verify_wheel.py](../tools/verify_wheel.py) 在安装后的独立环境验证。
 

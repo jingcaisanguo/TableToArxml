@@ -9,6 +9,9 @@ readme = "README.md"
 requires-python = ">=3.9"
 dynamic = ["version", "dependencies"]
 
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "build", "wheel", "setuptools>=68", "setuptools-scm>=8,<9"]
+
 [project.scripts]
 table-to-system-arxml = "table_to_arxml.system.cli:main"
 table-to-swc-arxml = "table_to_arxml.swc.cli:main"

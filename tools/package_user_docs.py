@@ -13,7 +13,7 @@ from setuptools_scm import get_version
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def package_user_docs(wheel_dir: Path) -> Path:
+def package_user_docs(wheel_dir: Path, source_root: Path = ROOT) -> Path:
     wheels = list(wheel_dir.glob("*.whl"))
     if len(wheels) != 1:
         raise ValueError(f"Expected exactly one wheel in {wheel_dir}, found {len(wheels)}")
@@ -25,14 +25,16 @@ def package_user_docs(wheel_dir: Path) -> Path:
         version = metadata["Version"]
         if metadata["Name"] != "table-to-arxml" or not version:
             raise ValueError("Expected a table-to-arxml wheel with a version")
-        source_version = get_version(root=ROOT)
+        source_version = get_version(root=source_root, dist_name="table-to-arxml")
         if Version(version) != Version(source_version):
             raise ValueError(f"Wheel version {version} does not match this checkout's documentation {source_version}")
         allowed_roots = {"table_to_arxml", metadata_files[0].split("/")[0]}
         if any(name.split("/")[0] not in allowed_roots for name in wheel.namelist()):
             raise ValueError("Wheel contains files outside the package and distribution metadata")
     output = wheel_dir / f"table_to_arxml-{version}-user-guide.zip"
-    docs = ROOT / "docs" / "user"
+    docs = source_root / "docs" / "user"
+    if not (docs / "README.md").is_file():
+        raise ValueError(f"User documentation entry point is missing: {docs / 'README.md'}")
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
         for path in sorted(docs.rglob("*")):
             if path.is_file() and path.suffix in (".md", ".xlsx"):
@@ -46,7 +48,9 @@ def package_user_docs(wheel_dir: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheel-dir", type=Path, default=Path("dist"))
-    package_user_docs(parser.parse_args().wheel_dir)
+    parser.add_argument("--source-root", type=Path, default=ROOT)
+    args = parser.parse_args()
+    package_user_docs(args.wheel_dir, args.source_root.resolve())
 
 
 if __name__ == "__main__":

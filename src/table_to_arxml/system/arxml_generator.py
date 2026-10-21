@@ -127,8 +127,8 @@ class _Resolver:
         self.document = document
         self.data = data
         self.interface_mismatch = interface_mismatch
-        self.interface_mapping_specs = interface_mappings
-        self.interface_mappings: dict[str, _InterfaceMapping] = {}
+        self.configured_interface_mappings = interface_mappings
+        self.generated_interface_mappings: dict[str, _InterfaceMapping] = {}
         self.model = ArxmlModel(document, [], [])
         self.composition_path = autosar_path(data.general["Composition"], "General.Composition", 2)
         system_name = data.general["System"]
@@ -260,7 +260,7 @@ class _Resolver:
             raise ValueError("interfaceMismatch=map currently supports only SenderReceiverInterface pairs")
         first_elements = {element.getShortName(): element for element in first.getDataElements()}
         second_elements = {element.getShortName(): element for element in second.getDataElements()}
-        pairs = self.interface_mapping_specs.get((provider.interface_path, requester.interface_path))
+        pairs = self.configured_interface_mappings.get((provider.interface_path, requester.interface_path))
         if pairs is not None:
             if (not set(pairs).issubset(first_elements)
                     or not set(pairs.values()).issubset(second_elements)
@@ -327,13 +327,13 @@ class _Resolver:
         identity = repr(references).encode("utf-8")
         name = "im_" + sha256(identity).hexdigest()[:20]
         mapping = _InterfaceMapping(name, tuple(references))
-        if name in self.interface_mappings and self.interface_mappings[name] != mapping:
+        if name in self.generated_interface_mappings and self.generated_interface_mappings[name] != mapping:
             raise ValueError(f"Conflicting generated interface mapping: {name}")
         package_path, _, composition_name = self.composition_path.rpartition("/")
         path = f"{package_path}/{generated_name(composition_name + '_InterfaceMappings')}/{name}"
         if self.lookup("find", path) is not None:
             raise ValueError(f"Generated interface mapping already exists in input: {path}")
-        self.interface_mappings[name] = mapping
+        self.generated_interface_mappings[name] = mapping
         return path
 
     def add_assembly(self, row: TableRow) -> None:
@@ -477,9 +477,9 @@ def _write_model(
     for package_name in parts[1:-1]:
         package = package.createARPackage(package_name)
     composition = package.createCompositionSwComponentType(parts[-1])
-    if resolver.interface_mappings:
+    if resolver.generated_interface_mappings:
         mapping_set = package.createPortInterfaceMappingSet(generated_name(f"{parts[-1]}_InterfaceMappings"))
-        for name, definition in sorted(resolver.interface_mappings.items()):
+        for name, definition in sorted(resolver.generated_interface_mappings.items()):
             interface_mapping = mapping_set.createVariableAndParameterInterfaceMapping(name)
             for first, second in definition.elements:
                 element_mapping = DataPrototypeMapping()

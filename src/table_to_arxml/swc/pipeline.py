@@ -40,7 +40,7 @@ class RunSummary:
     """一次运行各步骤的统计，用于输出汇总日志。"""
 
     requested_ports: int = 0
-    created_ports: list[ResolvedPort] = field(default_factory=list)
+    planned_ports: list[ResolvedPort] = field(default_factory=list)
     existing_ports: list[ResolvedPort] = field(default_factory=list)
     skipped_ports: int = 0
     enumerations: StepResult = field(default_factory=StepResult)
@@ -48,20 +48,21 @@ class RunSummary:
     sr_interfaces: StepResult = field(default_factory=StepResult)
     cs_interfaces: StepResult = field(default_factory=StepResult)
     requested_accesses: int = 0
-    created_accesses: list[str] = field(default_factory=list)
+    planned_accesses: list[str] = field(default_factory=list)
+    skipped_accesses: int = 0
     cs_artifacts: StepResult = field(default_factory=StepResult)
     affected_files: int = 0
 
     def log(self) -> None:
-        for port in self.created_ports:
+        for port in self.planned_ports:
             LOGGER.info(
-                "create %s-Port %s -> %s (%s)",
+                "Prepared %s-Port %s -> %s (%s) in memory",
                 port.spec.direction, port.port_path, port.spec.interface_path, port.interface_dest,
             )
         LOGGER.info(
             "Validated %d of %d requested ports: %d to create, %d already valid, %d skipped",
-            len(self.created_ports) + len(self.existing_ports), self.requested_ports,
-            len(self.created_ports), len(self.existing_ports), self.skipped_ports,
+            len(self.planned_ports) + len(self.existing_ports), self.requested_ports,
+            len(self.planned_ports), len(self.existing_ports), self.skipped_ports,
         )
         for label, result in (
             ("Enumerations", self.enumerations),
@@ -70,8 +71,10 @@ class RunSummary:
             ("CS interfaces", self.cs_interfaces),
             ("CS artifacts", self.cs_artifacts),
         ):
-            LOGGER.info("%s: %d to create, %d skipped", label, len(result.created), result.skipped)
-        LOGGER.info("Data accesses: %d of %d to create", len(self.created_accesses), self.requested_accesses)
+            LOGGER.info("%s: %d to create, %d skipped", label, len(result.planned), result.skipped)
+        LOGGER.info("Data accesses: %d of %d to create, %d skipped",
+                    len(self.planned_accesses), self.requested_accesses, self.skipped_accesses)
+        LOGGER.info("All counts describe in-memory changes, not files written")
         LOGGER.info("%d ARXML file(s) affected", self.affected_files)
 
 
@@ -119,10 +122,11 @@ def execute(options: Options) -> tuple[RunSummary, SourceStore]:
     summary.cs_artifacts = apply_client_server_artifacts(resolved_ports, arxml_files, store)
 
     summary.requested_ports = len(ports)
-    summary.created_ports = [port for change in changes for port in change.created_ports]
+    summary.planned_ports = [port for change in changes for port in change.planned_ports]
     summary.existing_ports = [port for change in changes for port in change.existing_ports]
     summary.skipped_ports = len(ports) - len(resolved_ports) + port_result.skipped
     summary.requested_accesses = len(access_specs)
-    summary.created_accesses = [access for change in changes for access in change.created_accesses]
+    summary.planned_accesses = [access for change in changes for access in change.planned_accesses]
+    summary.skipped_accesses = len(access_specs) - len(resolved_accesses) + port_result.skipped_accesses
     summary.affected_files = len(store.modified())
     return summary, store

@@ -65,6 +65,24 @@ def test_config_is_required(tmp_path):
     assert not (tmp_path / "log").exists()
 
 
+@pytest.mark.parametrize("invalid, key, actual", [
+    ({"strictList": "yes"}, "strictList", "'yes'"),
+    ({"excludeArxml": ["good.arxml", 42]}, "excludeArxml[1]", "42"),
+    ({"interfaceMappings": [
+        {"providerInterface": "/Pkg/If", "requesterInterface": "/Pkg/Other", "dataElements": {"V": "V"}},
+        {"providerInterface": 42, "requesterInterface": "/Pkg/Other", "dataElements": {"V": "V"}},
+    ]}, "interfaceMappings[1]", "42"),
+])
+def test_config_diagnostics_include_source_key_and_actual_value(tmp_path, invalid, key, actual):
+    config = write_config(tmp_path, **invalid)
+    result = run_tool(SYSTEM, "--config", config)
+    assert result.returncode == 2, result.stderr
+    assert str(config) in result.stderr
+    assert key in result.stderr
+    assert actual in result.stderr
+    assert not (tmp_path / "log").exists()
+
+
 @pytest.mark.parametrize("general", [
     "",
     '\n[general]\nComposition = "/Other/Unused"\nSystem = "/Other/UnusedSystem"\n',

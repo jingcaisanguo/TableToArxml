@@ -72,7 +72,7 @@ def resolve_config_path(value: object, key: str, variant: str | None, config_dir
     """按配置文件目录解析路径，先替换 variant，再匹配唯一文件或目录。"""
 
     if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"Config option {key} must be a non-empty path string")
+        raise ConfigError(f"Config option {key} must be a non-empty path string; got {value!r}")
     if "${variant}" in value:
         if variant is None:
             raise ConfigError(f"Config option {key} uses ${{variant}}; provide --variant or config defaultVariant")
@@ -181,7 +181,7 @@ def _merge(args: argparse.Namespace) -> dict[str, object]:
         values["defaultVariant"] = config.get("defaultVariant")
     variant = values["defaultVariant"]
     if variant is not None and (not isinstance(variant, str) or not variant.strip()):
-        raise ConfigError("--variant or config defaultVariant must be a non-empty string")
+        raise ConfigError(f"--variant or config defaultVariant must be a non-empty string; got {variant!r}")
     # 命令行指定了任一输出方式时整体替换配置中的输出方式，而不是与之冲突。
     output_from_cli = any(values[key] is not None for key in OUTPUT_KEYS)
     for key, value in config.items():
@@ -199,17 +199,18 @@ def _options(values: dict[str, object]) -> Options:
         raise ConfigError(", ".join(missing) + " required unless supplied by --config")
     log_level = "INFO" if values["logLevel"] is None else values["logLevel"]
     if not isinstance(log_level, str) or log_level.upper() not in LOG_LEVELS:
-        raise ConfigError(f"logLevel must be one of: {', '.join(LOG_LEVELS)}")
+        raise ConfigError(f"logLevel must be one of: {', '.join(LOG_LEVELS)}; got {log_level!r}")
     for key in BOOLEAN_KEYS:
         if values[key] is None:
             values[key] = False
         if not isinstance(values[key], bool):
-            raise ConfigError(f"{key} must be true or false")
+            raise ConfigError(f"{key} must be true or false; got {values[key]!r}")
     exclude_arxml = [] if values["excludeArxml"] is None else values["excludeArxml"]
-    if not isinstance(exclude_arxml, list) or any(
-        not isinstance(value, str) or not value.strip() for value in exclude_arxml
-    ):
-        raise ConfigError("excludeArxml must be a list of non-empty strings")
+    if not isinstance(exclude_arxml, list):
+        raise ConfigError(f"excludeArxml must be a list of non-empty strings; got {exclude_arxml!r}")
+    for index, value in enumerate(exclude_arxml):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(f"excludeArxml[{index}] must be a non-empty string; got {value!r}")
     if sum(values[key] is not None and values[key] is not False for key in OUTPUT_KEYS) > 1:
         raise ConfigError("Only one of inPlace, outputDir, and dryRun may be selected")
     return Options(
@@ -237,4 +238,5 @@ def parse_args(argv: Sequence[str] | None = None) -> Options:
     try:
         return _options(_merge(args))
     except ConfigError as error:
-        parser.error(clean_message(error))
+        source = f"{args.config}: " if args.config else ""
+        parser.error(source + clean_message(error))
