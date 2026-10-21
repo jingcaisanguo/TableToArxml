@@ -25,7 +25,7 @@ from .constants import (
     DIRECTION_PROVIDED,
     SENDER_RECEIVER_INTERFACE,
 )
-from .store import SourceStore
+from .store import DefinitionKind, SourceStore
 from .workbook import AccessSpec, ComponentSpec, PortSpec
 
 LOGGER = logging.getLogger(__name__)
@@ -95,25 +95,25 @@ class LocatedAccess:
 def find_definition(
     arxml_files: Sequence[Path],
     autosar_path: str,
-    kind: str,
+    definition_kind: DefinitionKind,
     store: SourceStore,
 ) -> tuple[Path, str] | None:
     """在清单范围内定位 AUTOSAR 路径，结果在文件未修改前复用。
 
-    ``kind`` 为 ``component`` 或 ``interface``；接口返回其 ``DEST``，组件返回空串。
+    ``definition_kind`` 为 ``component`` 或 ``interface``；接口返回其 ``DEST``，组件返回空串。
     存在多个定义时使用清单中的第一个，并记录 warning。
     单个候选文件的解析失败不中断流程，但会在错误信息中一并报告。
     """
-    memo_key = (kind, autosar_path)
+    memo_key = (tuple(arxml_files), definition_kind, autosar_path)
     if memo_key not in store.definitions:
-        store.definitions[memo_key] = _find_definition(arxml_files, autosar_path, kind, store)
+        store.definitions[memo_key] = _find_definition(arxml_files, autosar_path, definition_kind, store)
     return store.definitions[memo_key]
 
 
 def _find_definition(
     arxml_files: Sequence[Path],
     autosar_path: str,
-    kind: str,
+    definition_kind: DefinitionKind,
     store: SourceStore,
 ) -> tuple[Path, str] | None:
     short_name = autosar_path.rsplit("/", maxsplit=1)[-1]
@@ -126,7 +126,7 @@ def _find_definition(
         except (OSError, ValueError, RuntimeError, SyntaxError) as error:
             failures.append(f"{candidate}: {clean_message(error)}")
             continue
-        if kind == "component":
+        if definition_kind == "component":
             if autosar_path in summary.components:
                 matches.append((candidate, ""))
             continue
@@ -146,8 +146,8 @@ def _find_definition(
 
     if failures:
         LOGGER.error(
-            "Cannot establish a unique %s at %s; parser failures: %s",
-            kind, autosar_path, "; ".join(failures),
+            "Cannot determine the first %s at %s; parser failures: %s",
+            definition_kind, autosar_path, "; ".join(failures),
         )
         return None
     if len(matches) == 1:
@@ -156,7 +156,7 @@ def _find_definition(
         LOGGER.warning(
             "Multiple definitions found for %s %s: %s; using %s for SWC resolution. "
             "The AUTOSAR importer should validate duplicate definitions",
-            kind,
+            definition_kind,
             autosar_path,
             ", ".join(str(path) for path, _ in matches),
             matches[0][0],
@@ -164,7 +164,7 @@ def _find_definition(
         return matches[0]
     if not matches:
         detail = f"; parser failures: {'; '.join(failures)}" if failures else ""
-        LOGGER.error("No %s found at %s in listed ARXML%s", kind, autosar_path, detail)
+        LOGGER.error("No %s found at %s in listed ARXML%s", definition_kind, autosar_path, detail)
         return None
     return None
 
@@ -174,7 +174,7 @@ def interface_summary(
     interface_path: str,
     store: SourceStore,
 ) -> InterfaceSummary | None:
-    """返回接口的摘要；接口无法唯一定位时返回 ``None``。"""
+    """返回首个接口定义的摘要；无法确定首个定义时返回 ``None``。"""
 
     found = find_definition(arxml_files, interface_path, "interface", store)
     if found is None:
@@ -198,7 +198,7 @@ def resolve_components(
     arxml_files: Sequence[Path],
     store: SourceStore,
 ) -> dict[str, Path]:
-    """定位每个组件所在的 ARXML；无法唯一定位的组件不会出现在结果中。"""
+    """定位每个组件的首个定义文件；无法确定首个定义的组件不出现在结果中。"""
 
     component_files: dict[str, Path] = {}
     for component in components.values():

@@ -2,6 +2,12 @@ name: Tests
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: 'Source ref to validate'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
   push:
     branches:
@@ -47,6 +53,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -54,7 +61,7 @@ jobs:
         run: >-
           python -m pip install "armodel==${{ matrix.armodel }}"
           -r requirements.txt
-          pytest ruff "setuptools>=68" "setuptools-scm>=8,<9"
+          pytest ruff build wheel "setuptools>=68" "setuptools-scm>=8,<9"
       # ruff 与 pytest 的选项都在 pyproject.toml 中配置。
       - name: Lint
         run: python -m ruff check

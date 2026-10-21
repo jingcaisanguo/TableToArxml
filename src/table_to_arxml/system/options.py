@@ -67,7 +67,7 @@ def _load_config(config_path: Path) -> dict:
 def _section(config: dict, key: str) -> dict:
     value = config.get(key, {})
     if not isinstance(value, dict):
-        raise ConfigError(f"config.{key} must be an object")
+        raise ConfigError(f"config.{key} must be an object; got {value!r}")
     return value
 
 
@@ -79,8 +79,11 @@ def _string_list(config: dict, key: str, required: bool) -> list[str]:
         return []
     if isinstance(value, str):
         value = [value]
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ConfigError(f"config.{key} must be a string or list of strings")
+    if not isinstance(value, list):
+        raise ConfigError(f"config.{key} must be a string or list of strings; got {value!r}")
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ConfigError(f"config.{key}[{index}] must be a string; got {item!r}")
     entries = [item.strip() for item in value if item.strip()]
     if required and not entries:
         raise ConfigError(f"Missing config.{key}")
@@ -96,14 +99,16 @@ def _required(config: dict, key: str, label: str) -> str:
 def _string_option(config: dict, key: str, default: str, allow_empty: bool = False) -> str:
     value = config.get(key, default)
     if not isinstance(value, str) or (not allow_empty and not value.strip()):
-        raise ConfigError(f"config.{key} must be a {'possibly empty' if allow_empty else 'nonempty'} string")
+        raise ConfigError(
+            f"config.{key} must be a {'possibly empty' if allow_empty else 'nonempty'} string; got {value!r}"
+        )
     return value.strip()
 
 
 def _boolean_option(config: dict, key: str, default: bool) -> bool:
     value = config.get(key, default)
     if not isinstance(value, bool):
-        raise ConfigError(f"config.{key} must be true or false")
+        raise ConfigError(f"config.{key} must be true or false; got {value!r}")
     return value
 
 
@@ -153,20 +158,28 @@ def _interface_mappings(value: object) -> dict[tuple[str, str], dict[str, str]]:
     if value is None:
         return {}
     if not isinstance(value, list):
-        raise ConfigError("interfaceMappings must be a list")
+        raise ConfigError(f"interfaceMappings must be a list; got {value!r}")
     mappings: dict[tuple[str, str], dict[str, str]] = {}
-    for spec in value:
+    for index, spec in enumerate(value):
+        context = f"interfaceMappings[{index}]"
         if not isinstance(spec, dict) or set(spec) != INTERFACE_MAPPING_KEYS:
-            raise ConfigError("interfaceMappings entries require providerInterface, requesterInterface and dataElements")
+            raise ConfigError(
+                f"{context} entries require providerInterface, requesterInterface and dataElements; got {spec!r}"
+            )
         first, second, elements = spec["providerInterface"], spec["requesterInterface"], spec["dataElements"]
         if not all(isinstance(path, str) and path.startswith("/") for path in (first, second)):
-            raise ConfigError("interfaceMappings interface paths must be absolute AUTOSAR paths")
+            raise ConfigError(f"{context} interface paths must be absolute AUTOSAR paths; got {first!r}, {second!r}")
+        for key, path in (("providerInterface", first), ("requesterInterface", second)):
+            autosar_path(path, f"{context}.{key}")
         if (not isinstance(elements, dict) or not elements
                 or not all(isinstance(key, str) and key and isinstance(name, str) and name
                            for key, name in elements.items())):
-            raise ConfigError("interfaceMappings.dataElements must map provider names to requester names")
+            raise ConfigError(f"{context}.dataElements must map provider names to requester names; got {elements!r}")
+        for provider_name, requester_name in elements.items():
+            short_name(provider_name, f"{context}.dataElements key")
+            short_name(requester_name, f"{context}.dataElements[{provider_name!r}]")
         if (first, second) in mappings:
-            raise ConfigError(f"Duplicate interfaceMappings entry: {first} -> {second}")
+            raise ConfigError(f"Duplicate interfaceMappings entry at {context}: {first} -> {second}")
         mappings[(first, second)] = dict(elements)
     return mappings
 
@@ -388,9 +401,7 @@ def prepare_jobs(options: RunOptions) -> list[Job]:
     for config_path in options.config_paths:
         try:
             job = _prepare_job(config_path, options)
-        except ConfigError:
-            raise
-        except ValueError as error:
+        except (ConfigError, ValueError) as error:
             raise ConfigError(f"{config_path}: {clean_message(error)}") from error
         if (options.arxml_file_list is None and job.arxml_file_list is None
                 and not job.preference_entries):

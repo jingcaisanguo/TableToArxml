@@ -28,14 +28,18 @@ DUPLICATE_SR_INTERFACE = """<AUTOSAR xmlns="http://autosar.org/schema/r4.0">
 </AUTOSAR>"""
 
 
-def test_broken_candidate_prevents_uniqueness_claim(tmp_path):
+@pytest.mark.parametrize("entries", [
+    "twins.arxml\nbroken.arxml\n",
+    "broken.arxml\ntwins.arxml\n",
+])
+def test_broken_candidate_prevents_first_definition_resolution(tmp_path, entries):
     write_twins(tmp_path, PORTS, minimal=True)
     (tmp_path / "broken.arxml").write_text(
         "<AUTOSAR><AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME>"
         "<ELEMENTS><APPLICATION-SW-COMPONENT-TYPE><SHORT-NAME>B</SHORT-NAME>",
         encoding="utf-8",
     )
-    (tmp_path / "arxml.lst").write_text("twins.arxml\nbroken.arxml\n", encoding="utf-8")
+    (tmp_path / "arxml.lst").write_text(entries, encoding="utf-8")
     result = run_prepared_twins(tmp_path)
     assert result.returncode == 1
     assert "parser failures" in result.stderr

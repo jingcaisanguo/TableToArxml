@@ -354,7 +354,9 @@ def read_sheet_rows(
             continue
         record = dict(zip(headers, cells))
         rte_flag = record.get("Create RTE Artifact", "")
-        rte_disabled = not rte_flag or BOOLEAN_LABELS.get(rte_flag.casefold()) is False
+        rte_disabled = sheet_name in ("P-Ports", "R-Ports") and (
+            not rte_flag or BOOLEAN_LABELS.get(rte_flag.casefold()) is False
+        )
         missing = [name for name in required if not record.get(name)]
         if missing:
             LOGGER.error(

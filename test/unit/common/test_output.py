@@ -1,4 +1,4 @@
-"""原子写出：全部成功或保持原状。"""
+"""单文件原子替换、批量失败恢复，以及恢复再次失败时的诊断。"""
 
 from __future__ import annotations
 
@@ -59,6 +59,32 @@ def test_fsync_failure_removes_temporary_file(tmp_path, monkeypatch):
         write_files_atomically([(target, b"new")])
     assert target.read_bytes() == b"original"
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_failed_restore_does_not_stop_other_restores(tmp_path, monkeypatch):
+    first, second, third = [tmp_path / name for name in ("first", "second", "third")]
+    first.write_bytes(b"first original")
+    second.write_bytes(b"second original")
+    real_replace = os.replace
+
+    def failing_replace(source, destination):
+        if destination == third:
+            raise OSError("write failed")
+        if destination == second and str(source).endswith(".restore.tmp"):
+            raise OSError("restore failed")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(output.os, "replace", failing_replace)
+    with pytest.raises(RuntimeError, match="recovery incomplete") as caught:
+        write_files_atomically([(first, b"new"), (second, b"new"), (third, b"new")])
+    assert "write failed" in str(caught.value)
+    assert str(second) in str(caught.value)
+    assert "restore failed" in str(caught.value)
+    assert isinstance(caught.value.__cause__, OSError)
+    assert first.read_bytes() == b"first original"
+    assert second.read_bytes() == b"new"
+    assert not third.exists()
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 @pytest.mark.parametrize("names", [("same.txt", "same.txt"), ("Pair.txt", "pair.txt")])

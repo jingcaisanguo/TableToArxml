@@ -139,6 +139,18 @@ def test_enabled_rte_fields_are_still_validated(reader, caplog):
     assert "Access Kind must be one of" in caplog.text
 
 
+def test_explicit_access_runnable_name_is_always_validated(reader, caplog):
+    records = reader.read_sheet_rows({
+        "Data Accesses": [
+            ("SW-C", "Runnable Name", "Port Name", "Data Element Name", "Access Kind"),
+            ("A", "bad/name", "p_Test", "Value", "Send"),
+        ],
+    }, "Data Accesses")
+    assert records == []
+    assert "Runnable Name" in caplog.text
+    assert "AUTOSAR SHORT-NAME" in caplog.text
+
+
 @pytest.mark.parametrize("queue,expected", [("", False), ("0", False), ("1", True)])
 def test_queue_length_generation_boundary(reader, queue, expected, caplog):
     _, ports = reader.read_workbook({
