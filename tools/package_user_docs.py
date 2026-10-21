@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import re
-import runpy
 from email.parser import Parser
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+
+from packaging.version import Version
+from setuptools_scm import get_version
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,10 +23,10 @@ def package_user_docs(wheel_dir: Path) -> Path:
             raise ValueError("Wheel must contain exactly one distribution metadata file")
         metadata = Parser().parsestr(wheel.read(metadata_files[0]).decode("utf-8"))
         version = metadata["Version"]
-        if metadata["Name"] != "table-to-arxml" or not re.fullmatch(r"\d+\.\d+\.\d+", version or ""):
-            raise ValueError("Expected a table-to-arxml wheel with an x.y.z version")
-        source_version = runpy.run_path(str(ROOT / "src" / "table_to_arxml" / "__init__.py"))["__version__"]
-        if version != source_version:
+        if metadata["Name"] != "table-to-arxml" or not version:
+            raise ValueError("Expected a table-to-arxml wheel with a version")
+        source_version = get_version(root=ROOT)
+        if Version(version) != Version(source_version):
             raise ValueError(f"Wheel version {version} does not match this checkout's documentation {source_version}")
         allowed_roots = {"table_to_arxml", metadata_files[0].split("/")[0]}
         if any(name.split("/")[0] not in allowed_roots for name in wheel.namelist()):

@@ -45,6 +45,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -52,7 +54,7 @@ jobs:
         run: >-
           python -m pip install "armodel==${{ matrix.armodel }}"
           -r requirements.txt
-          pytest ruff
+          pytest ruff "setuptools>=68" "setuptools-scm>=8,<9"
       # ruff 与 pytest 的选项都在 pyproject.toml 中配置。
       - name: Lint
         run: python -m ruff check

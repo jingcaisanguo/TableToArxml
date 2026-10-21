@@ -37,7 +37,7 @@ test/                           测试代码、测试数据和基线产物，见
 
 ```bash
 source ./init_venv.sh
-python -m pip install -r requirements.txt pytest ruff build
+python -m pip install -r requirements.txt pytest ruff build "setuptools>=68" "setuptools-scm>=8,<9"
 python -m pip install -e .            # 可编辑安装，得到两个命令
 table-to-system-arxml --help
 table-to-swc-arxml --help
@@ -48,7 +48,7 @@ table-to-swc-arxml --help
 - 不安装时可设置 `PYTHONPATH=src`，再用 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` 运行，参数与命令完全相同。
 - 依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明。armodel 的版本范围在代码中只有一处
   （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。`tomli` 只在 Python 3.11 以下需要（3.11 起用标准库 `tomllib`），由环境标记控制。
-- 版本号只在 [src/table_to_arxml/__init__.py](../../src/table_to_arxml/__init__.py) 的 `__version__` 中定义，`pyproject.toml` 从这里读取。
+- 版本号由 `setuptools-scm` 从 Git tag 自动推导；源码运行需要开发依赖 `setuptools-scm`，安装后的 wheel 使用构建时生成的版本文件，不需要 Git 或 `setuptools-scm`。不要手改版本常量。
 
 ## 源码模块
 

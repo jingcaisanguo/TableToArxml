@@ -8,9 +8,9 @@
 从仓库根目录执行：
 
 ```powershell
-python -m pip install build
+python -m pip install build "setuptools>=68" "setuptools-scm>=8,<9"
 python -m build --wheel --outdir dist .
-python -m pip install --force-reinstall --no-deps ./dist/table_to_arxml-0.4.0-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps (Get-ChildItem dist\*.whl).FullName
 python tools/verify_wheel.py
 python tools/package_user_docs.py
 ```
@@ -21,13 +21,15 @@ python tools/package_user_docs.py
 
 - 打包配置在根目录 [pyproject.toml](../../pyproject.toml)，依赖从根目录 [requirements.txt](../../requirements.txt) 读取。
 - wheel 只包含 `src/table_to_arxml` 包，不包含维护脚本、文档、测试数据、配置、日志或输出目录。
-- 版本号只在 [src/table_to_arxml/__init__.py](../../src/table_to_arxml/__init__.py) 的 `__version__` 中定义（`pyproject.toml` 动态读取），两个工具共用；不要用相同版本号发布不同内容。
+- 版本由 `setuptools-scm` 根据 Git tag 自动推导，不再手写版本常量。正式 tag `0.6.0` 生成版本 `0.6.0`；非 tag 提交生成开发版本，未提交修改也会体现在版本中。
+- 构建需要完整 Git 历史和标签（`git fetch --tags`，CI checkout 使用 `fetch-depth: 0`），或带版本元数据的 sdist；没有版本信息时构建失败，不回退到固定版本。
+- 构建会生成忽略提交的 `src/table_to_arxml/_version.py`，wheel 使用该文件读取版本，无需安装 `setuptools-scm`。源码运行通过开发依赖实时读取 Git 版本，避免生成文件过期。
 
 ## 发布
 
 发布由 [release.yml](../../.github/workflows/release.yml) 完成，**标签名就是版本号**，格式为 `x.y.z`（三段纯数字），例如 `0.4.0`：
 
-1. 修改 `src/table_to_arxml/__init__.py` 的 `__version__`，经 PR 合入 `main`。
+1. 将待发布修改通过 PR 合入 `main`，无需手动修改源码版本号。
 2. 在 `main` 的对应提交上打标签并推送。不要提前创建同名 Release，由工作流创建和发布：
 
    ```powershell

@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+src/table_to_arxml/_version.py
 
 # 工具运行产物
 log/
