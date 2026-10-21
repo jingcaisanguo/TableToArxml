@@ -22,13 +22,10 @@ LOGGER = logging.getLogger(__name__)
 
 R_PORT_SHEET = "R-Port"
 P_PORT_SHEET = "P-Port"
-LEGACY_RECEIVE_SHEET = "RECEIVE"
-LEGACY_SEND_SHEET = "SEND"
 LEGACY_INPUT_SHEET = "INPUT"
 LEGACY_OUTPUT_SHEET = "OUTPUT"
 _GREEN_SHEET_PAIRS = (
     (R_PORT_SHEET, P_PORT_SHEET),
-    (LEGACY_RECEIVE_SHEET, LEGACY_SEND_SHEET),
     (LEGACY_INPUT_SHEET, LEGACY_OUTPUT_SHEET),
 )
 GREEN_COLUMN_COUNT = 11
@@ -64,17 +61,14 @@ class GreenWorkbookInfo:
 
 
 def _green_sheet_names(sheetnames: list[str], green_path: Path) -> tuple[str, str]:
-    """返回实际使用的 R-Port/P-Port 页签名；兼容先前的 RECEIVE/SEND 和 INPUT/OUTPUT。"""
+    """返回实际使用的 R-Port/P-Port 页签名；仅兼容旧 INPUT/OUTPUT 工作簿。"""
 
     present = set(sheetnames)
     available = [pair for pair in _GREEN_SHEET_PAIRS if set(pair) <= present]
     recognized = {name for pair in _GREEN_SHEET_PAIRS for name in pair} & present
     if len(available) != 1 or len(recognized) != 2:
         choices = f"{R_PORT_SHEET}/{P_PORT_SHEET}"
-        legacy = (
-            f"{LEGACY_RECEIVE_SHEET}/{LEGACY_SEND_SHEET} or "
-            f"{LEGACY_INPUT_SHEET}/{LEGACY_OUTPUT_SHEET}"
-        )
+        legacy = f"{LEGACY_INPUT_SHEET}/{LEGACY_OUTPUT_SHEET}"
         raise ValueError(
             f"Green table must contain exactly one complete {choices} or legacy {legacy} sheet pair: "
             f"{green_path}"

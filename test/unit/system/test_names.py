@@ -84,21 +84,15 @@ def test_sample_green_tables_merge(tmp_path):
         result.close()
 
 
-@pytest.mark.parametrize("r_sheet,p_sheet", [
-    ("RECEIVE", "SEND"),
-    ("INPUT", "OUTPUT"),
-])
-def test_parse_green_workbook_accepts_legacy_names_but_uses_directional_rows(
-    tmp_path, r_sheet, p_sheet,
-):
+def test_parse_green_workbook_accepts_input_output_legacy_names(tmp_path):
     from table_to_arxml.system.green_table import parse_green_workbook
 
     source = ROOT / "test/samples/system/GreenTable/Bcm/LIT.xlsx"
     canonical = parse_green_workbook(source, "LIT")
     legacy_path = tmp_path / "legacy.xlsx"
     workbook = load_workbook(source)
-    workbook[R_PORT_SHEET].title = r_sheet
-    workbook[P_PORT_SHEET].title = p_sheet
+    workbook[R_PORT_SHEET].title = "INPUT"
+    workbook[P_PORT_SHEET].title = "OUTPUT"
     workbook.save(legacy_path)
     workbook.close()
 
@@ -119,10 +113,25 @@ def test_parse_green_workbook_rejects_mixed_sheet_pairs(tmp_path):
 
     source = ROOT / "test/samples/system/GreenTable/Bcm/LIT.xlsx"
     workbook = load_workbook(source)
-    workbook.create_sheet("RECEIVE")
+    workbook["P-Port"].title = "INPUT"
     mixed_path = tmp_path / "mixed.xlsx"
     workbook.save(mixed_path)
     workbook.close()
 
     with pytest.raises(ValueError, match="exactly one complete"):
         parse_green_workbook(mixed_path, "LIT")
+
+
+def test_parse_green_workbook_rejects_receive_send_aliases(tmp_path):
+    from table_to_arxml.system.green_table import parse_green_workbook
+
+    source = ROOT / "test/samples/system/GreenTable/Bcm/LIT.xlsx"
+    workbook = load_workbook(source)
+    workbook["R-Port"].title = "RECEIVE"
+    workbook["P-Port"].title = "SEND"
+    alias_path = tmp_path / "receive-send.xlsx"
+    workbook.save(alias_path)
+    workbook.close()
+
+    with pytest.raises(ValueError, match="exactly one complete"):
+        parse_green_workbook(alias_path, "LIT")
