@@ -59,11 +59,11 @@ def prepare_mapping_input(tmp_path, mode, existing=False, reverse=False, same_na
               <BEHAVIOR-REF DEST="SWC-INTERNAL-BEHAVIOR">/Pkg/A/IB</BEHAVIOR-REF>
             </SWC-IMPLEMENTATION>"""))
         workbook = Workbook()
-        workbook.active.title = "RECEIVE"
-        workbook.create_sheet("SEND")
+        workbook.active.title = "R-Port"
+        workbook.create_sheet("P-Port")
         for sheet in workbook:
             sheet.append(["", "Port", "Module", "", "", "", "", "DataElement", "Component", "Port", "Remark"])
-        workbook["SEND"].append(["", "pOut", "SWC", "", "", "", "", "", "B", "rIn", ""])
+        workbook["P-Port"].append(["", "pOut", "SWC", "", "", "", "", "", "B", "rIn", ""])
         workbook.save(tmp_path / "A.xlsx")
         workbook.close()
         config.update(greenTables=["A.xlsx"], componentAliases={"A": "/Pkg/Top/A"}, general={

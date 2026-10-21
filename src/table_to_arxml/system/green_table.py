@@ -1,7 +1,7 @@
 """绿表的读取、收集与合并。
 
 绿表按列号 A..K 取值：B 为 app 自身端口，C 为对端模块，H 为数据元素，I 为对端组件（总线行为通道），
-J 为对端端口（总线行为信号），K 为备注。RECEIVE、SEND 两页结构相同，只是端口方向相反。
+J 为对端端口（总线行为信号），K 为备注。R-Port、P-Port 两页结构相同，只是端口方向相反。
 """
 
 from __future__ import annotations
@@ -20,12 +20,15 @@ from .values import norm
 
 LOGGER = logging.getLogger(__name__)
 
-RECEIVE_SHEET = "RECEIVE"
-SEND_SHEET = "SEND"
+R_PORT_SHEET = "R-Port"
+P_PORT_SHEET = "P-Port"
+LEGACY_RECEIVE_SHEET = "RECEIVE"
+LEGACY_SEND_SHEET = "SEND"
 LEGACY_INPUT_SHEET = "INPUT"
 LEGACY_OUTPUT_SHEET = "OUTPUT"
 _GREEN_SHEET_PAIRS = (
-    (RECEIVE_SHEET, SEND_SHEET),
+    (R_PORT_SHEET, P_PORT_SHEET),
+    (LEGACY_RECEIVE_SHEET, LEGACY_SEND_SHEET),
     (LEGACY_INPUT_SHEET, LEGACY_OUTPUT_SHEET),
 )
 GREEN_COLUMN_COUNT = 11
@@ -36,9 +39,9 @@ RESERVED_REMARK_KEYWORDS = ("预留", "保留", "备用")
 
 @dataclass(frozen=True)
 class GreenRow:
-    """绿表 RECEIVE/SEND 页的一行有效数据。
+    """绿表 R-Port/P-Port 页的一行有效数据。
 
-    ``app_port`` 在 RECEIVE 页是 app 的 R-port，在 SEND 页是 P-port；``peer``、``peer_port``
+    ``app_port`` 在 R-Port 页是 app 的 R-port，在 P-Port 页是 P-port；``peer``、``peer_port``
     是对端组件和端口，对端模块为 CAN/LIN 时分别是通道名和信号名。
     """
 
@@ -56,19 +59,22 @@ class GreenWorkbookInfo:
     """单个绿表抽象后的完整信息。"""
 
     app_name: str
-    receive_rows: list[GreenRow]
-    send_rows: list[GreenRow]
+    r_port_rows: list[GreenRow]
+    p_port_rows: list[GreenRow]
 
 
 def _green_sheet_names(sheetnames: list[str], green_path: Path) -> tuple[str, str]:
-    """返回实际使用的接收/发送页签名；兼容旧的 INPUT/OUTPUT 工作簿。"""
+    """返回实际使用的 R-Port/P-Port 页签名；兼容先前的 RECEIVE/SEND 和 INPUT/OUTPUT。"""
 
     present = set(sheetnames)
     available = [pair for pair in _GREEN_SHEET_PAIRS if set(pair) <= present]
     recognized = {name for pair in _GREEN_SHEET_PAIRS for name in pair} & present
     if len(available) != 1 or len(recognized) != 2:
-        choices = f"{RECEIVE_SHEET}/{SEND_SHEET}"
-        legacy = f"{LEGACY_INPUT_SHEET}/{LEGACY_OUTPUT_SHEET}"
+        choices = f"{R_PORT_SHEET}/{P_PORT_SHEET}"
+        legacy = (
+            f"{LEGACY_RECEIVE_SHEET}/{LEGACY_SEND_SHEET} or "
+            f"{LEGACY_INPUT_SHEET}/{LEGACY_OUTPUT_SHEET}"
+        )
         raise ValueError(
             f"Green table must contain exactly one complete {choices} or legacy {legacy} sheet pair: "
             f"{green_path}"
@@ -116,7 +122,7 @@ def _read_green_rows(ws, location: str, errors: list[str]) -> list[GreenRow]:
 
 
 def parse_green_workbook(green_path: Path, app_name: str) -> GreenWorkbookInfo:
-    """读取单个绿表的 RECEIVE/SEND 页；兼容旧 INPUT/OUTPUT，逐行记录全部错误后统一失败。
+    """读取单个绿表的 R-Port/P-Port 页；兼容旧页名，逐行记录全部错误后统一失败。
 
     按固定列号取值而不依赖表头文案，避免换行、空格、全角字符差异导致匹配失败。
     """
@@ -207,14 +213,14 @@ def merge_green_workbooks(
         receive_sheet_name, send_sheet_name = _green_sheet_names(
             source_workbook.sheetnames, green_workbook_path,
         )
-        receive_name = _merged_sheet_name(app_name, RECEIVE_SHEET, used_names)
+        receive_name = _merged_sheet_name(app_name, R_PORT_SHEET, used_names)
         if index == 0:
             receive_sheet = placeholder_sheet
             receive_sheet.title = receive_name
         else:
             receive_sheet = merged_workbook.create_sheet(receive_name)
 
-        send_sheet = merged_workbook.create_sheet(_merged_sheet_name(app_name, SEND_SHEET, used_names))
+        send_sheet = merged_workbook.create_sheet(_merged_sheet_name(app_name, P_PORT_SHEET, used_names))
         copy_worksheet(receive_sheet, source_workbook[receive_sheet_name])
         copy_worksheet(send_sheet, source_workbook[send_sheet_name])
         source_workbook.close()

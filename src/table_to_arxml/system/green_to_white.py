@@ -17,7 +17,7 @@ from .arxml_model import ArxmlModel
 from .values import norm
 from .component_map import ComponentTypeMap, build_component_type_map
 from .general import resolve_general
-from .green_table import RECEIVE_SHEET, SEND_SHEET, GreenRow, GreenWorkbookInfo
+from .green_table import R_PORT_SHEET, P_PORT_SHEET, GreenRow, GreenWorkbookInfo
 from .white_table import (
     ASSEMBLY_SHEET, COMPONENTS_SHEET, SIGNAL_SHEET, create_white_workbook, format_white_workbook,
 )
@@ -105,7 +105,7 @@ def process_green_table(
     """把一个绿表写入白表工作簿；出错的组件或行记入 ``errors`` 后继续处理其余内容。
 
     先补 Components：绿表定义的 app 写成 Add，其他被引用组件写成 Reference；
-    再依次处理 RECEIVE、SEND 页：普通组件写 AssemblySwConnection，CAN/LIN 写 SenderReceiverToSignal。
+    再依次处理 R-Port、P-Port 页：普通组件写 AssemblySwConnection，CAN/LIN 写 SenderReceiverToSignal。
     """
 
     components_ws = workbook[COMPONENTS_SHEET]
@@ -129,7 +129,7 @@ def process_green_table(
     app_definitions = {component_type_map.resolve(name) for name in app_names}
 
     peers = {
-        row.peer for row in (*info.receive_rows, *info.send_rows)
+        row.peer for row in (*info.r_port_rows, *info.p_port_rows)
         if not _is_bus_row(row, e2e_wrapper)
     }
     for name, component_type, action in [(app_prototype, app_component_type, "Add")] + [
@@ -147,8 +147,8 @@ def process_green_table(
             fail(f"Green table '{info.app_name}'", exc)
 
     for sheet, rows, direction in (
-        (RECEIVE_SHEET, info.receive_rows, "IN"),
-        (SEND_SHEET, info.send_rows, "OUT"),
+        (R_PORT_SHEET, info.r_port_rows, "IN"),
+        (P_PORT_SHEET, info.p_port_rows, "OUT"),
     ):
         for row in rows:
             try:
