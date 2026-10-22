@@ -97,6 +97,9 @@ table-to-swc-arxml --help
 - 多个配置共用一次 `ArxmlModel.load`；生成的 ARXML 写到独立文档，加载的模型保留给后续配置复用。
 - 产物先写到临时目录，没有工具自身 ERROR 或运行异常时才发布到输出目录；armodel 解析器诊断不单独决定失败。
 - 组合实例链只在 `ArxmlModel.composition_chains` 中实现，嵌套上限为 `MAX_COMPOSITION_DEPTH`；总线类型统一由 `bus_module` 判断。
+- 输出是对已有元素的拆分片段：`_Resolver.check_composition_names` 维护目标 Composition 的不区分大小写命名空间，`resolve_system`
+  按 AUTOSAR 元模型的多重性和 `atpSplitable` 决定 FIBEX-ELEMENTS、SystemMapping 等是否写出（依据 4.3.1 XSD 的 `pureMM`
+  多重性与 `atpSplitable` 标注）。新增写出内容前先确认对应角色是否可拆分，不可拆分且输入已有内容时不要追加。
 
 ### swc：table-to-swc-arxml
 

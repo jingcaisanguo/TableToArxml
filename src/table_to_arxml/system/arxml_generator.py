@@ -7,16 +7,18 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
+import armodel
 from armodel import (
     ARLiteral, AUTOSAR, ApplicationSwComponentType,
     AtomicSwComponentType, ComplexDeviceDriverSwComponentType,
     ComponentInSystemInstanceRef, CompositionSwComponentType,
     EcuAbstractionSwComponentType, EcuInstance, PPortInCompositionInstanceRef, PPortPrototype,
-    RPortInCompositionInstanceRef, RPortPrototype, RefType,
+    PRPortPrototype, RPortInCompositionInstanceRef, RPortPrototype, RefType,
     SenderReceiverToSignalGroupMapping, SenderReceiverToSignalMapping,
     ServiceSwComponentType, TRefType, VariableDataPrototypeInSystemInstanceRef,
 )
@@ -26,9 +28,10 @@ from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.PortInterface import
     DataPrototypeMapping, PortInterface, SenderReceiverInterface,
 )
 
-from ..common.armodel_compat import SystemArxmlWriter, set_communication_direction, set_inner_port_iref
-from ..common.names import MAX_SHORT_NAME as MAX_SHORT_NAME
-from ..common.names import autosar_path, generated_name, short_name
+from ..common.armodel_compat import (
+    SystemArxmlWriter, get_inner_port_iref, set_communication_direction, set_inner_port_iref,
+)
+from ..common.names import NAME_HASH_LENGTH, autosar_path, generated_name, short_name
 from .arxml_model import ArxmlModel
 from .values import ref_value
 from .white_table import (
@@ -37,12 +40,21 @@ from .white_table import (
 )
 
 LOGGER = logging.getLogger(__name__)
-COMPONENT_DESTINATIONS = (
-    (CompositionSwComponentType, "COMPOSITION-SW-COMPONENT-TYPE"),
-    (ApplicationSwComponentType, "APPLICATION-SW-COMPONENT-TYPE"),
-    (ComplexDeviceDriverSwComponentType, "COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE"),
-    (EcuAbstractionSwComponentType, "ECU-ABSTRACTION-SW-COMPONENT-TYPE"),
-    (ServiceSwComponentType, "SERVICE-SW-COMPONENT-TYPE"),
+# 部分组件类型在较旧的 armodel 中不存在，按名称可选导入。
+COMPONENT_DESTINATIONS = tuple(
+    (component_class, destination)
+    for component_class, destination in (
+        (CompositionSwComponentType, "COMPOSITION-SW-COMPONENT-TYPE"),
+        (ApplicationSwComponentType, "APPLICATION-SW-COMPONENT-TYPE"),
+        (ComplexDeviceDriverSwComponentType, "COMPLEX-DEVICE-DRIVER-SW-COMPONENT-TYPE"),
+        (EcuAbstractionSwComponentType, "ECU-ABSTRACTION-SW-COMPONENT-TYPE"),
+        (ServiceSwComponentType, "SERVICE-SW-COMPONENT-TYPE"),
+        (getattr(armodel, "SensorActuatorSwComponentType", None), "SENSOR-ACTUATOR-SW-COMPONENT-TYPE"),
+        (getattr(armodel, "NvBlockSwComponentType", None), "NV-BLOCK-SW-COMPONENT-TYPE"),
+        (getattr(armodel, "ServiceProxySwComponentType", None), "SERVICE-PROXY-SW-COMPONENT-TYPE"),
+        (getattr(armodel, "ParameterSwComponentType", None), "PARAMETER-SW-COMPONENT-TYPE"),
+    )
+    if component_class is not None
 )
 ASSEMBLY_PREFIX = "ac_"
 DELEGATION_PREFIX = "dlc_"
@@ -51,14 +63,50 @@ DELEGATION_PREFIX = "dlc_"
 def connector_name(prefix: str, *parts: str) -> str:
     """生成连接器 SHORT-NAME：``<前缀><各部分以 _ 连接>``。
 
-    超过 :data:`MAX_SHORT_NAME` 时截断并追加完整名称的哈希；调用方仍须检查名称冲突。
+    超过 SHORT-NAME 长度上限时截断并追加完整名称的哈希；调用方仍须检查名称冲突。
     """
 
     return generated_name(prefix + "_".join(parts))
 
 
+def disambiguated_connector_name(name: str, *parts: str) -> str:
+    """用 ``_`` 拼接产生歧义时（如 ``a_b`` + ``c`` 与 ``a`` + ``b_c``），按各部分的结构化哈希区分。"""
+
+    digest = sha256("\0".join(parts).encode("utf-8")).hexdigest()[:NAME_HASH_LENGTH]
+    return generated_name(f"{name}_{digest}")
+
+
+def class_destination(element: object) -> str:
+    """由 armodel 类名得到 AUTOSAR DEST 字面量，如 ``SenderReceiverInterface`` -> ``SENDER-RECEIVER-INTERFACE``。"""
+
+    return re.sub(r"(?<!^)(?=[A-Z])", "-", type(element).__name__).upper()
+
+
 def _reference(destination: str, path: str) -> RefType:
     return RefType().setDest(destination).setValue(path)
+
+
+def _iref_target_port(iref: object) -> str:
+    for getter in ("getTargetPPortRef", "getTargetRPortRef"):
+        method = getattr(iref, getter, None)
+        if method is not None and method() is not None:
+            return ref_value(method())
+    return ""
+
+
+def _iref_context(iref: object) -> str:
+    return ref_value(iref.getContextComponentRef()) if iref is not None else ""
+
+
+def _warn_unmapped_elements(
+    mapping: str, pairs: dict[str, str], provider_elements: dict, requester_elements: dict,
+) -> None:
+    unmapped_provider = sorted(set(provider_elements) - set(pairs))
+    unmapped_requester = sorted(set(requester_elements) - set(pairs.values()))
+    if unmapped_provider or unmapped_requester:
+        LOGGER.warning(
+            "Interface mapping %s leaves data elements unmapped: provider %s, requester %s",
+            mapping, unmapped_provider or "none", unmapped_requester or "none")
 
 
 @dataclass(frozen=True)
@@ -69,6 +117,7 @@ class _Component:
     instance_path: str
     implementation: str
     action: str
+    exists: bool = False
 
 
 @dataclass(frozen=True)
@@ -122,7 +171,7 @@ class _SignalMapping:
 class _Resolver:
     def __init__(
         self, document: AUTOSAR, data: CompositionInput, interface_mismatch: str,
-        interface_mappings: dict[tuple[str, str], dict[str, str]],
+        interface_mappings: dict[tuple[str, str], dict[str, str]], system_mapping: str = "",
     ) -> None:
         self.document = document
         self.data = data
@@ -138,9 +187,12 @@ class _Resolver:
             short_name(system_name, "General.System")
         for key in ("RootSwCompositionPrototype", "EcuInstance"):
             autosar_path(data.general[key], f"General.{key}")
+        self.system_mapping_name = generated_name(f"SystemMapping_{system_mapping}") if system_mapping else ""
         self.context_components: list[str] = []
+        self.system_path = ""
         self.system_category = "SYSTEM_DESCRIPTION"
-        self.system_version = "1.0.0"
+        self.system_version = ""
+        self.write_fibex_ecu = False
         self.root_type = ""
         self.components: dict[str, _Component] = {}
         self.aliases: dict[str, _Component] = {}
@@ -150,6 +202,8 @@ class _Resolver:
         self.delegations: dict[str, _Delegation] = {}
         self.outer_ports: dict[str, _Endpoint] = {}
         self.existing_outer_ports: set[str] = set()
+        # 输入 Composition 中已有、内容相同的连接器，不再重复写出。
+        self.reused_connectors: set[str] = set()
         self.signals: list[_SignalMapping] = []
         self.objects: dict[tuple[str, str], object] = {}
 
@@ -158,6 +212,28 @@ class _Resolver:
         if key not in self.objects:
             self.objects[key] = getattr(self.document, method)(path)
         return self.objects[key]
+
+    def implementation_of(self, type_path: str, component_type: AtomicSwComponentType) -> str:
+        """返回原子组件唯一的 SWC-IMPLEMENTATION；缺失或不唯一只警告，SwcToImplMapping 为 0..*。"""
+
+        behavior = component_type.getInternalBehavior()
+        if behavior is None:
+            LOGGER.warning("%s has no SWC-INTERNAL-BEHAVIOR; SwcToImplMapping is not generated", type_path)
+            return ""
+        behavior_path = behavior.getFullName()
+        candidates = self.model.implementations(behavior_path)
+        if not candidates:
+            LOGGER.warning(
+                "No SWC-IMPLEMENTATION references %s; SwcToImplMapping is not generated", behavior_path)
+            return ""
+        if len(candidates) == 1:
+            return candidates[0]
+        chosen = self.lookup("getImplementation", behavior_path)
+        chosen_path = chosen.getFullName() if chosen is not None else candidates[0]
+        LOGGER.warning(
+            "Multiple SWC-IMPLEMENTATIONs reference %s (%s); using %s",
+            behavior_path, ", ".join(candidates), chosen_path)
+        return chosen_path
 
     def add_component(self, row: TableRow) -> None:
         values = row.values
@@ -179,13 +255,6 @@ class _Resolver:
                             if isinstance(component_type, kind)), "")
         if not destination:
             raise ValueError(f"missing or unsupported component type '{type_path}'")
-        implementation = ""
-        if action == "add" and isinstance(component_type, AtomicSwComponentType):
-            behavior = component_type.getInternalBehavior()
-            impl = self.lookup("getImplementation", behavior.getFullName()) if behavior else None
-            if impl is None:
-                raise ValueError(f"no implementation for {type_path}")
-            implementation = impl.getFullName()
         instance_path = name if name.startswith("/") else f"{self.composition_path}/{name}"
         if instance_path.rsplit("/", 1)[0] != self.composition_path:
             raise ValueError(f"prototype is outside target composition: {instance_path}")
@@ -195,8 +264,16 @@ class _Resolver:
                 raise ValueError(f"Reference prototype does not exist: {instance_path}")
             if ref_value(existing.getTypeTRef()) != type_path:
                 raise ValueError(f"prototype type mismatch: {instance_path}")
+        if action == "add" and existing is not None:
+            LOGGER.info(
+                "%s: prototype %s already exists; it is not re-created, only its System mappings are generated",
+                row.location, instance_path)
+        implementation = ""
+        if action == "add" and isinstance(component_type, AtomicSwComponentType):
+            implementation = self.implementation_of(type_path, component_type)
         name = instance_path.rsplit("/", 1)[-1]
-        component = _Component(name, type_path, destination, instance_path, implementation, action)
+        component = _Component(
+            name, type_path, destination, instance_path, implementation, action, existing is not None)
         if name in self.components and self.components[name] != component:
             raise ValueError(f"conflicting prototype '{name}'")
         self.components[name] = component
@@ -230,6 +307,8 @@ class _Resolver:
         if key not in self.ports:
             port_path = f"{component.type_path}/{port_name}"
             port = self.lookup("findPort", port_path)
+            if isinstance(port, PRPortPrototype):
+                raise ValueError(f"PR-PORT-PROTOTYPE '{port_path}' is not supported by this tool")
             if isinstance(port, PPortPrototype):
                 destination = "P-PORT-PROTOTYPE"
                 interface = port.getProvidedInterfaceTRef()
@@ -238,15 +317,23 @@ class _Resolver:
                 interface = port.getRequiredInterfaceTRef()
             else:
                 raise ValueError(f"missing or unsupported port '{port_path}'")
-            self.ports[key] = _Endpoint(component, port.getFullName(), destination,
-                                        ref_value(interface), str(interface.getDest() or "") if interface else "")
+            interface_path = ref_value(interface)
+            interface_object = self.lookup("find", interface_path) if interface_path else None
+            if not isinstance(interface_object, PortInterface):
+                raise ValueError(f"port '{port.getFullName()}' has a missing or invalid interface: '{interface_path}'")
+            # DEST 按引用对象的实际类型写出，输入中错误的 DEST 只提示。
+            interface_destination = class_destination(interface_object)
+            declared = str(interface.getDest() or "")
+            if declared != interface_destination:
+                LOGGER.warning(
+                    "Port %s declares interface DEST %s but %s is a %s; using %s",
+                    port.getFullName(), declared or "(empty)", interface_path, interface_destination,
+                    interface_destination)
+            self.ports[key] = _Endpoint(
+                component, port.getFullName(), destination, interface_path, interface_destination)
         endpoint = self.ports[key]
         if expected and endpoint.destination != expected:
             raise ValueError(f"port '{endpoint.port_path}' must be {expected}")
-        if (not endpoint.interface_path or not endpoint.interface_destination
-                or not isinstance(self.lookup("find", endpoint.interface_path), PortInterface)):
-            raise ValueError(
-                f"port '{endpoint.port_path}' has a missing or invalid interface: '{endpoint.interface_path}'")
         return endpoint
 
     def interface_mapping(self, provider: _Endpoint, requester: _Endpoint, allow_create: bool) -> str:
@@ -266,10 +353,10 @@ class _Resolver:
                     or not set(pairs.values()).issubset(second_elements)
                     or len(set(pairs.values())) != len(pairs)):
                 raise ValueError(
-                    "interfaceMappings.dataElements must cover both interfaces exactly once; "
-                    "explicit pairs must reference existing elements with unique targets")
+                    "interfaceMappings.dataElements must reference existing data elements of both interfaces "
+                    "and map them one-to-one")
             pairs = dict(pairs)
-        existing: list[str] = []
+        existing: list[tuple[str, dict[str, str]]] = []
         for mapping in self.model.interface_mappings():
             references = []
             for item in mapping.getDataMappings():
@@ -289,21 +376,30 @@ class _Resolver:
                        and b.rpartition("/")[0] == requester.interface_path for a, b in references):
                 continue
             mapped_pairs = {a.rpartition("/")[2]: b.rpartition("/")[2] for a, b in references}
-            if (len(mapped_pairs) != len(references) or set(mapped_pairs) != set(first_elements)
-                    or set(mapped_pairs.values()) != set(second_elements)
-                    or len(set(mapped_pairs.values())) != len(mapped_pairs)):
-                raise ValueError(f"Existing interface mapping must cover both interfaces exactly once: "
-                                 f"{mapping.getFullName()}")
-            if pairs is not None and any(mapped_pairs[name] != target for name, target in pairs.items()):
+            # 浅校验：引用须存在且一一对应；未覆盖的元素只警告。
+            if (len(mapped_pairs) != len(references) or len(set(mapped_pairs.values())) != len(mapped_pairs)
+                    or not set(mapped_pairs).issubset(first_elements)
+                    or not set(mapped_pairs.values()).issubset(second_elements)):
+                raise ValueError(
+                    f"Existing interface mapping {mapping.getFullName()} must reference existing data elements "
+                    "of both interfaces one-to-one")
+            if pairs is not None and any(mapped_pairs.get(name) != target for name, target in pairs.items()):
                 continue
-            existing.append(mapping.getFullName())
+            existing.append((mapping.getFullName(), mapped_pairs))
         if len(existing) > 1:
-            raise ValueError(f"Ambiguous existing interface mappings: {', '.join(sorted(existing))}")
+            raise ValueError(
+                f"Ambiguous existing interface mappings: {', '.join(sorted(path for path, _ in existing))}")
         if existing:
-            LOGGER.info("Reuse interface mapping: %s", existing[0])
-            return existing[0]
+            path, mapped_pairs = existing[0]
+            _warn_unmapped_elements(path, mapped_pairs, first_elements, second_elements)
+            LOGGER.info("Reuse interface mapping: %s", path)
+            return path
         if not allow_create:
             return ""
+        if not first_elements or not second_elements:
+            raise ValueError(
+                f"Cannot infer interface mapping {provider.interface_path} -> {requester.interface_path}; "
+                "interfaces must contain data elements")
         if pairs is None and len(first_elements) == len(second_elements) == 1:
             pairs = {next(iter(first_elements)): next(iter(second_elements))}
         else:
@@ -311,15 +407,19 @@ class _Resolver:
             remaining_first = set(first_elements) - set(pairs)
             remaining_second = set(second_elements) - set(pairs.values())
             pairs.update({name: name for name in remaining_first & remaining_second})
-        if not first_elements or not second_elements:
+        if not pairs:
             raise ValueError(
                 f"Cannot infer interface mapping {provider.interface_path} -> {requester.interface_path}; "
-                "interfaces must contain data elements")
-        if (set(pairs) != set(first_elements) or set(pairs.values()) != set(second_elements)
-                or len(set(pairs.values())) != len(pairs)):
+                "no data elements can be paired by name, configure interfaceMappings.dataElements")
+        package_path, _, composition_name = self.composition_path.rpartition("/")
+        set_path = f"{package_path}/{generated_name(composition_name + '_InterfaceMappings')}"
+        if self.lookup("find", set_path) is not None:
             raise ValueError(
-                f"Cannot infer interface mapping {provider.interface_path} -> {requester.interface_path}; "
-                "interfaceMappings.dataElements must cover both interfaces exactly once after same-name pairing")
+                f"PORT-INTERFACE-MAPPING-SET {set_path} already exists in the loaded ARXML; its "
+                "PORT-INTERFACE-MAPPINGS cannot be split across files, add the mapping there or configure "
+                "interfaceMappings to reuse an existing mapping")
+        _warn_unmapped_elements(
+            f"{provider.interface_path} -> {requester.interface_path}", pairs, first_elements, second_elements)
         references: list[tuple[str, str]] = []
         for first_name, second_name in sorted(pairs.items()):
             first_element, second_element = first_elements[first_name], second_elements[second_name]
@@ -329,8 +429,7 @@ class _Resolver:
         mapping = _InterfaceMapping(name, tuple(references))
         if name in self.generated_interface_mappings and self.generated_interface_mappings[name] != mapping:
             raise ValueError(f"Conflicting generated interface mapping: {name}")
-        package_path, _, composition_name = self.composition_path.rpartition("/")
-        path = f"{package_path}/{generated_name(composition_name + '_InterfaceMappings')}/{name}"
+        path = f"{set_path}/{name}"
         if self.lookup("find", path) is not None:
             raise ValueError(f"Generated interface mapping already exists in input: {path}")
         self.generated_interface_mappings[name] = mapping
@@ -352,12 +451,26 @@ class _Resolver:
                 return
             if not mapping_path and self.interface_mismatch == "error":
                 raise ValueError(message)
-        name = connector_name(
-            ASSEMBLY_PREFIX, provider.component.name, values["PPort"], requester.component.name, values["RPort"])
-        connector = _Assembly(name, provider, requester, mapping_path)
-        if name in self.delegations or (name in self.assemblies and self.assemblies[name] != connector):
-            raise ValueError(f"conflicting connector name '{name}'")
+        parts = (provider.component.name, values["PPort"], requester.component.name, values["RPort"])
+        name, connector = self._claim_connector(
+            ASSEMBLY_PREFIX, parts, lambda name: _Assembly(name, provider, requester, mapping_path))
         self.assemblies[name] = connector
+
+    def _claim_connector(self, prefix: str, parts: tuple[str, ...], build):
+        """返回本次连接器的名称和对象；``_`` 拼接产生的同名不同连接改用结构化哈希区分。"""
+
+        name = connector_name(prefix, *parts)
+        connector = build(name)
+        current = self.assemblies.get(name) or self.delegations.get(name)
+        if current is None or current == connector:
+            return name, connector
+        hashed = disambiguated_connector_name(name, *parts)
+        LOGGER.warning("Connector name %s is ambiguous for %s; using %s", name, " / ".join(parts), hashed)
+        connector = build(hashed)
+        current = self.assemblies.get(hashed) or self.delegations.get(hashed)
+        if current is not None and current != connector:
+            raise ValueError(f"conflicting connector name '{hashed}'")
+        return hashed, connector
 
     def add_delegation(self, row: TableRow) -> None:
         values = row.values
@@ -377,16 +490,17 @@ class _Resolver:
             elif isinstance(port, RPortPrototype):
                 current = ("R-PORT-PROTOTYPE", port.getRequiredInterfaceTRef())
             else:
-                raise ValueError(f"unsupported outer port '{self.composition_path}/{outer}'")
+                raise ValueError(
+                    f"outer port name '{self.composition_path}/{outer}' is already used by a "
+                    f"{class_destination(port)}")
             if (current[0], ref_value(current[1])) != (inner.destination, inner.interface_path):
                 raise ValueError(
                     f"existing outer port '{self.composition_path}/{outer}' ({current[0]}, {ref_value(current[1])}) "
                     f"does not match inner port ({inner.destination}, {inner.interface_path})")
             self.existing_outer_ports.add(outer)
-        name = connector_name(DELEGATION_PREFIX, outer, inner.component.name, values["Inner Port"])
-        connector = _Delegation(name, inner, outer)
-        if name in self.assemblies or (name in self.delegations and self.delegations[name] != connector):
-            raise ValueError(f"conflicting connector name '{name}'")
+        parts = (outer, inner.component.name, values["Inner Port"])
+        name, connector = self._claim_connector(
+            DELEGATION_PREFIX, parts, lambda name: _Delegation(name, inner, outer))
         self.delegations[name] = connector
         self.outer_ports[outer] = inner
 
@@ -414,21 +528,61 @@ class _Resolver:
         signal = self.lookup("findSystemSignalGroup" if group else "findSystemSignal", signal_path)
         if signal is None:
             raise ValueError(f"signal{' group' if group else ''} '{signal_path}' is not defined")
-        if not isinstance(self.lookup("find", self.data.general["EcuInstance"]), EcuInstance):
-            raise ValueError(f"ECU instance is not defined: {self.data.general['EcuInstance']}")
-        self.signals.append(_SignalMapping(endpoint, data_path, signal.getFullName(), direction, group))
+        mapping = _SignalMapping(endpoint, data_path, signal.getFullName(), direction, group)
+        if mapping in self.signals:
+            LOGGER.warning("%s: duplicate signal mapping %s -> %s skipped", row.location, data_path, signal_path)
+            return
+        if group:
+            LOGGER.warning(
+                "%s: SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING requires a TYPE-MAPPING, which the tool does not "
+                "derive; complete it for %s during integration", row.location, data_path)
+        self.signals.append(mapping)
 
     def resolve_system(self) -> None:
-        """从已加载的同路径 System 读取 CATEGORY/版本/根组合，并求根组合到目标 Composition 的实例链。"""
+        """定位已加载的 System，校验 ECU、根组合原型与映射名称，并求根组合到目标 Composition 的实例链。
+
+        System 的 FIBEX-ELEMENTS 和 SystemMapping 的子聚合不可拆分（非 atpSplitable），已有内容时不在
+        拆分片段中重复写出；SYSTEM-VERSION 为 1..1，只沿用输入值，不臆造。
+        """
 
         general = self.data.general
-        system = self.lookup("find", general["System"]) if general["System"].startswith("/") else None
-        if system is not None:
-            self.system_category = ref_value(system.getCategory()) or self.system_category
-            self.system_version = ref_value(system.getSystemVersion())
-        root = self.lookup("find", general["RootSwCompositionPrototype"])
+        system = self.model.find_system(general["System"])
+        if system is None:
+            raise ValueError(f"System is not defined in the loaded ARXML: {general['System']}")
+        self.system_path = system.getFullName()
+        self.system_category = ref_value(system.getCategory()) or self.system_category
+        self.system_version = ref_value(system.getSystemVersion())
+        if not self.system_version:
+            LOGGER.warning(
+                "System %s has no SYSTEM-VERSION (multiplicity 1); the output does not invent one",
+                self.system_path)
+
+        ecu_path = general["EcuInstance"]
+        if not isinstance(self.lookup("find", ecu_path), EcuInstance):
+            raise ValueError(f"ECU instance is not defined: {ecu_path}")
+        system_ecus = ArxmlModel.system_ecu_instances(system)
+        self.write_fibex_ecu = not list(system.getFibexElementRefs())
+        if not self.write_fibex_ecu and ecu_path not in system_ecus:
+            LOGGER.warning(
+                "System %s FIBEX-ELEMENTS do not reference %s; FIBEX-ELEMENTS cannot be split across files, "
+                "add the ECU-INSTANCE to the System manually", self.system_path, ecu_path)
+
+        if self.system_mapping_name:
+            folded = self.system_mapping_name.casefold()
+            clashes = [mapping.getShortName() for mapping in system.getMappings()
+                       if (mapping.getShortName() or "").casefold() == folded]
+            if clashes:
+                raise ValueError(
+                    f"SystemMapping {self.system_path}/{clashes[0]} already exists in the loaded ARXML; its "
+                    "mappings cannot be split across files, configure a different general.systemMapping")
+
+        root_path = general["RootSwCompositionPrototype"]
+        if root_path.rpartition("/")[0] != self.system_path:
+            raise ValueError(
+                f"RootSwCompositionPrototype {root_path} does not belong to System {self.system_path}")
+        root = self.lookup("find", root_path)
         if root is None or not hasattr(root, "getSoftwareCompositionTRef"):
-            raise ValueError(f"RootSwCompositionPrototype is not defined: {general['RootSwCompositionPrototype']}")
+            raise ValueError(f"RootSwCompositionPrototype is not defined: {root_path}")
         self.root_type = ref_value(root.getSoftwareCompositionTRef())
         chains = self.model.composition_chains(self.root_type, self.composition_path)
         if len(chains) != 1:
@@ -436,6 +590,101 @@ class _Resolver:
                 f"General.Composition {self.composition_path} must be instantiated exactly once under "
                 f"{self.root_type}, found {len(chains)}")
         self.context_components = list(chains[0])
+        for component in self.components.values():
+            if component.action == "add" and component.destination == "COMPOSITION-SW-COMPONENT-TYPE":
+                LOGGER.warning(
+                    "%s is a composition prototype; SwcToEcuMapping normally references atomic "
+                    "SW component prototypes", component.instance_path)
+
+    def check_composition_names(self) -> int:
+        """目标 Composition 的 COMPONENTS、PORTS、CONNECTORS 共用一个命名空间，SHORT-NAME 不区分大小写唯一。
+
+        与输入中同名同内容的连接器直接复用；连接同一对端口但名称不同的已有连接器只警告并复用。
+        返回记录的 ERROR 数量。
+        """
+
+        composition = self.lookup("find", self.composition_path)
+        existing: dict[str, tuple[str, str, object]] = {}
+        existing_connections: dict[tuple[str, ...], str] = {}
+        if isinstance(composition, CompositionSwComponentType):
+            pass_through = getattr(composition, "getPassThroughSwConnectors", lambda: [])()
+            for kind, items in (
+                ("prototype", composition.getComponents()), ("port", composition.getPorts()),
+                ("assembly connector", composition.getAssemblySwConnectors()),
+                ("delegation connector", composition.getDelegationSwConnectors()),
+                ("pass-through connector", pass_through),
+            ):
+                for item in items:
+                    name = item.getShortName()
+                    if name:
+                        existing.setdefault(name.casefold(), (name, kind, item))
+                    key = self._existing_connection(kind, item)
+                    if key:
+                        existing_connections.setdefault(key, name)
+
+        new: list[tuple[str, str, object]] = [
+            (component.name, "prototype", component) for component in self.components.values()
+            if component.action == "add" and not component.exists
+        ]
+        new += [(name, "port", endpoint) for name, endpoint in self.outer_ports.items()
+                if name not in self.existing_outer_ports]
+        new += [(name, "assembly connector", connector) for name, connector in self.assemblies.items()]
+        new += [(name, "delegation connector", connector) for name, connector in self.delegations.items()]
+
+        failures = 0
+        claimed: dict[str, tuple[str, str]] = {}
+        for name, kind, item in new:
+            folded = name.casefold()
+            if folded in claimed:
+                other_name, other_kind = claimed[folded]
+                LOGGER.error(
+                    "%s: new %s %s conflicts with new %s %s; SHORT-NAMEs must be unique (case-insensitive)",
+                    self.composition_path, kind, name, other_kind, other_name)
+                failures += 1
+                continue
+            claimed[folded] = (name, kind)
+            key = self._new_connection(kind, item)
+            if folded in existing:
+                existing_name, existing_kind, existing_item = existing[folded]
+                if (existing_name == name and existing_kind == kind and key
+                        and key == self._existing_connection(existing_kind, existing_item)):
+                    LOGGER.info("Reuse existing %s %s/%s", kind, self.composition_path, name)
+                    self.reused_connectors.add(name)
+                    continue
+                LOGGER.error(
+                    "%s: new %s %s conflicts with existing %s %s; SHORT-NAMEs must be unique (case-insensitive)",
+                    self.composition_path, kind, name, existing_kind, existing_name)
+                failures += 1
+                continue
+            if key and key in existing_connections:
+                LOGGER.warning(
+                    "%s: %s %s connects the same ports as existing connector %s; it is not generated",
+                    self.composition_path, kind, name, existing_connections[key])
+                self.reused_connectors.add(name)
+        return failures
+
+    def _existing_connection(self, kind: str, connector: object) -> tuple[str, ...]:
+        try:
+            if kind == "assembly connector":
+                provider, requester = connector.getProviderIRef(), connector.getRequesterIRef()
+                return ("assembly", _iref_context(provider), _iref_target_port(provider),
+                        _iref_context(requester), _iref_target_port(requester))
+            if kind == "delegation connector":
+                inner = get_inner_port_iref(connector)
+                return ("delegation", _iref_context(inner), _iref_target_port(inner),
+                        ref_value(connector.getOuterPortRef()))
+        except AttributeError:
+            pass
+        return ()
+
+    def _new_connection(self, kind: str, connector: object) -> tuple[str, ...]:
+        if kind == "assembly connector":
+            return ("assembly", connector.provider.component.instance_path, connector.provider.port_path,
+                    connector.requester.component.instance_path, connector.requester.port_path)
+        if kind == "delegation connector":
+            return ("delegation", connector.inner.component.instance_path, connector.inner.port_path,
+                    f"{self.composition_path}/{connector.outer_name}")
+        return ()
 
     def resolve(self) -> None:
         """逐页逐行解析白表；出错的行记录 ERROR 后继续，全部处理完再统一失败。"""
@@ -457,6 +706,7 @@ class _Resolver:
                     failures += 1
             if sheet == COMPONENTS_SHEET:
                 self.add_type_aliases()
+        failures += self.check_composition_names()
         if failures:
             raise ValueError(f"{failures} white table row(s) could not be resolved; see the messages above")
 
@@ -469,9 +719,7 @@ def _component_iref(component: _Component, root: str, context: list[str]) -> Com
     return iref.setTargetComponentRef(_reference("SW-COMPONENT-PROTOTYPE", component.instance_path))
 
 
-def _write_model(
-    document: AUTOSARDoc, resolver: _Resolver, system_mapping: str, generate_system: bool,
-) -> None:
+def _write_model(document: AUTOSARDoc, resolver: _Resolver, generate_system: bool) -> None:
     parts = resolver.composition_path.strip("/").split("/")
     package = document.createARPackage(parts[0])
     for package_name in parts[1:-1]:
@@ -489,6 +737,8 @@ def _write_model(
     added = sorted((component for component in resolver.components.values() if component.action == "add"),
                    key=lambda component: component.name)
     for component in added:
+        if component.exists:
+            continue
         prototype = composition.createSwComponentPrototype(component.name)
         prototype.setTypeTRef(TRefType().setDest(component.destination).setValue(component.type_path))
     for name, endpoint in sorted(resolver.outer_ports.items()):
@@ -500,12 +750,16 @@ def _write_model(
         else:
             composition.createRPortPrototype(name).setRequiredInterfaceTRef(interface)
     for name, connector in sorted(resolver.assemblies.items()):
+        if name in resolver.reused_connectors:
+            continue
         assembly = composition.createAssemblySwConnector(name)
         assembly.setProviderIRef(connector.provider.composition_iref())
         assembly.setRequesterIRef(connector.requester.composition_iref())
         if connector.mapping_path:
             assembly.setMappingRef(_reference("VARIABLE-AND-PARAMETER-INTERFACE-MAPPING", connector.mapping_path))
     for name, connector in sorted(resolver.delegations.items()):
+        if name in resolver.reused_connectors:
+            continue
         delegation = composition.createDelegationSwConnector(name)
         set_inner_port_iref(delegation, connector.inner.composition_iref())
         delegation.setOuterPortRef(_reference(connector.inner.destination,
@@ -517,26 +771,29 @@ def _write_model(
         return
 
     general = resolver.data.general
-    system_path = general["System"]
-    if system_path.startswith("/"):
-        system_parts = system_path.strip("/").split("/")
-        package = document.createARPackage(system_parts[0])
-        for package_name in system_parts[1:-1]:
-            package = package.createARPackage(package_name)
-        system_path = system_parts[-1]
-    system = package.createSystem(system_path)
+    system_parts = resolver.system_path.strip("/").split("/")
+    package = document.createARPackage(system_parts[0])
+    for package_name in system_parts[1:-1]:
+        package = package.createARPackage(package_name)
+    system = package.createSystem(system_parts[-1])
     system.setCategory(resolver.system_category)
     if resolver.system_version:
         system.setSystemVersion(ARLiteral().setValue(resolver.system_version))
-    system.addFibexElementRef(_reference("ECU-INSTANCE", general["EcuInstance"]))
-    mapping = system.createSystemMapping(generated_name(f"SystemMapping_{system_mapping}"))
+    if resolver.write_fibex_ecu:
+        system.addFibexElementRef(_reference("ECU-INSTANCE", general["EcuInstance"]))
+    # SwcToEcuMapping.component 为 1..*：没有新增组件且没有信号映射时不生成空的 SystemMapping。
+    mapping = None
+    if added or resolver.signals:
+        mapping = system.createSystemMapping(resolver.system_mapping_name)
     root = general["RootSwCompositionPrototype"]
-    if root.rsplit("/", 1)[0] == system.getFullName():
-        system.createRootSoftwareComposition(root.rsplit("/", 1)[-1]).setSoftwareCompositionTRef(
-            TRefType().setDest("COMPOSITION-SW-COMPONENT-TYPE").setValue(resolver.root_type))
+    system.createRootSoftwareComposition(root.rsplit("/", 1)[-1]).setSoftwareCompositionTRef(
+        TRefType().setDest("COMPOSITION-SW-COMPONENT-TYPE").setValue(resolver.root_type))
+    if mapping is None:
+        return
     context = resolver.context_components
-    ecu_mapping = mapping.createSwcToEcuMapping("SwcToEcuMapping")
-    ecu_mapping.setEcuInstanceRef(_reference("ECU-INSTANCE", general["EcuInstance"]))
+    if added:
+        ecu_mapping = mapping.createSwcToEcuMapping("SwcToEcuMapping")
+        ecu_mapping.setEcuInstanceRef(_reference("ECU-INSTANCE", general["EcuInstance"]))
     for component in added:
         ecu_mapping.addComponentIRef(_component_iref(component, root, context))
         if component.implementation:
@@ -565,6 +822,22 @@ def _write_model(
             mapping.addDataMapping(signal_mapping)
 
 
+def warn_release_mismatch(output: AUTOSARDoc, ar_release: str, input_schemas: set[str]) -> None:
+    """输出的 AUTOSAR release 与输入 ARXML 声明的 release 不同时提示；版本由 ``arRelease`` 决定，不自动推导。"""
+
+    schema_releases = {schema: release for release, schema in getattr(output, "release_xsd_mappings", {}).items()}
+    input_releases = set()
+    for schema in input_schemas:
+        match = re.fullmatch(r"AUTOSAR_(\d+)-(\d+)-(\d+)\.xsd", schema)
+        release = ".".join(match.groups()) if match else schema_releases.get(schema, "")
+        if release:
+            input_releases.add(release)
+    if input_releases and ar_release not in input_releases:
+        LOGGER.warning(
+            "Output uses AUTOSAR release %s but the loaded ARXML declare %s; set config.arRelease if the "
+            "target toolchain requires one release", ar_release, ", ".join(sorted(input_releases)))
+
+
 def generate_composition_arxml(
     document: AUTOSAR,
     data: CompositionInput,
@@ -574,15 +847,17 @@ def generate_composition_arxml(
     interface_mismatch: str,
     interface_mappings: dict[tuple[str, str], dict[str, str]],
     generate_system: bool,
+    input_schemas: set[str] = frozenset(),
 ) -> Path:
-    resolver = _Resolver(document, data, interface_mismatch, interface_mappings)
+    resolver = _Resolver(document, data, interface_mismatch, interface_mappings, system_mapping)
     resolver.resolve()
     if generate_system:
         resolver.resolve_system()
     # 写到独立文档，保留已加载的模型供后续配置复用。
     output = AUTOSARDoc()
     output.setARRelease(ar_release)
-    _write_model(output, resolver, system_mapping, generate_system)
+    warn_release_mismatch(output, ar_release, set(input_schemas))
+    _write_model(output, resolver, generate_system)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     SystemArxmlWriter().save(str(output_file), output)
     LOGGER.info("Composition ARXML done: %s assemblies, %s delegations, %s signal mappings -> %s",

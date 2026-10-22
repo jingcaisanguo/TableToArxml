@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import Any, Mapping, Sequence, cast
 
 from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSAR
 from armodel.models.M2.AUTOSARTemplates.CommonStructure.ImplementationDataTypes import (
@@ -30,6 +30,7 @@ from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.Communication import
     NonqueuedReceiverComSpec,
     NonqueuedSenderComSpec,
     QueuedReceiverComSpec,
+    QueuedSenderComSpec,
     SenderComSpec,
     TransmissionAcknowledgementRequest,
 )
@@ -195,12 +196,16 @@ class ImplementationTypeInfo:
 
 @dataclass(frozen=True)
 class InterfaceSummary:
-    """端口接口的元类及数据元素、operation 简称；不支持的接口类型 ``dest`` 为空。"""
+    """端口接口的元类及数据元素、operation 简称；不支持的接口类型 ``dest`` 为空。
+
+    ``queued_data_elements`` 是 ``SW-IMPL-POLICY=QUEUED`` 的数据元素，其余元素均为非队列（last-is-best）。
+    """
 
     dest: str
     type_name: str
     data_elements: tuple[str, ...] = ()
     operations: tuple[str, ...] = ()
+    queued_data_elements: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -254,15 +259,24 @@ class ArxmlDocument:
                 if isinstance(element, SwComponentType):
                     components.add(element.getFullName())
                 elif isinstance(element, PortInterface):
+                    data_elements = (
+                        list(element.getDataElements()) if isinstance(element, SenderReceiverInterface) else []
+                    )
                     interfaces[element.getFullName()] = InterfaceSummary(
                         next((dest for kind, dest in INTERFACE_DESTS if isinstance(element, kind)), ""),
                         type(element).__name__,
-                        tuple(item.getShortName() for item in element.getDataElements())
-                        if isinstance(element, SenderReceiverInterface) else (),
+                        tuple(item.getShortName() for item in data_elements),
                         tuple(item.getShortName() for item in element.getOperations())
                         if isinstance(element, ClientServerInterface) else (),
+                        tuple(item.getShortName() for item in data_elements if self._is_queued(item)),
                     )
         return DocumentSummary(frozenset(components), interfaces)
+
+    @staticmethod
+    def _is_queued(data_element: Any) -> bool:
+        props = data_element.getSwDataDefProps()
+        policy = None if props is None else props.getSwImplPolicy()
+        return policy is not None and str(policy.getValue()) == "QUEUED"
 
     def interface_dest(self, interface_path: str) -> str | None:
         interface = self._document.find(interface_path)
@@ -372,7 +386,10 @@ class ArxmlDocument:
         update_elements: Sequence[str] = (),
         queued_elements: Sequence[tuple[str, int]] = (),
         sender_elements: Sequence[tuple[str, float | None, bool]] = (),
+        queued_sender_elements: Sequence[str] = (),
     ) -> str:
+        """生成端口片段；``queued_sender_elements`` 中的发送端元素生成 ``QUEUED-SENDER-COM-SPEC``。"""
+
         component = self._require_component(component_path)
         reference = TRefType().setDest(interface_dest).setValue(interface_path)
         self.dirty = True
@@ -382,7 +399,9 @@ class ArxmlDocument:
             provided.setProvidedInterfaceTRef(reference)
             for data_path, ack_timeout, uses_protection in sender_elements:
                 provided.addProvidedComSpec(
-                    self._sender_com_spec(data_path, ack_timeout, uses_protection)
+                    self._sender_com_spec(
+                        data_path, ack_timeout, uses_protection, data_path in queued_sender_elements
+                    )
                 )
             return to_fragment(serialize(writer.writePPortPrototype, provided, "PORTS"))
         if direction == DIRECTION_REQUIRED:
@@ -427,11 +446,14 @@ class ArxmlDocument:
 
     @staticmethod
     def _sender_com_spec(
-        data_path: str, ack_timeout: float | None, uses_protection: bool
-    ) -> NonqueuedSenderComSpec:
-        """构造发送端 ComSpec；``ack_timeout`` 为 ``None`` 时不写发送确认子元素。"""
+        data_path: str, ack_timeout: float | None, uses_protection: bool, queued: bool = False
+    ) -> SenderComSpec:
+        """构造发送端 ComSpec；``ack_timeout`` 为 ``None`` 时不写发送确认子元素。
 
-        com_spec = NonqueuedSenderComSpec()
+        队列与非队列发送端共用 SenderComSpec 的属性，只是元类不同（constr_1129–1132）。
+        """
+
+        com_spec: SenderComSpec = QueuedSenderComSpec() if queued else NonqueuedSenderComSpec()
         com_spec.setDataElementRef(
             RefType().setDest("VARIABLE-DATA-PROTOTYPE").setValue(data_path)
         )
@@ -453,13 +475,11 @@ class ArxmlDocument:
         definition: list[tuple[str, str, bool]] = []
         for element in interface.getDataElements():
             type_ref = element.getTypeTRef()
-            props = element.getSwDataDefProps()
-            policy = None if props is None else props.getSwImplPolicy()
             definition.append(
                 (
                     element.getShortName(),
                     "" if type_ref is None else type_ref.getValue() or "",
-                    policy is not None and policy.getValue() == "QUEUED",
+                    self._is_queued(element),
                 )
             )
         return definition
@@ -671,7 +691,16 @@ class ArxmlDocument:
             ARBoolean().setValue(can_be_invoked_concurrently)
         )
         runnable.setSymbol(ARLiteral().setValue(symbol))
-        return self._serialize(ARXMLWriter().writeRunnableEntity, runnable)
+        return self._serialize(ARXMLWriter().writeRunnableEntity, runnable, "RUNNABLES")
+
+    def runnable_symbols(self, behavior_path: str) -> dict[str, str]:
+        """返回内部行为中已有 runnable 的名称到 ``SYMBOL`` 的映射；未写 ``SYMBOL`` 时取名称。"""
+
+        behavior = self._require_behavior(behavior_path)
+        return {
+            runnable.getShortName(): self._value_text(runnable.getSymbol()) or runnable.getShortName()
+            for runnable in behavior.getRunnableEntities()
+        }
 
     def add_operation_event(
         self,
@@ -791,7 +820,10 @@ class ArxmlDocument:
         interface_name: str,
         data_elements: Sequence[tuple[str, str, bool]],
         is_service: bool = False,
+        type_dests: Mapping[str, str] | None = None,
     ) -> str:
+        """``type_dests`` 为类型路径到被引用对象实际元类的映射，缺省按实现数据类型写 ``DEST``。"""
+
         package = self._require_package(package_path)
         self.dirty = True
         interface = package.createSenderReceiverInterface(interface_name)
@@ -804,9 +836,13 @@ class ArxmlDocument:
                 props.setSwImplPolicy(ARLiteral().setValue("QUEUED"))
                 element.setSwDataDefProps(props)
             element.setTypeTRef(
-                TRefType().setDest("IMPLEMENTATION-DATA-TYPE").setValue(data_type)
+                TRefType().setDest(self._type_dest(type_dests, data_type)).setValue(data_type)
             )
         return self._serialize(ARXMLWriter().writeSenderReceiverInterface, interface)
+
+    @staticmethod
+    def _type_dest(type_dests: Mapping[str, str] | None, type_path: str) -> str:
+        return (type_dests or {}).get(type_path, "IMPLEMENTATION-DATA-TYPE")
 
     def add_cs_interface(
         self,
@@ -814,6 +850,7 @@ class ArxmlDocument:
         interface_name: str,
         operations: Sequence[tuple[str, Sequence[tuple[str, str, str]]]],
         is_service: bool = False,
+        type_dests: Mapping[str, str] | None = None,
     ) -> str:
         package = self._require_package(package_path)
         self.dirty = True
@@ -828,7 +865,7 @@ class ArxmlDocument:
                 )
                 argument.setTypeTRef(
                     TRefType()
-                    .setDest("IMPLEMENTATION-DATA-TYPE")
+                    .setDest(self._type_dest(type_dests, data_type_ref))
                     .setValue(data_type_ref)
                 )
                 argument.setDirection(ARLiteral().setValue(direction))

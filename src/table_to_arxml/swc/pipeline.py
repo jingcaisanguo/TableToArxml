@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from ..common.arxml_list import ArxmlExclusions, read_arxml_list
 from .apply import (
+    IMPLEMENTATION_DATA_TYPE,
     StepResult,
     apply_client_server_artifacts,
     apply_composite_types,
@@ -22,6 +23,7 @@ from .options import Options
 from .resolve import ResolvedPort, expand_port_accesses, resolve_accesses, resolve_components, resolve_ports
 from .store import SourceStore
 from .workbook import (
+    case_conflicting_paths,
     load_workbook_sheets,
     read_arrays,
     read_cs_interfaces,
@@ -103,30 +105,57 @@ def execute(options: Options) -> tuple[RunSummary, SourceStore]:
         *arxml_files,
         *(spec.target_file for spec in [*enumerations, *arrays, *structures, *interfaces, *cs_interfaces]),
     ])
+    conflicts = case_conflicting_paths([
+        *((path, "enumeration") for spec in enumerations
+          for path in (spec.path, spec.compu_method_path, spec.data_constr_path)),
+        *((spec.path, "array") for spec in arrays),
+        *((spec.path, "structure") for spec in structures),
+        *((spec.path, "SR interface") for spec in interfaces),
+        *((spec.path, "CS interface") for spec in cs_interfaces),
+    ])
+    if conflicts:
+        enumerations = [
+            spec for spec in enumerations
+            if not conflicts & {spec.path, spec.compu_method_path, spec.data_constr_path}
+        ]
+        arrays = [spec for spec in arrays if spec.path not in conflicts]
+        structures = [spec for spec in structures if spec.path not in conflicts]
+        interfaces = [spec for spec in interfaces if spec.path not in conflicts]
+        cs_interfaces = [spec for spec in cs_interfaces if spec.path not in conflicts]
+    planned_types = {
+        spec.path: IMPLEMENTATION_DATA_TYPE for spec in [*enumerations, *arrays, *structures]
+    }
     LOGGER.info("Applying type and interface definitions")
-    summary.enumerations = apply_enumerations(enumerations, store)
-    summary.composite_types = apply_composite_types(arrays, structures, store)
-    summary.sr_interfaces = apply_interfaces(interfaces, store)
-    summary.cs_interfaces = apply_interfaces(cs_interfaces, store)
+    summary.enumerations = apply_enumerations(enumerations, store, planned_types)
+    summary.composite_types = apply_composite_types(arrays, structures, store, planned_types)
+    summary.sr_interfaces = apply_interfaces(interfaces, store, planned_types)
+    summary.cs_interfaces = apply_interfaces(cs_interfaces, store, planned_types)
 
     LOGGER.info("Resolving components and ports")
     component_files = resolve_components(components, arxml_files, store)
     resolved_ports = resolve_ports(components, ports, component_files, arxml_files, store)
-    access_specs.extend(expand_port_accesses(resolved_ports, arxml_files, store))
-    resolved_accesses = resolve_accesses(
-        components, access_specs, resolved_ports, component_files, arxml_files, store
-    )
-    changes, port_result = build_changes(resolved_ports, resolved_accesses, store)
+    port_changes, port_result = build_changes(resolved_ports, [], store)
+    # 只有成功准备或已存在的端口才继续生成 RTE 对象。
+    usable_ports = [port for change in port_changes for port in (*change.planned_ports, *change.existing_ports)]
 
     LOGGER.info("Applying client-server artifacts")
-    summary.cs_artifacts = apply_client_server_artifacts(resolved_ports, arxml_files, store)
+    summary.cs_artifacts = apply_client_server_artifacts(usable_ports, arxml_files, store)
+
+    access_specs.extend(expand_port_accesses(usable_ports, arxml_files, store))
+    resolved_accesses, merged_accesses = resolve_accesses(
+        components, access_specs, usable_ports, component_files, arxml_files, store
+    )
+    access_changes, access_result = build_changes([], resolved_accesses, store)
+    changes = [*port_changes, *access_changes]
 
     summary.requested_ports = len(ports)
     summary.planned_ports = [port for change in changes for port in change.planned_ports]
     summary.existing_ports = [port for change in changes for port in change.existing_ports]
     summary.skipped_ports = len(ports) - len(resolved_ports) + port_result.skipped
-    summary.requested_accesses = len(access_specs)
+    summary.requested_accesses = len(access_specs) - merged_accesses
     summary.planned_accesses = [access for change in changes for access in change.planned_accesses]
-    summary.skipped_accesses = len(access_specs) - len(resolved_accesses) + port_result.skipped_accesses
+    summary.skipped_accesses = (
+        summary.requested_accesses - len(resolved_accesses) + access_result.skipped_accesses
+    )
     summary.affected_files = len(store.modified())
     return summary, store

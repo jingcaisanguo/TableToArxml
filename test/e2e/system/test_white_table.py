@@ -195,9 +195,9 @@ def test_explicit_mapping_pairs_are_completed_by_name(tmp_path, mode, scenario):
     contents["interfaceMappings"] = [{**MAPPING, "dataElements": pairs}]
     config.write_text(json.dumps(contents), encoding="utf-8")
     result = run_tool(SYSTEM, "--config", config)
-    if scenario not in ("partial", "explicit-swap", "existing-partial"):
+    if scenario in ("missing-source", "missing-target", "duplicate-target"):
         assert result.returncode == 1
-        assert "must cover both interfaces exactly once" in result.stderr
+        assert "must reference existing data elements of both interfaces" in result.stderr
         assert not (tmp_path / "out").exists()
         return
     assert result.returncode == 0, result.stderr
@@ -208,12 +208,17 @@ def test_explicit_mapping_pairs_are_completed_by_name(tmp_path, mode, scenario):
         assert mapping_ref.text == "/Pkg/ExistingMappings/ExistingMap"
         assert short_names(output, "VARIABLE-AND-PARAMETER-INTERFACE-MAPPING") == []
     else:
-        expected = pairs if scenario == "explicit-swap" else {"a": "b", "extra": "extra"}
+        # 浅校验：补齐同名后仍未覆盖的元素只警告，不阻止生成。
+        expected = {
+            "explicit-swap": pairs, "remaining-different": {"extra": "extra"}, "occupied-target": {"a": "extra"},
+        }.get(scenario, {"a": "b", "extra": "extra"})
         assert [item.text for item in output.iter() if item.tag.endswith("DATA-PROTOTYPE-REF")] == [
             reference
             for source, target in sorted(expected.items())
             for reference in (f"/Pkg/IfA/{source}", f"/Pkg/IfB/{target}")
         ]
+        assert ("leaves data elements unmapped" in result.stderr) == (
+            scenario in ("remaining-different", "occupied-target"))
 
 
 @pytest.mark.parametrize("mode", ["green", "white"])
@@ -224,13 +229,13 @@ def test_single_element_mapping_does_not_override_explicit_pairs(tmp_path, mode)
     config.write_text(json.dumps(contents), encoding="utf-8")
     result = run_tool(SYSTEM, "--config", config)
     assert result.returncode == 1
-    assert "must cover both interfaces exactly once" in result.stderr
+    assert "must reference existing data elements of both interfaces" in result.stderr
     assert not (tmp_path / "out").exists()
 
 
 @pytest.mark.parametrize("mode", ["green", "white"])
 @pytest.mark.parametrize("shape", ["empty", "one-to-many", "different-names", "same-names"])
-def test_automatic_mapping_requires_unique_complete_pairs(tmp_path, mode, shape):
+def test_automatic_mapping_pairs_by_name_and_warns_on_unmapped(tmp_path, mode, shape):
     config = prepare_mapping_input(tmp_path, mode, same_names=shape == "same-names")
     path = tmp_path / "model.arxml"
     tree = ET.parse(path)
@@ -248,12 +253,14 @@ def test_automatic_mapping_requires_unique_complete_pairs(tmp_path, mode, shape)
             elements.append(element)
     tree.write(path, encoding="utf-8", xml_declaration=True)
     result = run_tool(SYSTEM, "--config", config)
-    if shape == "same-names":
+    if shape in ("same-names", "different-names"):
         assert result.returncode == 0, result.stderr
         output = ET.parse(tmp_path / "out" / "TSystem.arxml").getroot()
         assert short_names(output, "ASSEMBLY-SW-CONNECTOR") == ["ac_A_pOut_B_rIn"]
+        expected = ["/Pkg/IfA/a", "/Pkg/IfB/a"] if shape == "same-names" else []
         assert [item.text for item in output.iter() if item.tag.endswith("DATA-PROTOTYPE-REF")] == [
-            "/Pkg/IfA/a", "/Pkg/IfB/a", "/Pkg/IfA/extra", "/Pkg/IfB/extra"]
+            *expected, "/Pkg/IfA/extra", "/Pkg/IfB/extra"]
+        assert ("leaves data elements unmapped" in result.stderr) == (shape == "different-names")
     else:
         assert result.returncode == 1
         assert "Cannot infer interface mapping" in result.stderr
@@ -261,9 +268,28 @@ def test_automatic_mapping_requires_unique_complete_pairs(tmp_path, mode, shape)
 
 
 @pytest.mark.parametrize("mode", ["green", "white"])
+def test_partial_existing_mapping_is_reused_with_warning(tmp_path, mode):
+    config = prepare_mapping_input(tmp_path, mode, existing=True)
+    path = tmp_path / "model.arxml"
+    tree = ET.parse(path)
+    interface = next(item for item in tree.getroot().iter(f"{{{NS['ar']}}}SENDER-RECEIVER-INTERFACE")
+                     if item.findtext("ar:SHORT-NAME", namespaces=NS) == "IfA")
+    elements = interface.find("ar:DATA-ELEMENTS", NS)
+    extra = ET.fromstring(ET.tostring(elements[0]))
+    extra.find("ar:SHORT-NAME", NS).text = "extra"
+    elements.append(extra)
+    tree.write(path, encoding="utf-8", xml_declaration=True)
+    result = run_tool(SYSTEM, "--config", config)
+    assert result.returncode == 0, result.stderr
+    assert "leaves data elements unmapped: provider ['extra']" in result.stderr
+    output = ET.parse(tmp_path / "out" / "TSystem.arxml").getroot()
+    assert next(output.iter(f"{{{NS['ar']}}}MAPPING-REF")).text == "/Pkg/ExistingMappings/ExistingMap"
+
+
+@pytest.mark.parametrize("mode", ["green", "white"])
 @pytest.mark.parametrize("policy", ["error", "skip", "map"])
 @pytest.mark.parametrize("invalid, message", [
-    ("incomplete", "must cover both interfaces exactly once"),
+    ("incomplete", "must reference existing data elements of both interfaces one-to-one"),
     ("ambiguous", "Ambiguous existing interface mappings"),
 ])
 def test_invalid_existing_mapping_blocks_output(tmp_path, mode, policy, invalid, message):
@@ -352,9 +378,9 @@ def test_interface_mismatch_skip_drops_connector(tmp_path):
     assert short_names(root, "ASSEMBLY-SW-CONNECTOR") == []
 
 
-def test_interface_mapping_requires_complete_element_pairs(tmp_path):
+def test_interface_mapping_requires_existing_one_to_one_pairs(tmp_path):
     elements = {"x": "b"}
-    message = "must cover both interfaces exactly once"
+    message = "must reference existing data elements of both interfaces"
     mapping = {"providerInterface": "/Pkg/IfC", "requesterInterface": "/Pkg/IfB", "dataElements": elements}
     result = run_white(tmp_path, ["A", "pWide", "B", "rIn"], interfaceMismatch="map", interfaceMappings=[mapping])
     assert result.returncode == 1

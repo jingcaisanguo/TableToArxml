@@ -80,7 +80,7 @@ LAYOUT: dict[str, tuple[Field, ...]] = {
     "Arrays": (
         TYPE_PATH,
         Field("Element Name", "必填", "—", "数组实现数据类型中的元素 SHORT-NAME。", "Element", 28),
-        Field("Element Type Ref", "必填", "—", "数组元素的实现数据类型路径。", "/Pkg/Types/Mode", 46),
+        Field("Element Type Ref", "必填", "—", "数组元素的实现数据类型路径；引用其他元类（如 SW-BASE-TYPE）报错。", "/Pkg/Types/Mode", 46),
         Field("Array Size", "必填", "—", "正整数；VARIABLE-SIZE 时表示声明的最大长度。", "8", 16, number="positive_integer"),
         Field("Array Size Semantics", "可选", "FIXED-SIZE", "数组大小语义。", "FIXED-SIZE / VARIABLE-SIZE", 26, ARRAY_SIZE_SEMANTICS),
         TARGET,
@@ -94,7 +94,7 @@ LAYOUT: dict[str, tuple[Field, ...]] = {
     "SR-Interfaces": (
         INTERFACE_PATH,
         Field("Data Element Name", "必填", "—", "一个数据元素一行；同一接口内名称唯一。", "State", 28),
-        Field("Data Type Ref", "必填", "—", "数据元素的实现数据类型路径。", "/Pkg/Types/Mode", 46),
+        Field("Data Type Ref", "必填", "—", "数据元素的数据类型路径（实现或应用数据类型），DEST 取被引用对象的元类。", "/Pkg/Types/Mode", 46),
         Field("Is Queued", "可选", "N", "Y 时生成 SW-IMPL-POLICY=QUEUED。", "Y / N", 16, BOOLEAN_CHOICES),
         SERVICE, TARGET,
     ),
@@ -103,7 +103,7 @@ LAYOUT: dict[str, tuple[Field, ...]] = {
         Field("Operation Name", "必填", "—", "一个参数一行；同一接口、同一 operation 的参数按行合并。无参数 operation 只填一行。", "Reset / SetMode", 28),
         Field("Argument Name", "有参数时必填", "全空表示无参数", "参数名、方向和类型必须全填或全空；同一 operation 不得混用无参数声明和参数行。", "Mode", 28),
         Field("Direction", "有参数时必填", "—", "参数方向；与 Argument Name、Data Type Ref 一起填写。", "IN / OUT / INOUT", 16, CS_ARGUMENT_DIRECTIONS),
-        Field("Data Type Ref", "有参数时必填", "—", "参数的实现数据类型路径；无参数 operation 留空。", "/Pkg/Types/Mode", 46),
+        Field("Data Type Ref", "有参数时必填", "—", "参数的数据类型路径（实现或应用数据类型）；无参数 operation 留空。", "/Pkg/Types/Mode", 46),
         SERVICE, TARGET,
     ),
     "P-Ports": (
@@ -116,12 +116,12 @@ LAYOUT: dict[str, tuple[Field, ...]] = {
     ),
     "R-Ports": (
         SWC, PORT_NAME, PORT_INTERFACE, ARTIFACT, R_RUNNABLE, R_ACCESS,
-        Field("Enable Update", "可选", "N", "Y 时为全部 SR 数据元素创建非队列接收 ComSpec；与正数 Queue Length 互斥。", "Y / N", 20, BOOLEAN_CHOICES),
-        Field("Queue Length", "可选", "0 / 不生成", "非负整数；正数生成队列接收 ComSpec；0 或留空不生成，与 Enable Update=Y 互斥。", "4", 20, number="nonnegative_integer"),
+        Field("Enable Update", "可选", "N", "Y 时为非队列数据元素创建 NONQUEUED 接收 ComSpec（ENABLE-UPDATE）；全部元素为队列元素时报错。", "Y / N", 20, BOOLEAN_CHOICES),
+        Field("Queue Length", "可选", "0 / 不生成", "非负整数；正数为队列元素（SW-IMPL-POLICY=QUEUED）生成 QUEUED 接收 ComSpec，没有队列元素时报错；0 或留空不生成。", "4", 20, number="nonnegative_integer"),
     ),
     "Data Accesses": (
         SWC,
-        Field("Runnable Name", "必填", "—", "已有 runnable 的简称；须已有对应访问点容器。", "Run", 28),
+        Field("Runnable Name", "必填", "—", "已有或本次 CS P 新建 runnable 的简称；缺少访问点容器时自动创建。", "Run", 28),
         Field("Port Name", "必填", "—", "已有或本次新建端口的 SHORT-NAME。", "r_Status", 28),
         Field("Data Element Name", "多元素接口时必填", "单元素自动选择", "只处理指定的数据元素。", "State", 28),
         Field("Access Kind", "可选", "P: Send / R: ReceiveByArgument", "须匹配端口方向；本页可自定义名称或仅处理部分元素。", " / ".join(ACCESS_CHOICES), 26, ACCESS_CHOICES),
@@ -222,7 +222,7 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("页签与表头", "未使用的工作表可以省略；有端口或访问点时必须提供 Components 映射。只接受本模板规定的页名和列名（不区分大小写），其他页名/列名报错；README 仅供阅读。第 1 行是表头，禁止增加标题行、空白分隔列或给列名加星号。")
     paragraph("颜色与位置", "深蓝表头=必填，棕色=条件必填，灰蓝=可选；具体条件见批注。P/R 前六列位置一致，后面为 ComSpec 和 CS 服务端配置。点击各页 A1 返回本页说明。")
     paragraph("路径与名称", "Path 是对象完整 AUTOSAR 路径（组件路径指已有对象）；Ref 是引用路径；Name 是 SHORT-NAME。SW-C 是工作簿标识。AUTOSAR 路径以 / 开头。")
-    paragraph("名称校验", "新建 Name 和路径各段必须以 ASCII 字母开头，只含字母、数字、下划线，最长 128 字符。枚举 Label 等文本可用中文；Runnable Symbol 使用 C 标识符。自动长名称截断并追加哈希。")
+    paragraph("名称校验", "新建 Name 和路径各段必须以 ASCII 字母开头，只含字母、数字、下划线，最长 128 字符。同一命名空间内名称不区分大小写唯一。枚举 Label 可用中文，但非 C 标识符会 WARNING（RTE 可能需要 SYMBOL）；Runnable Symbol 使用 C 标识符。自动长名称截断并追加哈希。")
     paragraph("目标文件", "Target ARXML 相对 projectRoot，目标文件和所在包必须已存在；它不是导出路径。最终输出由 outputDir / inPlace / dryRun 控制。")
     paragraph("输出与重定义", "outputDir 不能覆盖任何输入 ARXML（包括链接别名），覆盖源文件必须明确使用 inPlace。其他文件已有同路径对象时禁止再次创建；候选文件解析失败也会阻止写出。")
     paragraph("空值与布尔值", "布尔留空为 N；接受 Y/N、TRUE/FALSE、YES/NO、1/0（不区分大小写）。其他默认值逐列列出。合法但不生效的配置会 WARNING；非法值仍 ERROR。")
@@ -230,10 +230,10 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("数据表操作", "每页使用 Excel 表格：从表格最后一个单元格按 Tab 追加行，筛选会自动扩展。若在表外粘贴，使用“调整表格大小”纳入新行；解析器仍读取整页。")
     paragraph("排序与合并", "批量数据优先逐行重复公共字段；合并单元格虽可读取，但不利于 Excel 表格排序/筛选，不建议在数据表中合并。")
     paragraph("列移动与下拉", "工具按列名读取；移动整列后应检查 Excel 数据验证范围。下拉、数值验证和批注用于辅助，复制粘贴仍须经工具校验。")
-    paragraph("SR P / SR R", "Artifact=Y 时必须指定已有 Runnable Name，且已有对应容器。P：Send（默认）/ Write；R：ReceiveByArgument（默认）/ ReceiveByValue / Read。")
+    paragraph("SR P / SR R", "Artifact=Y 时必须指定已有 Runnable Name，缺少的访问点容器自动创建。P：Send（默认）/ Write；R：ReceiveByArgument（默认）/ ReceiveByValue / Read；队列元素不能用 ReceiveByValue / Read，Enable Update=Y 时不能用 Read。")
     paragraph("CS P / CS R", "CS P：每个 operation 新建 runnable/event；名称留空自动命名，多 operation 给手填名追加后缀。CS R：已有调用方 Runnable Name 必填，每个 operation 创建同步调用点（超时 0.0）。")
-    paragraph("ComSpec 触发", "P：超时非空（含 0）或 E2E=Y。R：Enable Update=Y 或 Queue Length>0，两者互斥。仅填 N 或 Queue Length=0 不触发；新端口为全部数据元素生成。")
-    paragraph("已知限制", "组件及内部行为/访问点容器须按对应功能预先存在；CS 不生成应用错误；SR 接口以外不自动生成数据访问点。无参数 operation 的参数三列全空，不能混用同名有参数声明。")
+    paragraph("ComSpec 触发", "P：超时非空（含 0）或 E2E=Y，按元素 SW-IMPL-POLICY 生成 QUEUED / NONQUEUED 发送 ComSpec。R：Enable Update=Y 作用于非队列元素，Queue Length>0 作用于队列元素，不适用于任何元素时报错。仅填 N 或 Queue Length=0 不触发。")
+    paragraph("已知限制", "组件、内部行为和 PORTS 容器须预先存在，访问点容器自动创建；不支持 PR-Port；CS 不生成应用错误；SR 接口以外不自动生成数据访问点。不接受公式和含换行/制表符的单元格。无参数 operation 的参数三列全空，不能混用同名有参数声明。")
     paragraph("精确类型", "枚举底层列引用 IMPLEMENTATION-DATA-TYPE，不是 SW-BASE-TYPE。所有时间间隔/超时单位为秒。")
     paragraph("字段导航", "点击下方工作表标题跳转输入页；字段说明与各页表头批注来自同一份定义。")
     sections = {}

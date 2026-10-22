@@ -98,7 +98,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 输入表格在加载 ARXML 前校验：绿表须有 R-Port/P-Port 页（仅兼容旧 INPUT/OUTPUT 工作簿；RECEIVE/SEND 不兼容），表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。R-Port/P-Port 分别对应当前模块的接收端口和发送端口。全部输入表检查完后再报错退出，一次列出所有问题；后续的绿表转换和白表引用解析同样逐行记录错误，处理完再失败。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
 
-接口策略仅在 config 中配置：`"interfaceMismatch": "error"`，也可选 `skip`、`map`；没有配置该字段时默认 `error`，不提供命令行覆盖。完整映射配置见 [configuration.md](configuration.md)。
+接口策略仅在 config 中配置：`interfaceMismatch = "error"`，也可选 `skip`、`map`；没有配置该字段时默认 `error`，不提供命令行覆盖。完整映射配置见 [configuration.md](configuration.md)。
 
 ## 产物与发布
 
@@ -118,4 +118,6 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 转换错误由工具自身阻断，不需要另写脚本扫描 ERROR。退出码 0 表示转换和发布成功，但不替代工程集成及完整 AUTOSAR XSD/语义验证。具体边界见 [arxml-and-errors.md](arxml-and-errors.md)。
 
-普通连接两端接口不同时，先复用已有的唯一有效映射，不受 `interfaceMismatch` 策略影响；没有可复用映射时，默认报错，`skip` 警告并跳过连接，`map` 允许新建映射。接口映射目前只支持 SenderReceiverInterface，并校验数据元素存在且配对完整、一一对应，不检查类型或结构兼容性。信号映射只检查目标 ECU、接口、数据元素和信号引用存在，以及表格方向对应的 R/P 方向，不追踪总线实际方向；组成员单独映射只警告，组映射不检查数据类型。生成成功不代表两端数据语义或 RTE 运行时兼容。
+普通连接两端接口不同时，先复用已有的唯一有效映射，不受 `interfaceMismatch` 策略影响；没有可复用映射时，默认报错，`skip` 警告并跳过连接，`map` 允许新建映射。接口映射目前只支持 SenderReceiverInterface，校验映射的数据元素存在且一一对应，未覆盖的元素只警告，不检查类型或结构兼容性。信号映射只检查目标 ECU、接口、数据元素和信号引用存在，以及表格方向对应的 R/P 方向，不追踪物理通道和总线实际方向；组成员单独映射只警告，组映射不检查数据类型。生成成功不代表两端数据语义或 RTE 运行时兼容。
+
+输出按 AUTOSAR 4.x 元模型做浅校验：目标 Composition 内 SHORT-NAME 不区分大小写唯一，引用的 System、根原型、ECU 和接口须存在且类型正确，不可拆分的 FIBEX-ELEMENTS、SystemMapping 和接口映射集不在新文件中重复追加，必需但无法推导的内容（如信号组 TYPE-MAPPING、缺失的 SYSTEM-VERSION）只警告不臆造。完整规则见 [arxml-and-errors.md](arxml-and-errors.md#autosar-输出规则)。

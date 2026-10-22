@@ -18,14 +18,19 @@ _TOKEN = re.compile(
     re.DOTALL,
 )
 
-# 工具可能新建子容器的父元素，按 AUTOSAR 4.x schema 列出其直接子元素的先后顺序：
+# 工具可能新建子容器的父元素，按 AUTOSAR 4.x schema（R4.3.1 AUTOSAR_00044.xsd）列出其直接子元素的先后顺序：
 # 先是 Identifiable 的公共头部，再按继承层次逐层排列，每层内按标签名字母序。
 _IDENTIFIABLE = (
     "SHORT-NAME", "SHORT-NAME-FRAGMENTS", "LONG-NAME", "DESC", "CATEGORY", "ADMIN-DATA",
     "INTRODUCTION", "ANNOTATIONS",
 )
 CHILD_ORDER: dict[str, tuple[str, ...]] = {
-    "AR-PACKAGE": _IDENTIFIABLE + ("VARIATION-POINT", "REFERENCE-BASES", "ELEMENTS", "AR-PACKAGES"),
+    "AR-PACKAGE": _IDENTIFIABLE + (
+        # AtpBlueprint
+        "BLUEPRINT-POLICYS", "SHORT-NAME-PATTERN",
+        # ARPackage
+        "REFERENCE-BASES", "ELEMENTS", "AR-PACKAGES", "VARIATION-POINT",
+    ),
     "SWC-INTERNAL-BEHAVIOR": _IDENTIFIABLE + (
         # InternalBehavior
         "CONSTANT-MEMORYS", "CONSTANT-VALUE-MAPPING-REFS", "DATA-TYPE-MAPPING-REFS",
@@ -53,6 +58,21 @@ CHILD_ORDER: dict[str, tuple[str, ...]] = {
         "WRITTEN-LOCAL-VARIABLES", "VARIATION-POINT",
     ),
 }
+
+
+_XML_DECLARATION = re.compile(rb"\A(?:\xef\xbb\xbf)?\s*<\?xml\b[^>]*?\bencoding\s*=\s*[\"']([^\"']*)[\"']")
+
+
+def encoding_problem(source: bytes) -> str | None:
+    """片段按 UTF-8 写入，XML 声明了其他编码时插入会得到不一致的文件；返回问题描述。"""
+
+    match = _XML_DECLARATION.match(source)
+    if match is None or match.group(1).decode("ascii", "replace").casefold() == "utf-8":
+        return None
+    return (
+        f"XML declaration encoding {match.group(1).decode('ascii', 'replace')!r} is not supported; "
+        "only UTF-8 ARXML can be modified"
+    )
 
 
 @dataclass(frozen=True)
@@ -122,6 +142,42 @@ def element_span(source: bytes, path: str) -> ElementSpan:
     if len(spans) != 1:
         raise ValueError(f"Expected one element at {path}, found {len(spans)}")
     return spans[0]
+
+
+def element_tag(source: bytes, path: str) -> str | None:
+    """返回路径上第一个元素的标签（即引用中的 ``DEST``）；不存在时返回 ``None``。"""
+
+    spans = _path_index(source).get(path)
+    return spans[0].tag if spans else None
+
+
+@lru_cache(maxsize=8)
+def _casefold_index(source: bytes) -> dict[str, tuple[str, ...]]:
+    folded: dict[str, list[str]] = {}
+    for path in _path_index(source):
+        folded.setdefault(path.casefold(), []).append(path)
+    return {key: tuple(paths) for key, paths in folded.items()}
+
+
+def case_variants(source: bytes, path: str) -> list[str]:
+    """返回与 ``path`` 仅大小写不同的已有路径；AUTOSAR 要求同一命名空间内 SHORT-NAME 不区分大小写唯一。"""
+
+    return [other for other in _casefold_index(source).get(path.casefold(), ()) if other != path]
+
+
+@lru_cache(maxsize=8)
+def _children_index(source: bytes) -> dict[str, tuple[str, ...]]:
+    children: dict[str, list[str]] = {}
+    for path in _path_index(source):
+        parent, _, name = path.rpartition("/")
+        children.setdefault(parent, []).append(name)
+    return {parent: tuple(dict.fromkeys(names)) for parent, names in children.items()}
+
+
+def child_names(source: bytes, path: str) -> tuple[str, ...]:
+    """返回元素命名空间内的全部 SHORT-NAME，即中间无其他带名称元素的后代，与容器标签无关。"""
+
+    return _children_index(source).get(path, ())
 
 
 def child_spans(source: bytes, parent: ElementSpan) -> list[ElementSpan]:

@@ -9,10 +9,11 @@ composition 生成（:mod:`.arxml_generator`）同样直接使用其模型类，
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Iterable, Optional
 
-from armodel import CompositionSwComponentType, System
+from armodel import CompositionSwComponentType, SwcImplementation, System
 from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSAR
 from armodel.models.M2.AUTOSARTemplates.GenericStructure.GeneralTemplateClasses.ARPackage import (
     ARPackage,
@@ -38,6 +39,7 @@ MODULE_LIN = "LIN"
 BUS_CLUSTER_TYPES = {"CanCluster": MODULE_CAN, "LinCluster": MODULE_LIN}
 # 组合嵌套的最大层数；超过即视为模型异常（例如组合之间循环引用）。
 MAX_COMPOSITION_DEPTH = 16
+_SCHEMA_LOCATION = re.compile(r"schemaLocation\s*=\s*[\"'][^\"']*?([\w.-]+\.xsd)\s*[\"']")
 
 
 def bus_module(cluster: object) -> str:
@@ -237,11 +239,13 @@ class ArxmlModel:
 
     # -- CAN/LIN ------------------------------------------------------------
 
-    def channels(self) -> dict[str, str]:
-        """返回 ``物理通道名 -> CAN/LIN``。"""
+    def channels(self) -> dict[str, set[str]]:
+        """返回 ``物理通道短名 -> 所属总线类型集合（CAN/LIN）``。
 
-        result: dict[str, str] = {}
-        paths: dict[str, str] = {}
+        通道名只用于拼接信号路径，不同簇中的同名通道不视为错误。
+        """
+
+        result: dict[str, set[str]] = {}
         for cluster in self._elements_of(CommunicationCluster):
             module = bus_module(cluster)
             if not module:
@@ -249,14 +253,35 @@ class ArxmlModel:
             for channel in cluster.getPhysicalChannels():
                 name = channel.getShortName()
                 if name:
-                    if name in paths and paths[name] != channel.getFullName():
-                        raise ValueError(f"Ambiguous physical channel '{name}': {paths[name]}, {channel.getFullName()}")
-                    paths[name] = channel.getFullName()
-                    result[name] = module
+                    result.setdefault(name, set()).add(module)
         return result
 
+    def implementations(self, behavior_path: str) -> list[str]:
+        """返回 BEHAVIOR-REF 指向 ``behavior_path`` 的全部 SWC-IMPLEMENTATION 完整路径。"""
+
+        return sorted(
+            implementation.getFullName()
+            for implementation in self._elements_of(SwcImplementation)
+            if ref_value(implementation.getBehaviorRef()) == behavior_path
+        )
+
+    def schema_files(self) -> set[str]:
+        """返回已加载 ARXML 在 ``xsi:schemaLocation`` 中声明的 XSD 文件名。"""
+
+        schemas: set[str] = set()
+        for path in self.paths:
+            try:
+                with open(path, "rb") as stream:
+                    head = stream.read(4096).decode("utf-8", "replace")
+            except OSError:
+                continue
+            match = _SCHEMA_LOCATION.search(head)
+            if match:
+                schemas.add(match.group(1))
+        return schemas
+
     def signal_groups(self) -> dict[str, set[str]]:
-        """按 SystemSignal 完整路径返回其所属的 System/I-SignalGroup 完整路径。"""
+        """按 SystemSignal 完整路径返回其所属的 System/I-SignalGroup 完整路径；不追踪总线 triggering。"""
 
         if self._groups is not None:
             return self._groups
@@ -271,13 +296,6 @@ class ArxmlModel:
                 signal = self._document.find(ref_value(signal_ref))
                 if isinstance(signal, ISignal) and ref_value(signal.getSystemSignalRef()):
                     group_members.setdefault(ref_value(signal.getSystemSignalRef()), set()).add(group.getFullName())
-        for cluster in self._elements_of(CommunicationCluster):
-            for channel in cluster.getPhysicalChannels():
-                for triggering in channel.getISignalTriggerings():
-                    group_ref = ref_value(triggering.getISignalGroupRef())
-                    signal = self._document.find(ref_value(triggering.getISignalRef()))
-                    if group_ref and isinstance(signal, ISignal) and ref_value(signal.getSystemSignalRef()):
-                        group_members.setdefault(ref_value(signal.getSystemSignalRef()), set()).add(group_ref)
         self._groups = group_members
         return group_members
 

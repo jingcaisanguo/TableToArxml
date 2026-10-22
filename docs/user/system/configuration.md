@@ -62,14 +62,14 @@ EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
 | `prototypePrefix`       | 字符串             | 可选，默认`its`；用于没有已有目标实例的组件，允许空字符串                                                                                                                                                                                                                                                         |
 | `e2eWrapperComponent`   | 字符串             | 可选，默认`E2EWrapper`；该名称按普通组件处理，空字符串禁用特殊分支                                                                                                                                                                                                                                                |
 | `signalPathTemplate`    | 字符串             | 可选，默认`/${channel}/Signal/${signal}`；必须是绝对 AUTOSAR 路径并含 `${signal}`，只支持 `${channel}`、`${signal}`                                                                                                                                                                                         |
-| `arRelease`             | 字符串             | 可选，默认`R19-11`；必须是当前 armodel 支持的 release，否则失败且不发布产物                                                                                                                                                                                                                                       |
+| `arRelease`             | 字符串             | 可选，默认`R19-11`；必须是当前 armodel 支持的 release，否则失败且不发布产物；与输入 ARXML 声明的 release 不同时记录 WARNING，不自动推导                                                                                                                                                                                  |
 | `interfaceMismatch`     | 字符串             | 仅支持在配置文件中设置；缺省为`error`，可选 `error`、`skip`、`map`；不提供命令行覆盖                                                                                                                                                                                                                              |
 | `interfaceMappings`     | 对象数组           | 可选，在`map` 模式下为不同名称的数据元素显式配对，格式见下文                                                                                                                                                                                                                                                      |
-| `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 在已加载 ARXML 中存在时，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
+| `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 必须在已加载 ARXML 中存在，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，不可拆分的 FIBEX-ELEMENTS 与已有 SystemMapping 不重复写出（见 [arxml-and-errors.md](arxml-and-errors.md#autosar-输出规则)）；实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
 
 字符串数组参数也可写单个字符串；空字符串条目会被忽略。配置中出现上表以外的键，或 `general` 中出现下文 General 表以外的键时，直接报错退出（退出码 `2`）并列出支持的键，避免拼错的字段被静默忽略。
 
-排除示例：`"excludeArxml": ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
+排除示例：`excludeArxml = ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
 命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml arxml/Bcm/TUR.arxml`。
 文件名匹配所有同名文件（不区分大小写）；带目录的值精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
 该规则与 `excludeArxmlPatterns`、内置排除规则叠加，日志记录 `Exclude ARXML file`，不修改 lst。
@@ -124,10 +124,10 @@ arxmlFileList = "../cfg/${variant}.lst"
 
 单个 System 的 `ROOT-SOFTWARE-COMPOSITION` 为可选单值关系，可以在明确选定 System 后读取。工具按 `System` 短名或完整路径查找；不存在、没有根原型或存在多个同名 System 时失败。遇到同名歧义须配置完整路径或显式配置 `RootSwCompositionPrototype`。
 
-启用 `generateSystem` 时，显式根原型必须能在输入模型中找到，并且从根组合到目标 Composition 只有一条实例链；
-工具不会凭空创建缺失的输入根原型。输出仍不是自包含的全工程 ARXML，ECU、组件实现等外部引用需在整合模型中验证。
+启用 `generateSystem` 时，显式根原型必须能在输入模型中找到、是所选 System 的子元素，并且从根组合到目标 Composition 只有一条实例链；
+`EcuInstance` 必须是已加载的 ECU-INSTANCE。工具不会凭空创建缺失的 System 或根原型。输出仍不是自包含的全工程 ARXML，组件实现等外部引用需在整合模型中验证。
 
-白表 General 页仅写 `Composition`、`System`、`RootSwCompositionPrototype`、`EcuInstance` 四项；`systemMapping` 单独传给生成器，不写入此页。生成器加上 `SystemMapping_` 前缀，所以默认示例对应的映射短名为 `SystemMapping_BcmSystemImpl`。
+白表 General 页仅写 `Composition`、`System`、`RootSwCompositionPrototype`、`EcuInstance` 四项；`systemMapping` 单独传给生成器，不写入此页。生成器加上 `SystemMapping_` 前缀，所以默认示例对应的映射短名为 `SystemMapping_BcmSystemImpl`；该 System 下已有同名（不区分大小写）SystemMapping 时报错，因为其子映射不可拆分到新文件。
 
 ## 同名组件与别名
 
@@ -159,7 +159,7 @@ Conti_SWC_FDLib = { type = "/ContiPackage/Conti_SWC_FDLib", prototype = "Conti_S
 
 普通装配连接必须为 P-port 到 R-port。所有使用的端口必须引用已加载的 PortInterface，缺失接口、未知端口或错误端口方向始终报错，不能通过以下参数绕过。
 
-两端接口不同时，先查找并复用唯一有效的已有映射，所有策略均可正常连线。已有映射不完整或存在歧义时仍报错；没有可复用映射时才应用以下策略：
+两端接口不同时，先查找并复用唯一有效的已有映射，所有策略均可正常连线。已有映射引用了不存在的元素、不是一一对应或存在歧义时仍报错；没有可复用映射时才应用以下策略：
 
 | config 中的`interfaceMismatch` | 没有可复用的已有接口映射时                                                     |
 | -------------------------------- | ----------------------------------------------------------------------------------- |
@@ -169,9 +169,9 @@ Conti_SWC_FDLib = { type = "/ContiPackage/Conti_SWC_FDLib", prototype = "Conti_S
 
 `skip` 是用户显式选择的过滤行为，不是忽略 ERROR；它只处理接口不一致，不能跳过信号方向、信号组或其他错误。白表保留原始连接请求，因此 skip 模式下白表连接数可大于最终 ARXML 连接数。
 
-当前 `map` 支持两端均为 SenderReceiverInterface 的情况，绿表、白表模式行为一致。先校验显式配对的元素存在且目标不重复，再查找输入 ARXML 中覆盖两侧全部数据元素且一一对应的 `VARIABLE-AND-PARAMETER-INTERFACE-MAPPING`，支持正向或反向记录；直接引用原路径，不重复输出映射。若配置了部分 `interfaceMappings`，已有映射必须包含这些指定配对；存在多个匹配映射或不完整配对时报错。
+当前 `map` 支持两端均为 SenderReceiverInterface 的情况，绿表、白表模式行为一致。先校验显式配对的元素存在且目标不重复，再查找输入 ARXML 中连接这两个接口、引用元素均存在且一一对应的 `VARIABLE-AND-PARAMETER-INTERFACE-MAPPING`，支持正向或反向记录；直接引用原路径，不重复输出映射，未覆盖的元素记录 WARNING。若配置了部分 `interfaceMappings`，已有映射必须包含这些指定配对；存在多个匹配映射时报错。
 
-没有可复用映射且策略为 `map` 时，保留显式配对，排除已占用的源和目标元素，再将剩余同名元素自动配对。原本两端接口各只有一个数据元素且未显式配置时，允许不同名自动配对；多元素接口即使最后各剩一个不同名元素，也必须显式指定，不猜测对应关系。不会解析或比较数据元素类型。例如只需配置不同名的一对，其余同名元素自动补齐：
+没有可复用映射且策略为 `map` 时，保留显式配对，排除已占用的源和目标元素，再将剩余同名元素自动配对。原本两端接口各只有一个数据元素且未显式配置时，允许不同名自动配对；多元素接口中剩余的不同名元素不猜测对应关系，保持未映射并记录 WARNING。不会解析或比较数据元素类型。例如只需配置不同名的一对，其余同名元素自动补齐：
 
 ```toml
 interfaceMismatch = "map"
@@ -185,11 +185,11 @@ requesterInterface = "/Interfaces/RequesterStatus"
 OutputValue = "InputValue"
 ```
 
-`dataElements` 的键是 provider 元素短名，值是 requester 元素短名，可只写部分配对。手写配对优先，不会被同名配对覆盖；最终合并结果必须完整覆盖两侧元素且一一对应。元素缺失、目标重复、补齐后仍不完整或非 SenderReceiverInterface 的自动映射均报错，不降级为直接连接。ClientServer、ModeSwitch 等接口仍可在两端引用相同时正常连接，但当前不自动生成它们的跨接口映射。
+`dataElements` 的键是 provider 元素短名，值是 requester 元素短名，可只写部分配对。手写配对优先，不会被同名配对覆盖；配对必须引用存在的元素且一一对应。元素缺失、目标重复、没有任何元素可以配对或非 SenderReceiverInterface 的自动映射均报错，不降级为直接连接；配对后仍未覆盖的元素只记录 WARNING。ClientServer、ModeSwitch 等接口仍可在两端引用相同时正常连接，但当前不自动生成它们的跨接口映射。
 
-接口映射只校验端口和接口引用有效、两侧数据元素存在、映射完整且一一对应；不检查数据类型、位宽、编码、数组/结构形状或数据转换。生成成功仅表示连接与 mapping 引用可以写出，不代表两端数据语义或 RTE 运行时兼容，相关兼容性应由后续 AUTOSAR/RTE 集成验证确认。
+接口映射只校验端口和接口引用有效、映射的数据元素存在且一一对应；未覆盖的元素记录 WARNING，不检查数据类型、位宽、编码、数组/结构形状或数据转换。生成成功仅表示连接与 mapping 引用可以写出，不代表两端数据语义或 RTE 运行时兼容，相关兼容性应由后续 AUTOSAR/RTE 集成验证确认。
 
-映射写在目标 Composition 同包的 `<Composition短名>_InterfaceMappings` 下，为 `PORT-INTERFACE-MAPPING-SET` / `VARIABLE-AND-PARAMETER-INTERFACE-MAPPING`。同一元素配对集合复用一个稳定命名的映射，实际元素类型/接口仍由输入模型提供。相同完整路径的已有映射不会被静默覆盖。
+映射写在目标 Composition 同包的 `<Composition短名>_InterfaceMappings` 下，为 `PORT-INTERFACE-MAPPING-SET` / `VARIABLE-AND-PARAMETER-INTERFACE-MAPPING`。同一元素配对集合复用一个稳定命名的映射，实际元素类型/接口仍由输入模型提供。该映射集已存在于输入时，因其映射列表不可拆分到新文件，需要新建映射会报错；相同完整路径的已有映射不会被静默覆盖。
 
 ## 输出与选项
 
