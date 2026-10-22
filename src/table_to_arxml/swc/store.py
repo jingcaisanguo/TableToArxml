@@ -104,6 +104,8 @@ class SourceStore:
         return self._short_name_index
 
     def _candidate_files(self, element_short_name: str, ignore_case: bool = False) -> list[Path]:
+        """按 SHORT-NAME 预筛候选文件；定义查找区分大小写，``ignore_case`` 只供大小写变体提示使用。"""
+
         index = self.short_name_index(self.source_files)
         if not ignore_case:
             return list(index.get(element_short_name, ()))
@@ -130,7 +132,7 @@ class SourceStore:
         return None
 
     def case_variants(self, element_path: str) -> list[tuple[Path, str]]:
-        """返回全部文件中与 ``element_path`` 仅大小写不同的已有路径。"""
+        """返回全部文件中与 ``element_path`` 仅大小写不同的已有路径，仅用于 WARNING 提示。"""
 
         variants: list[tuple[Path, str]] = []
         for candidate in self._candidate_files(element_path.rsplit("/", 1)[-1], ignore_case=True):

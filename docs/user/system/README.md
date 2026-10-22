@@ -120,4 +120,4 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 
 普通连接两端接口不同时，先复用已有的唯一有效映射，不受 `interfaceMismatch` 策略影响；没有可复用映射时，默认报错，`skip` 警告并跳过连接，`map` 允许新建映射。接口映射目前只支持 SenderReceiverInterface，校验映射的数据元素存在且一一对应，未覆盖的元素只警告，不检查类型或结构兼容性。信号映射只检查目标 ECU、接口、数据元素和信号引用存在，以及表格方向对应的 R/P 方向，不追踪物理通道和总线实际方向；组成员单独映射只警告，组映射不检查数据类型。生成成功不代表两端数据语义或 RTE 运行时兼容。
 
-输出按 AUTOSAR 4.x 元模型做浅校验：目标 Composition 内 SHORT-NAME 不区分大小写唯一，引用的 System、根原型、ECU 和接口须存在且类型正确，不可拆分的 FIBEX-ELEMENTS、SystemMapping 和接口映射集不在新文件中重复追加，必需但无法推导的内容（如信号组 TYPE-MAPPING、缺失的 SYSTEM-VERSION）只警告不臆造。完整规则见 [arxml-and-errors.md](arxml-and-errors.md#autosar-输出规则)。
+输出按 AUTOSAR 元模型做浅校验，不区分或比对 AUTOSAR 版本：目标 Composition 内 SHORT-NAME 不能重名（仅大小写不同只警告），引用的 System、根原型、ECU 和接口须存在且类型正确，不可拆分的 FIBEX-ELEMENTS、SystemMapping 和接口映射集不在新文件中重复追加，必需但无法推导的内容（如信号组 TYPE-MAPPING、缺失的 SYSTEM-VERSION）只警告不臆造。更深的规范与版本一致性由后续 EB 等工具链校验。完整规则见 [arxml-and-errors.md](arxml-and-errors.md#autosar-输出规则)。

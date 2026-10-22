@@ -108,9 +108,9 @@ class LocatedAccess:
 
 @dataclass(frozen=True)
 class RunnableNamespace:
-    """runnable 的命名空间：全部直接子对象的 SHORT-NAME（按 casefold 索引）及各类已有访问点。"""
+    """runnable 的命名空间：全部直接子对象的 SHORT-NAME（区分大小写）及各类已有访问点。"""
 
-    names: dict[str, str]
+    names: tuple[str, ...]
     accesses: dict[str, list[AccessInfo]]
 
 
@@ -236,9 +236,15 @@ def _com_spec_paths(
     existing: PortInfo | None,
     elements: list[str],
 ) -> tuple[str, ...] | None:
-    """确定 ComSpec 引用的数据元素路径：新建端口展开接口全部元素，已有端口沿用其 ComSpec 的引用。"""
+    """确定 ComSpec 引用的数据元素路径：新建端口和没有 ComSpec 的已有端口展开接口全部元素，
+    其他已有端口沿用其 ComSpec 的引用。"""
 
-    if existing is None:
+    data_paths: tuple[str, ...] = () if existing is None else tuple(dict.fromkeys(
+        [*existing.update_elements]
+        + [path for path, _ in existing.queued_elements]
+        + [path for path, _, _ in existing.sender_elements]
+    ))
+    if not data_paths:
         if not elements:
             LOGGER.error(
                 "Skipped port %s: ComSpec flags require data elements but interface %s has none",
@@ -247,14 +253,9 @@ def _com_spec_paths(
             )
             return None
         return tuple(f"{port.interface_path}/{element}" for element in elements)
-    data_paths = tuple(dict.fromkeys(
-        [*existing.update_elements]
-        + [path for path, _ in existing.queued_elements]
-        + [path for path, _, _ in existing.sender_elements]
-    ))
-    if not data_paths or any(path.rpartition("/")[0] != port.interface_path for path in data_paths):
+    if any(path.rpartition("/")[0] != port.interface_path for path in data_paths):
         LOGGER.error(
-            "Port %s/%s already exists with missing or conflicting ComSpec references; "
+            "Port %s/%s already exists with conflicting ComSpec references; "
             "please choose a different port name",
             component_path,
             port.name,
@@ -367,9 +368,7 @@ def resolve_ports(
         queued_senders: tuple[str, ...] = ()
         if port.needs_com_specs:
             existing = existing_ports.get((port.component_key, port.name))
-            elements = [] if existing is not None else interface_elements(
-                arxml_files, port.interface_path, store
-            )
+            elements = interface_elements(arxml_files, port.interface_path, store)
             data_paths = _com_spec_paths(port, component_path, existing, elements)
             if data_paths is None:
                 continue
@@ -383,20 +382,21 @@ def resolve_ports(
                 )
                 queued_senders = queued_paths
             else:
+                # 列对所选数据元素都不适用时只提示并忽略该列，端口照常生成，由 EB 做完整校验。
                 if port.enable_update and not plain_paths:
-                    LOGGER.error(
-                        "Skipped port %s: Enable Update applies only to non-queued data elements, "
-                        "but all ComSpec data elements of %s are queued (SW-IMPL-POLICY=QUEUED)",
+                    LOGGER.warning(
+                        "Port %s: Enable Update applies only to non-queued data elements, "
+                        "but all ComSpec data elements of %s are queued (SW-IMPL-POLICY=QUEUED); "
+                        "column ignored",
                         port.name, port.interface_path,
                     )
-                    continue
                 if port.queue_length > 0 and not queued_paths:
-                    LOGGER.error(
-                        "Skipped port %s: Queue Length applies only to queued data elements "
-                        "(SW-IMPL-POLICY=QUEUED), but no ComSpec data element of %s is queued",
+                    LOGGER.warning(
+                        "Port %s: Queue Length applies only to queued data elements "
+                        "(SW-IMPL-POLICY=QUEUED), but no ComSpec data element of %s is queued; "
+                        "column ignored",
                         port.name, port.interface_path,
                     )
-                    continue
                 if port.enable_update:
                     update_elements = plain_paths
                 if port.queue_length > 0:
@@ -546,7 +546,7 @@ def locate_accesses(
 
             if runnable_path not in namespaces:
                 namespaces[runnable_path] = RunnableNamespace(
-                    {name.casefold(): name for name in xml_patch.child_names(source, runnable_path)},
+                    xml_patch.child_names(source, runnable_path),
                     {
                         access_kind: document.list_accesses(runnable_path, access_kind)
                         for access_kind in ACCESS_CONTAINERS
@@ -576,7 +576,7 @@ def generate_access_name(
     """为留空的 ``Access Name`` 生成一个在该 runnable 命名空间内不冲突的名称。
 
     ``taken`` 与 ``used`` 以 casefold 名称为键，分别是 runnable 已有的全部直接子对象（各类访问点、
-    服务器调用点等）和本次运行已分配的名称；SHORT-NAME 不区分大小写唯一（constr_2508）。
+    服务器调用点等）和本次运行已分配的名称。自动命名主动避开仅大小写不同的名称，减少 EB 校验时的提示。
     优先使用 ``<前缀><端口名>``，被占用时依次尝试追加数据元素名和序号。
     """
     base = f"{ACCESS_NAME_PREFIXES[kind]}{port_name}"
@@ -624,14 +624,14 @@ def resolve_data_element(spec: AccessSpec, interface_path: str, elements: Sequen
 
 
 def _access_kind_problem(item: LocatedAccess, data_path: str, queued: bool) -> str | None:
-    """访问点类别与数据元素实现策略、接收端 ComSpec 的 AUTOSAR 约束。"""
+    """访问点类别与数据元素实现策略、接收端 ComSpec 的组合提示；属于 AUTOSAR 规则，只警告，由 EB 校验。"""
 
     if queued and item.kind == ACCESS_READ:
-        return "queued data elements cannot be accessed by DataReadAccess (constr_2020)"
+        return "AUTOSAR does not allow DataReadAccess for queued data elements"
     if queued and item.kind == ACCESS_RECEIVE_BY_VALUE:
-        return "queued data elements cannot be received by value (constr_1277)"
+        return "AUTOSAR does not allow ReceiveByValue for queued data elements"
     if item.kind == ACCESS_READ and data_path in item.update_elements:
-        return "DataReadAccess is not allowed when the receiver ComSpec has ENABLE-UPDATE=true (constr_1103)"
+        return "AUTOSAR does not allow DataReadAccess when the receiver ComSpec has ENABLE-UPDATE=true"
     return None
 
 
@@ -647,8 +647,9 @@ def resolve_accesses(
 
     先按组件文件分组定位 runnable、端口方向和已有访问点，再解析数据元素并生成名称：
     后端的模型是全局单例，加载接口所在文件会使组件文档失效，因此两个阶段必须分开。
-    解析出数据元素后按 ``(runnable, 类别, 端口, 数据元素)`` 合并重复请求；已有访问点引用相同
-    端口和数据元素时直接复用（不论名称）。任一条件不满足时只记录 error 并跳过该条请求。
+    解析出数据元素后按 ``(runnable, 类别, 端口, 数据元素)`` 的原文合并重复请求；已有访问点引用相同
+    端口和数据元素时直接复用（不论名称）。访问类别与队列策略、ENABLE-UPDATE 的 AUTOSAR 组合规则只警告；
+    其他条件不满足时记录 error 并跳过该条请求。
     """
     located, namespaces = locate_accesses(
         components, specs, resolved_ports, component_files, store
@@ -666,22 +667,23 @@ def resolve_accesses(
             item, data_path, summary is not None and data_element in summary.queued_data_elements
         )
         if problem is not None:
-            LOGGER.error(
-                "Skipped data access for port %s data element %s in %s: %s",
+            LOGGER.warning(
+                "Data access for port %s data element %s in %s: %s; created anyway, "
+                "left to EB validation",
                 item.spec.port_name, data_element, item.runnable_path, problem,
             )
-            continue
-        key = (item.runnable_path.casefold(), item.kind, item.port_path.casefold(), data_path.casefold())
+        # 仅大小写不同的路径是不同对象，按原文去重。
+        key = (item.runnable_path, item.kind, item.port_path, data_path)
         groups.setdefault(key, []).append((item, data_path))
 
     resolved: list[ResolvedAccess] = []
     merged = 0
-    used: dict[str, dict[str, str]] = defaultdict(dict)
+    used: dict[str, set[str]] = defaultdict(set)
     for requests in groups.values():
         item, data_path = requests[0]
         names = list(dict.fromkeys(request.spec.name for request, _ in requests if request.spec.name))
         context = f"{item.runnable_path} ({item.spec.port_name} -> {data_path.rpartition('/')[2]})"
-        if len({name.casefold() for name in names}) > 1:
+        if len(names) > 1:
             LOGGER.error(
                 "Skipped data access %s: workbook rows request the same access with different "
                 "Access Names %s; keep one row",
@@ -707,15 +709,14 @@ def resolve_accesses(
             name = existing.name
         elif names:
             name = names[0]
-            taken_by = namespace.names.get(name.casefold())
-            if taken_by is not None:
+            if name in namespace.names:
                 LOGGER.error(
                     "Skipped data access %s: SHORT-NAME %s is already used by %s/%s; "
                     "please choose a different access name",
-                    context, name, item.runnable_path, taken_by,
+                    context, name, item.runnable_path, name,
                 )
                 continue
-            if name.casefold() in used[item.runnable_path]:
+            if name in used[item.runnable_path]:
                 LOGGER.error(
                     "Skipped data access %s/%s: the name is already used in this run; "
                     "fill in a unique Access Name",
@@ -723,10 +724,21 @@ def resolve_accesses(
                     name,
                 )
                 continue
+            similar = [
+                other for other in (*namespace.names, *used[item.runnable_path])
+                if other.casefold() == name.casefold()
+            ]
+            if similar:
+                LOGGER.warning(
+                    "Data access %s/%s: SHORT-NAME differs only in case from %s; "
+                    "created as a distinct object, left to EB validation",
+                    item.runnable_path, name, ", ".join(sorted(set(similar))),
+                )
         else:
             generated = generate_access_name(
-                namespace.names, used[item.runnable_path], item.kind, item.spec.port_name,
-                data_path.rpartition("/")[2],
+                {other.casefold(): other for other in namespace.names},
+                {other.casefold(): other for other in used[item.runnable_path]},
+                item.kind, item.spec.port_name, data_path.rpartition("/")[2],
             )
             if generated is None:
                 LOGGER.error(
@@ -737,7 +749,7 @@ def resolve_accesses(
                 )
                 continue
             name = generated
-        used[item.runnable_path][name.casefold()] = name
+        used[item.runnable_path].add(name)
 
         resolved.append(
             ResolvedAccess(

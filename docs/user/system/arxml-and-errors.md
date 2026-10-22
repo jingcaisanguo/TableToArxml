@@ -74,11 +74,11 @@ excludeArxmlPatterns = [
 
 ### AUTOSAR 输出规则
 
-输出是对已有元素的拆分片段（split），按 AUTOSAR 4.x 元模型的多重性与 `atpSplitable` 规则写出，做浅校验：
+输出是对已有元素的拆分片段（split），按 AUTOSAR 元模型的多重性与 `atpSplitable` 规则写出，只做浅校验，不区分或比对 AUTOSAR 版本。SHORT-NAME 采用各版本通用的规则：字母开头、仅含字母数字下划线、最长 128 字符（R4.0.3 至 R24-11 的 XSD 一致）。规范细则和版本一致性由后续 EB 等工具链校验：
 
 | 规则 | 行为 |
 | --- | --- |
-| 目标 Composition 中 COMPONENTS、PORTS、CONNECTORS 共用命名空间，SHORT-NAME 不区分大小写唯一 | 新对象与已有或本次其他对象重名（含仅大小写不同）时报错；已有同名同端点的连接器直接复用不再写出，连接同一对端口但名称不同的已有连接器记录 WARNING 后复用 |
+| 目标 Composition 中 COMPONENTS、PORTS、CONNECTORS 共用命名空间 | 新对象与已有或本次其他对象同名时报错；仅大小写不同时记录 WARNING，按不同对象生成；已有同名同端点的连接器直接复用不再写出，连接同一对端口但名称不同的已有连接器记录 WARNING 后复用 |
 | `System` 必须是已加载的 System（短名或完整路径） | 不存在或同名歧义时报错；根原型必须是该 System 的子元素，ECU-INSTANCE 必须存在且类型正确（与是否有信号映射无关） |
 | `System.fibexElement` 不可拆分 | 已有 System 没有 FIBEX-ELEMENTS 时写入 ECU；已引用该 ECU 时不重复写；引用了其他元素但不含该 ECU 时记录 WARNING，需手工补齐 |
 | `SYSTEM-VERSION` 为 1..1 | 沿用输入值；输入缺失时记录 WARNING，不臆造版本 |
@@ -88,7 +88,7 @@ excludeArxmlPatterns = [
 | `SenderReceiverToSignalGroupMapping.typeMapping` 为 1..1 | 工具不推导记录类型映射，每行记录 WARNING |
 | 接口引用的 DEST | 按被引用对象的实际类型写出；输入端口声明的 DEST 不一致时记录 WARNING |
 | 重复的信号映射行 | 只生成一条并记录 WARNING |
-| 输出 release | 由 `arRelease` 决定；与输入 ARXML 声明的 release 不同时记录 WARNING |
+| 输出 release | 由 `arRelease` 决定，只影响输出声明的 schema；不与输入 ARXML 的版本比对 |
 
 底层 armodel 模型是进程内全局单例，不支持在同一进程中并行运行多个转换。不同配置/变体应串行运行或使用独立进程，并避免写入相同产物路径。
 
@@ -131,7 +131,8 @@ excludeArxmlPatterns = [
 | `<sheet> row <n>: ...` | 无效端口、信号或 DataElement 等引用导致整次失败 |
 | `SwcToImplMapping is not generated`（WARNING） | 新增组件缺少内部行为或 SWC-IMPLEMENTATION；集成前补齐 |
 | `Reference prototype does not exist` / `outside target composition` | Reference 必须真实存在于目标 Composition，不能把其他组合的实例直接移到目标下 |
-| `SHORT-NAMEs must be unique (case-insensitive)` | 新增的实例、外部端口或连接器与目标 Composition 中的其他对象重名（含仅大小写不同） |
+| `SHORT-NAMEs must be unique` | 新增的实例、外部端口或连接器与目标 Composition 中的其他对象同名 |
+| `differs only in case`（WARNING） | 名称仅大小写不同，部分 AUTOSAR 工具视为同名；由后续工具链确认 |
 | `already exists in the loaded ARXML ... cannot be split` | SystemMapping 或接口映射集已存在，不能在新文件中追加其子元素；改名或在原文件中维护 |
 | `Unsupported TransformationDescription <SOMEIP-TRANSFORMATION-DESCRIPTION>` | armodel 不支持该输入元素，按 ERROR 打印后跳过，不影响退出码；生成结果依赖该元素时需改用兼容的解析库或输入 |
 | `conflicting connector name` / `conflicting outer port` / `ambiguous component alias` | 白表数据存在不同对象共用名称的冲突；任务在清空模型及写出 ARXML 前中止 |

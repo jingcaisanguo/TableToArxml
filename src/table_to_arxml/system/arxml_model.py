@@ -9,7 +9,6 @@ composition 生成（:mod:`.arxml_generator`）同样直接使用其模型类，
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -39,7 +38,6 @@ MODULE_LIN = "LIN"
 BUS_CLUSTER_TYPES = {"CanCluster": MODULE_CAN, "LinCluster": MODULE_LIN}
 # 组合嵌套的最大层数；超过即视为模型异常（例如组合之间循环引用）。
 MAX_COMPOSITION_DEPTH = 16
-_SCHEMA_LOCATION = re.compile(r"schemaLocation\s*=\s*[\"'][^\"']*?([\w.-]+\.xsd)\s*[\"']")
 
 
 def bus_module(cluster: object) -> str:
@@ -264,21 +262,6 @@ class ArxmlModel:
             for implementation in self._elements_of(SwcImplementation)
             if ref_value(implementation.getBehaviorRef()) == behavior_path
         )
-
-    def schema_files(self) -> set[str]:
-        """返回已加载 ARXML 在 ``xsi:schemaLocation`` 中声明的 XSD 文件名。"""
-
-        schemas: set[str] = set()
-        for path in self.paths:
-            try:
-                with open(path, "rb") as stream:
-                    head = stream.read(4096).decode("utf-8", "replace")
-            except OSError:
-                continue
-            match = _SCHEMA_LOCATION.search(head)
-            if match:
-                schemas.add(match.group(1))
-        return schemas
 
     def signal_groups(self) -> dict[str, set[str]]:
         """按 SystemSignal 完整路径返回其所属的 System/I-SignalGroup 完整路径；不追踪总线 triggering。"""

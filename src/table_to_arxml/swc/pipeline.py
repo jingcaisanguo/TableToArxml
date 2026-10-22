@@ -23,7 +23,6 @@ from .options import Options
 from .resolve import ResolvedPort, expand_port_accesses, resolve_accesses, resolve_components, resolve_ports
 from .store import SourceStore
 from .workbook import (
-    case_conflicting_paths,
     load_workbook_sheets,
     read_arrays,
     read_cs_interfaces,
@@ -32,6 +31,7 @@ from .workbook import (
     read_sr_interfaces,
     read_structures,
     read_workbook,
+    warn_case_variant_paths,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def execute(options: Options) -> tuple[RunSummary, SourceStore]:
         *arxml_files,
         *(spec.target_file for spec in [*enumerations, *arrays, *structures, *interfaces, *cs_interfaces]),
     ])
-    conflicts = case_conflicting_paths([
+    warn_case_variant_paths([
         *((path, "enumeration") for spec in enumerations
           for path in (spec.path, spec.compu_method_path, spec.data_constr_path)),
         *((spec.path, "array") for spec in arrays),
@@ -113,15 +113,6 @@ def execute(options: Options) -> tuple[RunSummary, SourceStore]:
         *((spec.path, "SR interface") for spec in interfaces),
         *((spec.path, "CS interface") for spec in cs_interfaces),
     ])
-    if conflicts:
-        enumerations = [
-            spec for spec in enumerations
-            if not conflicts & {spec.path, spec.compu_method_path, spec.data_constr_path}
-        ]
-        arrays = [spec for spec in arrays if spec.path not in conflicts]
-        structures = [spec for spec in structures if spec.path not in conflicts]
-        interfaces = [spec for spec in interfaces if spec.path not in conflicts]
-        cs_interfaces = [spec for spec in cs_interfaces if spec.path not in conflicts]
     planned_types = {
         spec.path: IMPLEMENTATION_DATA_TYPE for spec in [*enumerations, *arrays, *structures]
     }

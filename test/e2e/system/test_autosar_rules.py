@@ -139,23 +139,42 @@ def test_system_references_are_checked(tmp_path, scenario, message):
     assert not (tmp_path / "out").exists()
 
 
+def test_case_only_system_mapping_name_is_a_warning(tmp_path):
+    edit_model(tmp_path, system_children="<MAPPINGS><SYSTEM-MAPPING><SHORT-NAME>systemmapping_tsystemimpl"
+                                         "</SHORT-NAME></SYSTEM-MAPPING></MAPPINGS>")
+    result = run_white(tmp_path, {"Components": [["A2", "A2", "/Pkg/A", "Add"]]}, generateSystem=True)
+    assert result.returncode == 0, result.stderr
+    assert "SystemMapping SystemMapping_TSystemImpl differs only in case" in result.stderr
+    assert names(output_root(tmp_path), "SYSTEM-MAPPING") == ["SystemMapping_TSystemImpl"]
+
+
 @pytest.mark.parametrize("rows, existing, message", [
     ({"Components": [*REFERENCES, ["pTop", "pTop", "/Pkg/A", "Add"]],
       "DelegationSwConnection": [["A", "pOut", "pTop"]]}, "", "new port pTop conflicts with new prototype pTop"),
-    ({"Components": [["A2", "A2", "/Pkg/A", "Add"], ["a2", "a2", "/Pkg/A", "Add"]]}, "",
-     "new prototype a2 conflicts with new prototype A2"),
-    ({"Components": [["a", "a", "/Pkg/A", "Add"]]}, "", "new prototype a conflicts with existing prototype A"),
-    ({"Components": REFERENCES, "DelegationSwConnection": [["A", "pOut", "AC_A_pOut_B_rIn"]]},
-     "<CONNECTORS><ASSEMBLY-SW-CONNECTOR><SHORT-NAME>ac_A_pOut_B_rIn</SHORT-NAME></ASSEMBLY-SW-CONNECTOR>"
-     "</CONNECTORS>", "new port AC_A_pOut_B_rIn conflicts with existing assembly connector ac_A_pOut_B_rIn"),
+    ({"Components": [["A", "A", "/Pkg/B", "Add"]]}, "", "prototype type mismatch: /Pkg/Top/A"),
 ])
-def test_composition_namespace_is_case_insensitive(tmp_path, rows, existing, message):
+def test_composition_namespace_rejects_exact_duplicates(tmp_path, rows, existing, message):
     edit_model(tmp_path, composition_children=existing)
     result = run_white(tmp_path, rows)
     assert result.returncode == 1
     assert message in result.stderr
-    assert "SHORT-NAMEs must be unique (case-insensitive)" in result.stderr
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("rows, existing, message, generated", [
+    ({"Components": [["A2", "A2", "/Pkg/A", "Add"], ["a2", "a2", "/Pkg/A", "Add"]]}, "",
+     "a2 differs only in case from A2", ["A2", "a2"]),
+    ({"Components": [["a", "a", "/Pkg/A", "Add"]]}, "", "a differs only in case from A", ["a"]),
+    ({"Components": REFERENCES, "DelegationSwConnection": [["A", "pOut", "AC_A_pOut_B_rIn"]]},
+     "<CONNECTORS><ASSEMBLY-SW-CONNECTOR><SHORT-NAME>ac_A_pOut_B_rIn</SHORT-NAME></ASSEMBLY-SW-CONNECTOR>"
+     "</CONNECTORS>", "AC_A_pOut_B_rIn differs only in case from ac_A_pOut_B_rIn", []),
+])
+def test_case_only_names_are_warnings(tmp_path, rows, existing, message, generated):
+    edit_model(tmp_path, composition_children=existing)
+    result = run_white(tmp_path, rows)
+    assert result.returncode == 0, result.stderr
+    assert message in result.stderr
+    assert names(output_root(tmp_path), "SW-COMPONENT-PROTOTYPE") == generated
 
 
 def test_outer_port_name_used_by_other_element_is_rejected(tmp_path):
@@ -232,12 +251,12 @@ def test_duplicate_signal_rows_and_group_type_mapping_warn(tmp_path):
     assert len(tags(root, "SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING")) == 1
 
 
-@pytest.mark.parametrize("release, warning", [("R19-11", True), ("4.3.0", False)])
-def test_release_mismatch_with_inputs_warns(tmp_path, release, warning):
+@pytest.mark.parametrize("release", ["R19-11", "4.3.0"])
+def test_ar_release_is_not_matched_against_inputs(tmp_path, release):
     edit_model(tmp_path)
     result = run_white(tmp_path, {"Components": REFERENCES}, arRelease=release)
     assert result.returncode == 0, result.stderr
-    assert ("Output uses AUTOSAR release" in result.stderr) == warning
+    assert "release" not in result.stderr.lower()
 
 
 def test_existing_generated_mapping_set_cannot_be_split(tmp_path):

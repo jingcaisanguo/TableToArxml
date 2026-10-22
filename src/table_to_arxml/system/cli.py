@@ -190,7 +190,6 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
         started = perf_counter()
         model = ArxmlModel.load(arxml_paths)
         LOGGER.info("Loaded %s ARXML files in %.1fs", len(model.paths), perf_counter() - started)
-        input_schemas = model.schema_files()
 
         results: list[tuple[Path, Path]] = []
         for index, job in enumerate(jobs):
@@ -212,7 +211,7 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 output_file=staging / f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}",
                 system_mapping=job.system_mapping, ar_release=job.ar_release,
                 interface_mismatch=job.mismatch_policy, interface_mappings=job.interface_mappings,
-                generate_system=job.generate_system, input_schemas=input_schemas)
+                generate_system=job.generate_system)
             if index < len(jobs) - 1:
                 # 同名旧文件已被排除，后续配置需要看到本次新生成的内容。
                 model.add(composition_arxml)

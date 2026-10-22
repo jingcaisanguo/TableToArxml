@@ -476,17 +476,18 @@ def _group_members(
 
 
 def _is_duplicate(members: Sequence[tuple], name: str, label: str, context: str) -> bool:
-    """SHORT-NAME 在同一命名空间内不区分大小写唯一（constr_2508）。"""
+    """同名成员记录 error；仅大小写不同时只警告并视为不同成员（AUTOSAR 规则，由 EB 校验）。"""
 
-    duplicate = next((member[0] for member in members if member[0].casefold() == name.casefold()), None)
-    if duplicate is not None:
-        if duplicate == name:
-            LOGGER.error("Skipped duplicate %s %s in %s", label, name, context)
-        else:
-            LOGGER.error(
-                "Skipped %s %s in %s: SHORT-NAME differs only in case from %s", label, name, context, duplicate
-            )
+    if any(member[0] == name for member in members):
+        LOGGER.error("Skipped duplicate %s %s in %s", label, name, context)
         return True
+    similar = [member[0] for member in members if member[0].casefold() == name.casefold()]
+    if similar:
+        LOGGER.warning(
+            "%s %s in %s: SHORT-NAME differs only in case from %s; kept as a distinct object, "
+            "left to EB validation",
+            label, name, context, ", ".join(similar),
+        )
     return False
 
 
@@ -711,14 +712,13 @@ def read_cs_interfaces(sheets: Sheets, project_root: Path) -> list[ClientServerI
         if operations is None:
             continue
         operation = row["Operation Name"]
-        same_case = next(
-            (name for name in operations if name.casefold() == operation.casefold() and name != operation), None
-        )
-        if same_case is not None:
-            LOGGER.error(
-                "Skipped %s operation %s: SHORT-NAME differs only in case from %s", context, operation, same_case
+        same_case = [name for name in operations if name.casefold() == operation.casefold() and name != operation]
+        if same_case and operation not in operations:
+            LOGGER.warning(
+                "%s operation %s: SHORT-NAME differs only in case from %s; kept as a distinct object, "
+                "left to EB validation",
+                context, operation, ", ".join(same_case),
             )
-            continue
         if operation in operations and (not has_argument or not operations[operation]):
             LOGGER.error(
                 "Skipped %s operation %s: duplicate or conflicting zero-argument declaration",
@@ -915,7 +915,7 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
         paths.add(path)
 
     ports: list[PortSpec] = []
-    seen_ports: dict[tuple[str, str], str] = {}
+    seen_ports: set[tuple[str, str]] = set()
     for sheet_name, direction in (
         (P_PORTS_SHEET, DIRECTION_PROVIDED),
         (R_PORTS_SHEET, DIRECTION_REQUIRED),
@@ -925,17 +925,21 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
             port = _read_port(row, sheet_name, direction, components)
             if port is None:
                 continue
-            key = (port.component_key, port.name.casefold())
+            key = (port.component_key, port.name)
             if key in seen_ports:
-                if seen_ports[key] == port.name:
-                    LOGGER.error("Skipped duplicate port for component %s: %s", port.component_key, port.name)
-                else:
-                    LOGGER.error(
-                        "Skipped port %s for component %s: SHORT-NAME differs only in case from %s",
-                        port.name, port.component_key, seen_ports[key],
-                    )
+                LOGGER.error("Skipped duplicate port for component %s: %s", port.component_key, port.name)
                 continue
-            seen_ports[key] = port.name
+            similar = [
+                name for component_key, name in seen_ports
+                if component_key == port.component_key and name.casefold() == port.name.casefold()
+            ]
+            if similar:
+                LOGGER.warning(
+                    "Port %s for component %s: SHORT-NAME differs only in case from %s; "
+                    "kept as a distinct port, left to EB validation",
+                    port.name, port.component_key, ", ".join(similar),
+                )
+            seen_ports.add(key)
             ports.append(port)
 
     if not components:
@@ -945,22 +949,23 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
     return components, ports
 
 
-def case_conflicting_paths(paths: Iterable[tuple[str, str]]) -> set[str]:
-    """检查本次新建对象的完整路径：仅大小写不同的路径在 AUTOSAR 中冲突（constr_2508）。
+def warn_case_variant_paths(paths: Iterable[tuple[str, str]]) -> None:
+    """本次新建对象的完整路径仅大小写不同时只记录 WARNING，按不同对象继续生成（AUTOSAR 规则，由 EB 校验）。
 
-    ``paths`` 为 ``(路径, 对象类别)``，按工作簿顺序排列；返回后出现的冲突路径并逐个记录 ERROR。
+    ``paths`` 为 ``(路径, 对象类别)``，按工作簿顺序排列；完全相同的路径由各步骤按已有定义处理。
     """
-    first: dict[str, tuple[str, str]] = {}
-    conflicts: set[str] = set()
+    first: dict[str, list[tuple[str, str]]] = {}
     for path, label in paths:
-        known_path, known_label = first.setdefault(path.casefold(), (path, label))
-        if known_path != path:
-            LOGGER.error(
-                "Skipped %s %s: SHORT-NAME path differs only in case from %s %s in the workbook",
-                label, path, known_label, known_path,
+        known = first.setdefault(path.casefold(), [])
+        if any(known_path == path for known_path, _ in known):
+            continue
+        if known:
+            LOGGER.warning(
+                "%s %s: SHORT-NAME path differs only in case from %s in the workbook; "
+                "created as a distinct object, left to EB validation",
+                label, path, ", ".join(f"{known_label} {known_path}" for known_path, known_label in known),
             )
-            conflicts.add(path)
-    return conflicts
+        known.append((path, label))
 
 
 def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> list[AccessSpec]:
@@ -998,9 +1003,9 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
 
         unique = (
             component_key,
-            row["Runnable Name"].casefold(),
-            row["Port Name"].casefold(),
-            row.get("Data Element Name", "").casefold(),
+            row["Runnable Name"],
+            row["Port Name"],
+            row.get("Data Element Name", ""),
             kind,
         )
         if unique in seen:

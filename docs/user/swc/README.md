@@ -47,10 +47,11 @@ table-to-swc-arxml --config ./config/swc.toml
 
 ## 检查规则
 
-工具采用 AUTOSAR 4.x 规则的“浅校验”：只检查必填项、SHORT-NAME/C 标识符语法、引用目标存在且元类正确、
-端口方向与访问类别、命名空间内 SHORT-NAME 唯一（不区分大小写）、同路径对象一致和输出可被重新解析；
-不检查类型兼容、初值、时序、E2E 配置等深层语义。ARXML 无效、有歧义或引用错误时为 `ERROR`；
-允许但可疑的配置为 `WARNING`。
+工具只做“浅校验”，不识别、不匹配 AUTOSAR 版本（各版本 schema 的 SHORT-NAME 语法一致），完整的 AUTOSAR 规则校验由 EB 导入工程时完成。
+工具只检查必填项、SHORT-NAME/C 标识符语法、引用目标存在且元类正确、端口方向与访问类别、
+同路径对象（区分大小写）一致和输出可被重新解析；不检查类型兼容、初值、时序、E2E 配置等深层语义。
+ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置，以及工具不强制的 AUTOSAR 约束
+（SHORT-NAME 仅大小写不同、访问类别与队列策略/ENABLE-UPDATE 的组合、不适用的 ComSpec 列）为 `WARNING`，照常生成，留给 EB 校验。
 
 工具采用“收集全部错误”方式：单条记录出错时记录 `ERROR` 并跳过该记录，其余记录继续处理，
 以便一次报告所有问题。只要本次运行出现任一 `ERROR`，就不写任何 ARXML，退出码为 `1`。
@@ -102,13 +103,13 @@ table-to-swc-arxml --config ./config/swc.toml
 | `Data Accesses` 的 `Runnable Name` | 始终按 SHORT-NAME 校验，不受端口页的 RTE 开关影响 |
 | CS 参数名、方向、类型全填或全空（全空代表无参数 operation） | `CS-Interfaces` |
 
-唯一性和一致性检查（SHORT-NAME 及路径按 AUTOSAR 规则**不区分大小写**比较，仅大小写不同也视为重复）：
+唯一性和一致性检查（SHORT-NAME 及路径**区分大小写**比较；仅大小写不同的名称视为不同对象，记录 `WARNING` 后照常生成，留给 EB 校验）：
 
 | 范围 | 不能重复 / 必须一致 |
 | --- | --- |
 | `Components` | `SW-C` 不重复，`Component Path` 不重复（工作簿标识，区分大小写） |
 | 端口页 | 同一组件的端口名在 `P-Ports`、`R-Ports` 两页之间不重复；`SW-C` 必须在 `Components` 中定义 |
-| 新建对象路径 | 各页新建的类型、计算方法、数据约束和接口路径之间不能仅大小写不同 |
+| 新建对象路径 | 各页新建的类型、计算方法、数据约束和接口路径之间仅大小写不同时 `WARNING` |
 | `Enumerations` | 同一枚举的 `Value`、`Label` 不重复；各行的 `Target ARXML`、底层类型、计算方法和约束路径一致 |
 | `Arrays` | `Type Path` 不重复 |
 | `Structures` | 同一结构体的成员名不重复，`Target ARXML` 一致 |
@@ -123,9 +124,9 @@ table-to-swc-arxml --config ./config/swc.toml
 | 组件路径在 ARXML 清单中找到定义 | 找不到记录 `ERROR`；多个文件中出现同一完整路径时采用清单中的第一个定义 |
 | 端口接口路径在清单中找到定义，且是支持的接口类型 | 找不到或类型不支持时记录 `ERROR`，跳过该端口；多个文件重复时采用第一个定义 |
 | 需要生成 ComSpec 时，接口至少有一个数据元素 | `ERROR`，跳过该端口 |
-| 显式填写的 ComSpec 列至少适用于一个数据元素：`Queue Length` 为正数时须有队列元素（`SW-IMPL-POLICY=QUEUED`），`Enable Update=Y` 时须有非队列元素 | `ERROR`，跳过该端口；混合接口中各列只作用于适用的元素 |
+| 显式填写的 ComSpec 列至少适用于一个数据元素：`Queue Length` 为正数时须有队列元素（`SW-IMPL-POLICY=QUEUED`），`Enable Update=Y` 时须有非队列元素 | `WARNING`，忽略不适用的列，端口和其他适用的 ComSpec 照常生成；混合接口中各列只作用于适用的元素 |
 | 组件中已有 `PORTS` 容器 | `ERROR`，跳过该端口 |
-| 新建对象（类型、接口、端口、访问点、runnable、事件、调用点）与同一命名空间中的已有对象仅 SHORT-NAME 大小写不同 | `ERROR`，同时列出两者路径 |
+| 新建对象（类型、接口、端口、访问点、runnable、事件、调用点）与同一命名空间中的已有对象仅 SHORT-NAME 大小写不同 | `WARNING`，同时列出两者路径，按不同对象生成 |
 | 新建类型或接口的完整路径已存在 | 采用清单顺序中第一个定义，与工作簿定义比较；一致时复用，不一致时 `ERROR` |
 | 需要创建的新类型或接口所在的包已存在于 `Target ARXML` | 不存在时 `ERROR`，跳过该对象 |
 | 新建对象写出的类型引用（底层类型、数组元素、结构体成员、数据元素和参数类型）在清单或目标文件中存在时，元类必须适用 | 元类不适用（如引用 `SW-BASE-TYPE`）时 `ERROR`；找不到时 `WARNING`，按未解析引用写出 |
@@ -133,8 +134,8 @@ table-to-swc-arxml --config ./config/swc.toml
 | 访问点引用的 runnable 存在于组件内部行为中（含本次新建的 CS runnable） | `ERROR`，跳过该访问点 |
 | 访问点引用的端口是本次成功准备或已有的 P/R 端口，类别与端口方向匹配 | `ERROR`，跳过该访问点；`PR-PORT-PROTOTYPE` 不支持 |
 | 访问点的数据元素存在于接口中；接口有多个元素时已填写 `Data Element Name` | `ERROR`，跳过该访问点 |
-| 队列元素不使用 `Read`（constr_2020）或 `ReceiveByValue`（constr_1277）；接收端 ComSpec `ENABLE-UPDATE=true` 的元素不使用 `Read`（constr_1103） | `ERROR`，跳过该访问点 |
-| 同一需求（runnable、类别、端口、数据元素相同）的多行填写了不同的 `Access Name` | `ERROR`；其余重复请求合并为一个，`INFO` 记录 |
+| 队列元素不使用 `Read` 或 `ReceiveByValue`；接收端 ComSpec `ENABLE-UPDATE=true` 的元素不使用 `Read`（AUTOSAR 约束） | `WARNING`，照常生成该访问点，留给 EB 校验 |
+| 同一需求（runnable、类别、端口、数据元素相同）的多行填写了不同的 `Access Name`（仅大小写不同也算不同） | `ERROR`；其余重复请求合并为一个，`INFO` 记录 |
 | CS 端口的接口至少有一个 operation，组件有内部行为 | `ERROR`，跳过该端口的 CS 对象 |
 | 同一组件的 CS runnable `SYMBOL` 与已有或本次新建 runnable 重复 | `WARNING` |
 | 自动命名在 100 个候选名内找到可用名称 | `ERROR`，跳过该访问点 |
@@ -245,7 +246,8 @@ table-to-swc-arxml --config ./config/swc.toml
 前缀：`Send`→`dsp_`，`ReceiveByArgument`→`drparg_`，`ReceiveByValue`→`drpval_`，`Read`→`dra_`，`Write`→`dwa_`。
 runnable 是其全部子对象（各类访问点、服务器调用点等）的命名空间，候选名与其中任一 SHORT-NAME 或本次已分配的名称
 仅大小写相同也视为占用，自动尝试下一个候选名。已有同类别访问点引用相同端口和数据元素时，不论名称直接复用并 `WARNING` 跳过，
-因此重复执行不会生成新的名称。手写的 `Access Name` 被占用时报 `ERROR`，不自动避让。
+因此重复执行不会生成新的名称。手写的 `Access Name` 与已有对象或本次已分配的名称完全相同时报 `ERROR`，不自动避让；
+仅大小写不同时记录 `WARNING` 并照常生成。
 
 新建 SHORT-NAME 及路径各段使用 ASCII 字母开头、字母/数字/下划线组成的名称，长度为 1～128。
 手填名称不合法时报错；自动生成的长访问点、CS runnable、事件和调用点名称截断并附加 8 位哈希，仍检查冲突。

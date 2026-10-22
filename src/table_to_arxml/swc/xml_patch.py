@@ -160,7 +160,7 @@ def _casefold_index(source: bytes) -> dict[str, tuple[str, ...]]:
 
 
 def case_variants(source: bytes, path: str) -> list[str]:
-    """返回与 ``path`` 仅大小写不同的已有路径；AUTOSAR 要求同一命名空间内 SHORT-NAME 不区分大小写唯一。"""
+    """返回与 ``path`` 仅大小写不同的已有路径，仅用于 WARNING 提示；定位元素始终区分大小写。"""
 
     return [other for other in _casefold_index(source).get(path.casefold(), ()) if other != path]
 

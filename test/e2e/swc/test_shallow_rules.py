@@ -95,28 +95,41 @@ def test_sender_com_spec_kind_follows_data_element_policy(tmp_path):
     assert repeated.returncode == 0, repeated.stderr
 
 
-@pytest.mark.parametrize("interface,column,value,message", [
-    ("/Pkg/If", "Queue_Length", "4", "Queue Length applies only to queued data elements"),
-    ("/Pkg/OnlyQ", "Enable_Update", "Y", "Enable Update applies only to non-queued data elements"),
+@pytest.mark.parametrize("interface,update,queue,message,expected", [
+    ("/Pkg/If", "Y", "4", "Queue Length applies only to queued data elements",
+     [("NONQUEUED-RECEIVER-COM-SPEC", "/Pkg/If/If")]),
+    ("/Pkg/OnlyQ", "Y", "2", "Enable Update applies only to non-queued data elements",
+     [("QUEUED-RECEIVER-COM-SPEC", "/Pkg/OnlyQ/q")]),
+    ("/Pkg/If", None, "4", "Queue Length applies only to queued data elements", []),
 ])
-def test_inapplicable_receiver_com_spec_column_is_an_error(tmp_path, interface, column, value, message):
+def test_inapplicable_receiver_com_spec_column_is_a_warning(tmp_path, interface, update, queue, message, expected):
     result = run_twins(tmp_path, {
         "Components": [B],
         "SR-Interfaces": QUEUED_INTERFACE,
-        "R-Ports": [{"SW_C": "B", "Port_Name": "r_Test", "Port_Interface_Ref": interface, column: value}],
+        "R-Ports": [{"SW_C": "B", "Port_Name": "r_Test", "Port_Interface_Ref": interface,
+                     "Enable_Update": update, "Queue_Length": queue}],
     }, minimal=True)
-    assert result.returncode == 1
-    assert message in result.stderr
-    assert not (tmp_path / "out").exists()
+    assert result.returncode == 0, result.stderr
+    assert "WARNING" in result.stderr and message in result.stderr and "column ignored" in result.stderr
+    port = named(output_root(tmp_path), "R-PORT-PROTOTYPE", "r_Test")
+    container = port.find("ar:REQUIRED-COM-SPECS", NS)
+    specs = [] if container is None else list(container)
+    assert [(spec.tag.rsplit("}", 1)[-1], spec.findtext("ar:DATA-ELEMENT-REF", namespaces=NS))
+            for spec in specs] == expected
+
+    repeated = rerun_on_output(tmp_path)
+    assert repeated.returncode == 0, repeated.stderr
 
 
-# B：访问类别与队列策略、ENABLE-UPDATE 的约束
-@pytest.mark.parametrize("interface,kind,update,message", [
-    ("/Pkg/OnlyQ", "Read", None, "constr_2020"),
-    ("/Pkg/OnlyQ", "ReceiveByValue", None, "constr_1277"),
-    ("/Pkg/If", "Read", "Y", "constr_1103"),
+# B：访问类别与队列策略、ENABLE-UPDATE 的 AUTOSAR 组合规则只警告，访问点照常生成
+@pytest.mark.parametrize("interface,kind,update,message,container,name", [
+    ("/Pkg/OnlyQ", "Read", None, "DataReadAccess for queued data elements", "DATA-READ-ACCESSS", "dra_r_Test"),
+    ("/Pkg/OnlyQ", "ReceiveByValue", None, "ReceiveByValue for queued data elements",
+     "DATA-RECEIVE-POINT-BY-VALUES", "drpval_r_Test"),
+    ("/Pkg/If", "Read", "Y", "DataReadAccess when the receiver ComSpec has ENABLE-UPDATE=true",
+     "DATA-READ-ACCESSS", "dra_r_Test"),
 ])
-def test_access_kind_constraints(tmp_path, interface, kind, update, message):
+def test_access_kind_constraints_are_warnings(tmp_path, interface, kind, update, message, container, name):
     result = run_twins(tmp_path, {
         "Components": [B],
         "SR-Interfaces": QUEUED_INTERFACE,
@@ -124,9 +137,10 @@ def test_access_kind_constraints(tmp_path, interface, kind, update, message):
                      "Create_RTE_Artifact": "Y", "Runnable_Name": "Run", "Access_Kind": kind,
                      "Enable_Update": update}],
     }, minimal=True)
-    assert result.returncode == 1
-    assert message in result.stderr
-    assert not (tmp_path / "out").exists()
+    assert result.returncode == 0, result.stderr
+    assert "WARNING" in result.stderr and message in result.stderr
+    assert "left to EB validation" in result.stderr
+    assert names(run_b_runnable(tmp_path), f"ar:{container}/*") == [name]
 
 
 def test_queued_element_allows_receive_by_argument(tmp_path):
@@ -159,18 +173,19 @@ def test_duplicate_access_requests_are_merged_after_resolution(tmp_path):
     assert names(runnable, "ar:DATA-WRITE-ACCESSS/*") == ["dwa_p_Out"]
 
 
-def test_same_access_with_different_explicit_names_is_an_error(tmp_path):
+@pytest.mark.parametrize("first,second", [("first", "second"), ("acc", "ACC")])
+def test_same_access_with_different_explicit_names_is_an_error(tmp_path, first, second):
     result = run_twins(tmp_path, {
         "Components": [B],
         "P-Ports": [{"SW_C": "B", "Port_Name": "p_Out", "Port_Interface_Ref": "/Pkg/If"}],
         "Data Accesses": [
-            {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_Out", "Access_Name": "first"},
+            {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_Out", "Access_Name": first},
             {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_Out", "Data_Element_Name": "If",
-             "Access_Name": "second"},
+             "Access_Name": second},
         ],
     }, minimal=True)
     assert result.returncode == 1
-    assert "different Access Names first, second" in result.stderr
+    assert f"different Access Names {first}, {second}" in result.stderr
 
 
 def test_existing_access_with_other_name_is_reused(tmp_path):
@@ -197,7 +212,7 @@ def run_twins_keep_model(tmp_path, rows):
     return run_prepared_twins(tmp_path)
 
 
-# D：runnable 是全部子对象的命名空间，大小写不敏感
+# D：runnable 是全部子对象的命名空间；自动命名避开仅大小写不同的名称，显式名称仅大小写不同只警告
 def test_auto_access_name_avoids_any_runnable_child(tmp_path):
     write_twins(tmp_path, {
         "Components": [B],
@@ -217,24 +232,40 @@ def test_auto_access_name_avoids_any_runnable_child(tmp_path):
     assert names(run_b_runnable(tmp_path), "ar:DATA-SEND-POINTS/*") == ["dsp_p_Out_If"]
 
 
-def test_explicit_access_name_conflicts_are_case_insensitive(tmp_path):
+def write_explicit_access_names(tmp_path, names_by_row) -> None:
     write_twins(tmp_path, {
         "Components": [B],
         "P-Ports": [{"SW_C": "B", "Port_Name": name, "Port_Interface_Ref": "/Pkg/If"} for name in ("p_A", "p_B")],
         "Data Accesses": [
-            {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_A", "Access_Name": "acc"},
-            {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_B", "Access_Name": "ACC"},
+            {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_A", "Access_Name": names_by_row[0]},
+            {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_B", "Access_Name": names_by_row[1]},
             {"SW_C": "B", "Runnable_Name": "Run", "Port_Name": "p_B", "Access_Kind": "Write",
-             "Access_Name": "old"},
+             "Access_Name": names_by_row[2]},
         ],
     }, minimal=True)
     patch_twins(tmp_path, "<DATA-READ-ACCESSS></DATA-READ-ACCESSS>",
                 "<DATA-READ-ACCESSS><VARIABLE-ACCESS><SHORT-NAME>OLD</SHORT-NAME></VARIABLE-ACCESS>"
                 "</DATA-READ-ACCESSS>", 2)
+
+
+def test_explicit_access_names_differing_only_in_case_are_warnings(tmp_path):
+    write_explicit_access_names(tmp_path, ("acc", "ACC", "old"))
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "/Pkg/B/IB/Run/ACC: SHORT-NAME differs only in case from acc" in result.stderr
+    assert "/Pkg/B/IB/Run/old: SHORT-NAME differs only in case from OLD" in result.stderr
+    runnable = run_b_runnable(tmp_path)
+    assert names(runnable, "ar:DATA-SEND-POINTS/*") == ["acc", "ACC"]
+    assert names(runnable, "ar:DATA-WRITE-ACCESSS/*") == ["old"]
+    assert names(runnable, "ar:DATA-READ-ACCESSS/*") == ["OLD"]
+
+
+def test_explicit_access_name_exact_conflicts_are_errors(tmp_path):
+    write_explicit_access_names(tmp_path, ("acc", "acc", "OLD"))
     result = run_prepared_twins(tmp_path)
     assert result.returncode == 1
-    assert "/Pkg/B/IB/Run/ACC: the name is already used in this run" in result.stderr
-    assert "SHORT-NAME old is already used by /Pkg/B/IB/Run/OLD" in result.stderr
+    assert "/Pkg/B/IB/Run/acc: the name is already used in this run" in result.stderr
+    assert "SHORT-NAME OLD is already used by /Pkg/B/IB/Run/OLD" in result.stderr
 
 
 # E：CS 对象顺序、同次运行的 runnable、失败端口
@@ -355,25 +386,65 @@ def test_forward_type_reference_within_the_workbook(tmp_path):
     assert "/Pkg/Inner not found" not in result.stderr
 
 
-# I：SHORT-NAME 大小写不敏感唯一
-@pytest.mark.parametrize("rows,message", [
+# I：SHORT-NAME 仅大小写不同只警告，按不同对象生成（AUTOSAR 规则由 EB 校验）
+@pytest.mark.parametrize("rows,message,created", [
     ({"SR-Interfaces": [{"Interface_Path": "/Pkg/IF", "Data_Element_Name": "v", "Data_Type_Ref": "/Pkg/uint8",
-                         "Target_ARXML": "twins.arxml"}]}, "differs only in case from existing /Pkg/If"),
+                         "Target_ARXML": "twins.arxml"}]}, "differs only in case from existing /Pkg/If",
+     [("SENDER-RECEIVER-INTERFACE", "IF"), ("SENDER-RECEIVER-INTERFACE", "If")]),
     ({"Components": [B], "P-Ports": [{"SW_C": "B", "Port_Name": "ib", "Port_Interface_Ref": "/Pkg/If"}]},
-     "differs only in case from existing /Pkg/B/IB"),
+     "differs only in case from existing /Pkg/B/IB", [("P-PORT-PROTOTYPE", "ib")]),
     ({"Arrays": [{"Type_Path": "/Pkg/Arr", "Element_Name": "e", "Element_Type_Ref": "/Pkg/uint8",
                   "Array_Size": "2", "Target_ARXML": "twins.arxml"}],
       "Structures": [{"Type_Path": "/Pkg/ARR", "Member_Name": "m", "Member_Type_Ref": "/Pkg/uint8",
-                      "Target_ARXML": "twins.arxml"}]}, "differs only in case from array /Pkg/Arr"),
+                      "Target_ARXML": "twins.arxml"}]}, "differs only in case from array /Pkg/Arr",
+     [("IMPLEMENTATION-DATA-TYPE", "Arr"), ("IMPLEMENTATION-DATA-TYPE", "ARR")]),
     ({"SR-Interfaces": [{"Interface_Path": "/Pkg/New", "Data_Element_Name": name, "Data_Type_Ref": "/Pkg/uint8",
                          "Target_ARXML": "twins.arxml"} for name in ("value", "VALUE")]},
-     "differs only in case from value"),
+     "differs only in case from value", [("VARIABLE-DATA-PROTOTYPE", "value"), ("VARIABLE-DATA-PROTOTYPE", "VALUE")]),
 ])
-def test_case_insensitive_short_name_conflicts(tmp_path, rows, message):
+def test_short_names_differing_only_in_case_are_warnings(tmp_path, rows, message, created):
     result = run_twins(tmp_path, rows, minimal=True)
-    assert result.returncode == 1
-    assert message in result.stderr
-    assert not (tmp_path / "out").exists()
+    assert result.returncode == 0, result.stderr
+    assert "WARNING" in result.stderr and message in result.stderr
+    root = output_root(tmp_path)
+    for tag, name in created:
+        assert named(root, tag, name) is not None
+
+
+def test_case_variant_ports_create_distinct_rte_objects(tmp_path):
+    result = run_twins(tmp_path, {
+        "Components": [B],
+        "P-Ports": [
+            *({"SW_C": "B", "Port_Name": name, "Port_Interface_Ref": "/Pkg/CsIf", "Create_RTE_Artifact": "Y"}
+              for name in ("p_srv", "P_SRV")),
+            {"SW_C": "B", "Port_Name": "p_cs", "Port_Interface_Ref": "/Pkg/CsIf", "Create_RTE_Artifact": "Y",
+             "Runnable_Name": "RUN"},
+            *({"SW_C": "B", "Port_Name": name, "Port_Interface_Ref": "/Pkg/If", "Create_RTE_Artifact": "Y",
+               "Runnable_Name": "Run"} for name in ("p_out", "P_OUT")),
+        ],
+        "R-Ports": [{"SW_C": "B", "Port_Name": name, "Port_Interface_Ref": "/Pkg/CsIf",
+                     "Create_RTE_Artifact": "Y", "Runnable_Name": "Run"} for name in ("r_cli", "R_CLI")],
+    }, minimal=True)
+    assert result.returncode == 0, result.stderr
+    assert "ERROR" not in result.stderr
+    assert "Port P_SRV for component B: SHORT-NAME differs only in case from p_srv" in result.stderr
+    assert "SHORT-NAME RUN differs only in case from Run" in result.stderr
+    assert "SHORT-NAME oie_P_SRV_Op differs only in case from oie_p_srv_Op" in result.stderr
+    assert "SHORT-NAME scp_R_CLI_Op differs only in case from scp_r_cli_Op" in result.stderr
+    component = named(output_root(tmp_path), "APPLICATION-SW-COMPONENT-TYPE", "B")
+    assert names(component, "ar:PORTS/*") == ["p_srv", "P_SRV", "p_cs", "p_out", "P_OUT", "r_cli", "R_CLI"]
+    behavior = named(component, "SWC-INTERNAL-BEHAVIOR", "IB")
+    assert names(behavior, "ar:RUNNABLES/*") == ["Run", "RE_p_srv_Op", "RE_P_SRV_Op", "RUN"]
+    assert names(behavior, "ar:EVENTS/*") == ["oie_p_srv_Op", "oie_P_SRV_Op", "oie_p_cs_Op"]
+    runnable = run_b_runnable(tmp_path)
+    assert names(runnable, "ar:SERVER-CALL-POINTS/*") == ["scp_r_cli_Op", "scp_R_CLI_Op"]
+    # 自动命名仍主动避开仅大小写不同的名称。
+    assert names(runnable, "ar:DATA-SEND-POINTS/*") == ["dsp_p_out", "dsp_P_OUT_If"]
+
+    repeated = rerun_on_output(tmp_path)
+    assert repeated.returncode == 0, repeated.stderr
+    assert "CS artifacts: 0 to create, 0 skipped" in repeated.stdout
+    assert "Data accesses: 0 of 2 to create, 0 skipped" in repeated.stdout
 
 
 # J：已有对象的数值与未填写属性

@@ -568,13 +568,17 @@ class _Resolver:
                 "add the ECU-INSTANCE to the System manually", self.system_path, ecu_path)
 
         if self.system_mapping_name:
-            folded = self.system_mapping_name.casefold()
-            clashes = [mapping.getShortName() for mapping in system.getMappings()
-                       if (mapping.getShortName() or "").casefold() == folded]
-            if clashes:
+            existing_mappings = [mapping.getShortName() or "" for mapping in system.getMappings()]
+            if self.system_mapping_name in existing_mappings:
                 raise ValueError(
-                    f"SystemMapping {self.system_path}/{clashes[0]} already exists in the loaded ARXML; its "
-                    "mappings cannot be split across files, configure a different general.systemMapping")
+                    f"SystemMapping {self.system_path}/{self.system_mapping_name} already exists in the loaded "
+                    "ARXML; its mappings cannot be split across files, configure a different general.systemMapping")
+            same_case = [name for name in existing_mappings
+                         if name.casefold() == self.system_mapping_name.casefold()]
+            if same_case:
+                LOGGER.warning(
+                    "SystemMapping %s differs only in case from existing %s/%s; AUTOSAR tools may treat "
+                    "them as the same name", self.system_mapping_name, self.system_path, same_case[0])
 
         root_path = general["RootSwCompositionPrototype"]
         if root_path.rpartition("/")[0] != self.system_path:
@@ -597,14 +601,14 @@ class _Resolver:
                     "SW component prototypes", component.instance_path)
 
     def check_composition_names(self) -> int:
-        """目标 Composition 的 COMPONENTS、PORTS、CONNECTORS 共用一个命名空间，SHORT-NAME 不区分大小写唯一。
+        """目标 Composition 的 COMPONENTS、PORTS、CONNECTORS 共用一个命名空间，同名对象报错。
 
         与输入中同名同内容的连接器直接复用；连接同一对端口但名称不同的已有连接器只警告并复用。
-        返回记录的 ERROR 数量。
+        仅大小写不同的名称在 AUTOSAR 中视为冲突，这里只警告，留给后续工具链校验。返回记录的 ERROR 数量。
         """
 
         composition = self.lookup("find", self.composition_path)
-        existing: dict[str, tuple[str, str, object]] = {}
+        existing: dict[str, tuple[str, object]] = {}
         existing_connections: dict[tuple[str, ...], str] = {}
         if isinstance(composition, CompositionSwComponentType):
             pass_through = getattr(composition, "getPassThroughSwConnectors", lambda: [])()
@@ -617,7 +621,7 @@ class _Resolver:
                 for item in items:
                     name = item.getShortName()
                     if name:
-                        existing.setdefault(name.casefold(), (name, kind, item))
+                        existing.setdefault(name, (kind, item))
                     key = self._existing_connection(kind, item)
                     if key:
                         existing_connections.setdefault(key, name)
@@ -632,28 +636,23 @@ class _Resolver:
         new += [(name, "delegation connector", connector) for name, connector in self.delegations.items()]
 
         failures = 0
-        claimed: dict[str, tuple[str, str]] = {}
+        claimed: dict[str, str] = {}
         for name, kind, item in new:
-            folded = name.casefold()
-            if folded in claimed:
-                other_name, other_kind = claimed[folded]
-                LOGGER.error(
-                    "%s: new %s %s conflicts with new %s %s; SHORT-NAMEs must be unique (case-insensitive)",
-                    self.composition_path, kind, name, other_kind, other_name)
+            if name in claimed:
+                LOGGER.error("%s: new %s %s conflicts with new %s %s; SHORT-NAMEs must be unique",
+                             self.composition_path, kind, name, claimed[name], name)
                 failures += 1
                 continue
-            claimed[folded] = (name, kind)
+            claimed[name] = kind
             key = self._new_connection(kind, item)
-            if folded in existing:
-                existing_name, existing_kind, existing_item = existing[folded]
-                if (existing_name == name and existing_kind == kind and key
-                        and key == self._existing_connection(existing_kind, existing_item)):
+            if name in existing:
+                existing_kind, existing_item = existing[name]
+                if existing_kind == kind and key and key == self._existing_connection(existing_kind, existing_item):
                     LOGGER.info("Reuse existing %s %s/%s", kind, self.composition_path, name)
                     self.reused_connectors.add(name)
                     continue
-                LOGGER.error(
-                    "%s: new %s %s conflicts with existing %s %s; SHORT-NAMEs must be unique (case-insensitive)",
-                    self.composition_path, kind, name, existing_kind, existing_name)
+                LOGGER.error("%s: new %s %s conflicts with existing %s %s; SHORT-NAMEs must be unique",
+                             self.composition_path, kind, name, existing_kind, name)
                 failures += 1
                 continue
             if key and key in existing_connections:
@@ -661,6 +660,15 @@ class _Resolver:
                     "%s: %s %s connects the same ports as existing connector %s; it is not generated",
                     self.composition_path, kind, name, existing_connections[key])
                 self.reused_connectors.add(name)
+
+        names = list(existing) + [name for name in claimed if name not in existing]
+        first: dict[str, str] = {}
+        for name in names:
+            other = first.setdefault(name.casefold(), name)
+            if other != name and name in claimed:
+                LOGGER.warning(
+                    "%s: %s differs only in case from %s; AUTOSAR tools may treat them as the same SHORT-NAME",
+                    self.composition_path, name, other)
         return failures
 
     def _existing_connection(self, kind: str, connector: object) -> tuple[str, ...]:
@@ -822,22 +830,6 @@ def _write_model(document: AUTOSARDoc, resolver: _Resolver, generate_system: boo
             mapping.addDataMapping(signal_mapping)
 
 
-def warn_release_mismatch(output: AUTOSARDoc, ar_release: str, input_schemas: set[str]) -> None:
-    """输出的 AUTOSAR release 与输入 ARXML 声明的 release 不同时提示；版本由 ``arRelease`` 决定，不自动推导。"""
-
-    schema_releases = {schema: release for release, schema in getattr(output, "release_xsd_mappings", {}).items()}
-    input_releases = set()
-    for schema in input_schemas:
-        match = re.fullmatch(r"AUTOSAR_(\d+)-(\d+)-(\d+)\.xsd", schema)
-        release = ".".join(match.groups()) if match else schema_releases.get(schema, "")
-        if release:
-            input_releases.add(release)
-    if input_releases and ar_release not in input_releases:
-        LOGGER.warning(
-            "Output uses AUTOSAR release %s but the loaded ARXML declare %s; set config.arRelease if the "
-            "target toolchain requires one release", ar_release, ", ".join(sorted(input_releases)))
-
-
 def generate_composition_arxml(
     document: AUTOSAR,
     data: CompositionInput,
@@ -847,16 +839,14 @@ def generate_composition_arxml(
     interface_mismatch: str,
     interface_mappings: dict[tuple[str, str], dict[str, str]],
     generate_system: bool,
-    input_schemas: set[str] = frozenset(),
 ) -> Path:
     resolver = _Resolver(document, data, interface_mismatch, interface_mappings, system_mapping)
     resolver.resolve()
     if generate_system:
         resolver.resolve_system()
-    # 写到独立文档，保留已加载的模型供后续配置复用。
+    # 写到独立文档，保留已加载的模型供后续配置复用；arRelease 只决定输出声明，不与输入版本比对。
     output = AUTOSARDoc()
     output.setARRelease(ar_release)
-    warn_release_mismatch(output, ar_release, set(input_schemas))
     _write_model(output, resolver, generate_system)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     SystemArxmlWriter().save(str(output_file), output)

@@ -76,7 +76,7 @@
 
 - `... Path`、`... Ref` 必须以 `/` 开头；`Type Path`、`Interface Path` 还必须至少包含“包/名称”两级。
 - 每个路径段和 `... Name` 都必须是合法 SHORT-NAME：ASCII 字母开头，只含字母、数字和下划线，最长 128 字符；不允许空段、末尾 `/` 或中文名称。`SW-C` 是工作簿标识，不套用此规则。
-- 同一命名空间内的 SHORT-NAME 不区分大小写唯一：工作簿内或与已有 ARXML 对象仅大小写不同（如 `p_Status` 与 `P_STATUS`）记录 `ERROR`。
+- SHORT-NAME 和路径区分大小写匹配：仅大小写不同（如 `p_Status` 与 `P_STATUS`）视为不同对象，记录 `WARNING` 后照常生成；AUTOSAR 要求同一命名空间内不区分大小写唯一，由 EB 校验。工具不检查 AUTOSAR 版本。
 - `Target ARXML` 必须是相对路径且文件已存在；写绝对路径或文件不存在都记录 `ERROR`。
 - 工作簿不填写 `DEST`。端口接口引用按查到的接口类型推导；类型引用列在清单或目标文件中找到对象时，`DEST` 取其实际元类，
   元类不适用（如把 `SW-BASE-TYPE` 填到实现数据类型列）记录 `ERROR`，找不到时记录 `WARNING` 并按 `IMPLEMENTATION-DATA-TYPE` 写出。
@@ -223,8 +223,8 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 </SENDER-RECEIVER-INTERFACE>
 ```
 
-非队列元素不生成空的 `SW-DATA-DEF-PROPS`。队列属性决定端口 ComSpec 的种类（队列元素生成 `QUEUED-*-COM-SPEC`），
-并限制访问类别：队列元素不能使用 `Read` 或 `ReceiveByValue`。
+非队列元素不生成空的 `SW-DATA-DEF-PROPS`。队列属性决定端口 ComSpec 的种类（队列元素生成 `QUEUED-*-COM-SPEC`）；
+按 AUTOSAR 规则队列元素不应使用 `Read` 或 `ReceiveByValue`，工具只记录 `WARNING`，由 EB 校验。
 
 ## CS-Interfaces
 
@@ -281,7 +281,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | `Queue Length` | 非负整数，留空或 `0` 表示不生成；只作用于队列数据元素（`SW-IMPL-POLICY=QUEUED`） |
 
 两列分别作用于不同种类的数据元素，混合接口可以同时填写。填写了 `Enable Update=Y` 但端口的数据元素全部是队列元素，
-或填写了正数 `Queue Length` 但没有队列元素时，该列不适用于任何元素，记录 `ERROR` 并跳过该端口。
+或填写了正数 `Queue Length` 但没有队列元素时，该列不适用于任何元素，记录 `WARNING` 并忽略该列，端口照常生成。
 端口的 Runnable/RTE 配置列仅在相应端口方向、接口类型和 `Create RTE Artifact` 设置下生效；
 `Create RTE Artifact=N` 时，RTE 配置列中的非空值（包括格式或取值不合法的内容）均记录 `WARNING` 并忽略；
 不会因为未启用的 RTE 配置阻止端口生成。启用 RTE 时，适用字段仍执行格式和值校验；合法但不适用的非空列记录 `WARNING` 并忽略，非法值记录 `ERROR`。
@@ -289,7 +289,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 为已有端口填写 ComSpec 列时，只比较工作簿中**非空**的 ComSpec 字段；留空表示不声明该项，不检查 ARXML 中对应项是否为空。
 例如只填写 `Transmission Acknowledge Timeout` 时，不会因为 ARXML 中的保护配置与默认值不同而冲突。
 显式填写 `N` 或 `Queue Length=0` 则会检查对应 ComSpec 不存在；填写启用值时仍要求相应 ComSpec 与接口数据元素匹配。
-已有端口按其 ComSpec 引用的数据元素及这些元素的队列属性计算期望值。
+已有端口按其 ComSpec 引用的数据元素及这些元素的队列属性计算期望值；已有端口没有 ComSpec 时按接口全部数据元素计算。
 
 ### ComSpec
 
@@ -327,8 +327,8 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | SR P-Port，`Access Kind=Send`（默认） | 每个数据元素一个 `DATA-SEND-POINT`（`VARIABLE-ACCESS`） | `Runnable Name` 指向已有或本次 CS P-Port 新建的 runnable |
 | SR P-Port，`Access Kind=Write` | 每个数据元素一个 `DATA-WRITE-ACCESS` | 同上 |
 | SR R-Port，`Access Kind=ReceiveByArgument`（默认） | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-ARGUMENT` | 同上 |
-| SR R-Port，`Access Kind=ReceiveByValue` | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-VALUE` | 同上；接口不能含队列元素 |
-| SR R-Port，`Access Kind=Read` | 每个数据元素一个 `DATA-READ-ACCESS` | 同上；接口不能含队列元素，且不能同时 `Enable Update=Y` |
+| SR R-Port，`Access Kind=ReceiveByValue` | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-VALUE` | 同上；队列元素记录 `WARNING` |
+| SR R-Port，`Access Kind=Read` | 每个数据元素一个 `DATA-READ-ACCESS` | 同上；队列元素或同时 `Enable Update=Y` 时记录 `WARNING` |
 | CS R-Port | 每个 operation 一个 `SYNCHRONOUS-SERVER-CALL-POINT`，`TIMEOUT` 固定为 `0.0` | `Runnable Name` 指向已有或本次 CS P-Port 新建的 runnable |
 | CS P-Port | 每个 operation 一个 `RUNNABLE-ENTITY` 和一个 `OPERATION-INVOKED-EVENT` | 组件有内部行为 |
 | 其他接口类型 | 不生成 | — |
@@ -358,7 +358,7 @@ CS 生成对象的名称：
 | `Access Kind` | 否 | 见下表；留空时 P-Port 取 `Send`，R-Port 取 `ReceiveByArgument` |
 | `Access Name` | 否 | 留空时自动命名 |
 
-`SW-C` + `Runnable Name` + `Port Name` + `Data Element Name` + `Access Kind` 组合（名称不区分大小写）不能重复，同一元素可用不同类别访问。
+`SW-C` + `Runnable Name` + `Port Name` + `Data Element Name` + `Access Kind` 组合（名称区分大小写）不能重复，同一元素可用不同类别访问。
 解析出数据元素后，runnable、类别、端口和数据元素相同的请求（包括端口页 `Create RTE Artifact=Y` 展开的请求）合并为一个，
 `INFO` 记录；它们填写了不同的 `Access Name` 时记录 `ERROR`。runnable 中已有同类别、引用相同端口和数据元素的访问点时，
 不论名称直接复用，记录 `WARNING ... already exists as <名称>; skipped`。
@@ -371,8 +371,8 @@ CS 生成对象的名称：
 | `Read` | `DATA-READ-ACCESSS` | R | `dra_` |
 | `Write` | `DATA-WRITE-ACCESSS` | P | `dwa_` |
 
-类别与端口方向不符时记录 `ERROR`。队列数据元素不能使用 `Read`（constr_2020）或 `ReceiveByValue`（constr_1277）；
-接收端 ComSpec 为 `ENABLE-UPDATE=true` 的数据元素不能使用 `Read`（constr_1103）。
+类别与端口方向不符时记录 `ERROR`。按 AUTOSAR 规则，队列数据元素不应使用 `Read` 或 `ReceiveByValue`，
+接收端 ComSpec 为 `ENABLE-UPDATE=true` 的数据元素不应使用 `Read`；工具只记录 `WARNING` 并照常生成，由 EB 校验。
 runnable 必须已存在；缺少访问点容器时，工具会按 AUTOSAR schema 顺序创建容器。
 
 ```xml

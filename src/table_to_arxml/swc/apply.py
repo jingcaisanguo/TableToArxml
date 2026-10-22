@@ -109,24 +109,28 @@ def _normalized_limits(definition: object) -> object:
     return tuple((number_text(lower), number_text(upper)) for lower, upper in definition)
 
 
-def case_conflict(store: SourceStore, element_path: str, context: str) -> bool:
-    """新对象与已有对象的 SHORT-NAME 仅大小写不同时记录 ERROR（constr_2508）；返回是否冲突。"""
+def warn_case_variants(store: SourceStore, element_path: str, context: str) -> None:
+    """新对象与已有对象的路径仅大小写不同时只记录 WARNING，按不同对象继续生成（AUTOSAR 规则，由 EB 校验）。"""
 
     variants = store.case_variants(element_path)
     if variants:
-        LOGGER.error(
-            "Skipped %s: %s differs only in case from existing %s; SHORT-NAMEs must be unique "
-            "case-insensitively",
+        LOGGER.warning(
+            "%s: %s differs only in case from existing %s; created as a distinct object, "
+            "left to EB validation",
             context, element_path, ", ".join(f"{path} in {source}" for source, path in variants),
         )
-        return True
-    return False
 
 
-def name_case_conflict(names: Iterable[str], name: str) -> str | None:
-    """返回同一命名空间中与 ``name`` 仅大小写不同的名称。"""
+def warn_name_case_variants(names: Iterable[str], name: str, context: str) -> None:
+    """同一命名空间中有与 ``name`` 仅大小写不同的名称时记录 WARNING。"""
 
-    return next((other for other in names if other != name and other.casefold() == name.casefold()), None)
+    similar = sorted({other for other in names if other != name and other.casefold() == name.casefold()})
+    if similar:
+        LOGGER.warning(
+            "%s: SHORT-NAME %s differs only in case from %s; created as a distinct object, "
+            "left to EB validation",
+            context, name, ", ".join(similar),
+        )
 
 
 def resolve_type_reference(
@@ -351,9 +355,7 @@ def apply_enumerations(
                     failed = True
                 continue
             context = f"enumeration {spec.path} ({label})"
-            if case_conflict(store, element_path, context):
-                failed = True
-                break
+            warn_case_variants(store, element_path, context)
             if label == "IMPLEMENTATION-DATA-TYPE" and resolve_type_reference(
                 store, spec.base_type, IMPLEMENTATION_TYPE_DESTS, planned_types, context,
                 "Implementation Data Type Ref",
@@ -440,9 +442,7 @@ def apply_composite_types(
                 result.skipped += 1
             continue
         context = f"{kind} {spec.path}"
-        if case_conflict(store, spec.path, context):
-            result.skipped += 1
-            continue
+        warn_case_variants(store, spec.path, context)
         references = (
             [(spec.element_type_ref, "Element Type Ref")] if isinstance(spec, ArraySpec)
             else [(type_ref, "Member Type Ref") for _, type_ref in spec.members]
@@ -526,9 +526,7 @@ def apply_interfaces(
                 result.skipped += 1
             continue
         context = f"{label} {spec.path}"
-        if case_conflict(store, spec.path, context):
-            result.skipped += 1
-            continue
+        warn_case_variants(store, spec.path, context)
         references = (
             [(type_ref, "Data Type Ref") for _, type_ref, _ in spec.data_elements]
             if isinstance(spec, InterfaceSpec)
@@ -664,8 +662,8 @@ def _apply_server_runnables(
     source = store.read(component_file)
     runnable_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
     event_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    # 本次计划的 runnable：casefold 路径 -> (路径, SYMBOL/最小启动间隔/并发定义)。
-    planned_runnables: dict[str, tuple[str, tuple[str, float, bool]]] = {}
+    # 本次计划的 runnable：完整路径（区分大小写）-> SYMBOL/最小启动间隔/并发定义。
+    planned_runnables: dict[str, tuple[str, float, bool]] = {}
     symbols: dict[str, dict[str, str]] = {}
 
     for port in ports:
@@ -709,7 +707,7 @@ def _plan_server_runnable(
     operation: str,
     operation_count: int,
     behavior_path: str,
-    planned_runnables: dict[str, tuple[str, tuple[str, float, bool]]],
+    planned_runnables: dict[str, tuple[str, float, bool]],
     symbols: dict[str, str],
     runnable_groups: dict[str, list[tuple[str, str]]],
     event_groups: dict[str, list[tuple[str, str]]],
@@ -729,20 +727,13 @@ def _plan_server_runnable(
     definition = (runnable_symbol, port.spec.minimum_start_interval, port.spec.can_be_invoked_concurrently)
     behavior_names = xml_patch.child_names(source, behavior_path)
 
-    planned = planned_runnables.get(runnable_path.casefold())
+    planned = planned_runnables.get(runnable_path)
     if planned is not None:
-        planned_path, planned_definition = planned
-        if planned_path != runnable_path:
-            LOGGER.error(
-                "Skipped CS artifacts for %s: runnable %s differs only in case from %s planned in this run",
-                port.port_path, runnable_path, planned_path,
-            )
-            return False
-        if planned_definition != definition:
+        if planned != definition:
             LOGGER.error(
                 "Runnable %s is already planned in this run with a different definition: planned=%s, "
                 "requested=%s; please choose a different Runnable Name",
-                runnable_path, planned_definition, definition,
+                runnable_path, planned, definition,
             )
             return False
         LOGGER.info("Runnable %s is already planned in this run with the same definition; reused", runnable_path)
@@ -752,13 +743,13 @@ def _plan_server_runnable(
         ):
             return False
     else:
-        conflict = name_case_conflict(behavior_names, runnable_name)
-        if conflict is not None:
-            LOGGER.error(
-                "Skipped CS artifacts for %s: runnable %s differs only in case from existing %s/%s",
-                port.port_path, runnable_path, behavior_path, conflict,
-            )
-            return False
+        warn_name_case_variants(
+            [*behavior_names, *(
+                path.rpartition("/")[2] for path in planned_runnables
+                if path.rpartition("/")[0] == behavior_path
+            )],
+            runnable_name, f"CS artifacts for {port.port_path}: runnable in {behavior_path}",
+        )
         duplicate_symbol = next((name for name, symbol in symbols.items() if symbol == runnable_symbol), None)
         if duplicate_symbol is not None:
             LOGGER.warning(
@@ -772,7 +763,7 @@ def _plan_server_runnable(
             port.spec.minimum_start_interval,
             port.spec.can_be_invoked_concurrently,
         )))
-        planned_runnables[runnable_path.casefold()] = (runnable_path, definition)
+        planned_runnables[runnable_path] = definition
         symbols[runnable_name] = runnable_symbol
         result.planned.append(runnable_path)
 
@@ -786,13 +777,10 @@ def _plan_server_runnable(
         )
         return check_existing_definition(f"Operation event {event_path}", definition_event, expected_event)
     planned_names = [path.rpartition("/")[2] for path, _ in (*runnable_groups[behavior_path], *event_groups[behavior_path])]
-    conflict = name_case_conflict([*behavior_names, *planned_names], event_name)
-    if conflict is not None:
-        LOGGER.error(
-            "Skipped CS artifacts for %s: operation event %s differs only in case from %s",
-            port.port_path, event_path, conflict,
-        )
-        return False
+    warn_name_case_variants(
+        [*behavior_names, *planned_names], event_name,
+        f"CS artifacts for {port.port_path}: operation event in {behavior_path}",
+    )
     event_groups[behavior_path].append((event_path, document.add_operation_event(
         behavior_path, event_name, runnable_path, port.port_path, operation_path
     )))
@@ -837,19 +825,12 @@ def _apply_server_calls(
                     ):
                         result.skipped += 1
                     continue
-                conflict = name_case_conflict(
+                warn_name_case_variants(
                     [*xml_patch.child_names(source, runnable_path), *(
                         path.rpartition("/")[2] for path, _ in call_groups.get(runnable_path, ())
                     )],
-                    name,
+                    name, f"CS call for {port.port_path}: server call point in {runnable_path}",
                 )
-                if conflict is not None:
-                    LOGGER.error(
-                        "Skipped CS call for %s: server call point %s differs only in case from %s/%s",
-                        port.port_path, call_path, runnable_path, conflict,
-                    )
-                    result.skipped += 1
-                    continue
                 call_groups[runnable_path].append(
                     (call_path, document.add_server_call(runnable_path, name, port.port_path, operation_path))
                 )
@@ -946,9 +927,7 @@ def build_changes(
                         f"{port.port_path} exists as {existing_tag}, expected {port.spec.element_name}; "
                         "please choose a different port name"
                     )
-                if case_conflict(store, port.port_path, f"port {port.port_path}"):
-                    result.skipped += 1
-                    continue
+                warn_case_variants(store, port.port_path, f"port {port.port_path}")
                 if not container_ready(source, port.component_path, "PORTS"):
                     result.skipped += 1
                     continue
