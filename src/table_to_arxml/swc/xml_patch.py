@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import codecs
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -18,14 +19,19 @@ _TOKEN = re.compile(
     re.DOTALL,
 )
 
-# 工具可能新建子容器的父元素，按 AUTOSAR 4.x schema 列出其直接子元素的先后顺序：
+# 工具可能新建子容器的父元素，按 AUTOSAR 4.x schema（R4.3.1 AUTOSAR_00044.xsd）列出其直接子元素的先后顺序：
 # 先是 Identifiable 的公共头部，再按继承层次逐层排列，每层内按标签名字母序。
 _IDENTIFIABLE = (
     "SHORT-NAME", "SHORT-NAME-FRAGMENTS", "LONG-NAME", "DESC", "CATEGORY", "ADMIN-DATA",
     "INTRODUCTION", "ANNOTATIONS",
 )
 CHILD_ORDER: dict[str, tuple[str, ...]] = {
-    "AR-PACKAGE": _IDENTIFIABLE + ("VARIATION-POINT", "REFERENCE-BASES", "ELEMENTS", "AR-PACKAGES"),
+    "AR-PACKAGE": _IDENTIFIABLE + (
+        # AtpBlueprint
+        "BLUEPRINT-POLICYS", "SHORT-NAME-PATTERN",
+        # ARPackage
+        "REFERENCE-BASES", "ELEMENTS", "AR-PACKAGES", "VARIATION-POINT",
+    ),
     "SWC-INTERNAL-BEHAVIOR": _IDENTIFIABLE + (
         # InternalBehavior
         "CONSTANT-MEMORYS", "CONSTANT-VALUE-MAPPING-REFS", "DATA-TYPE-MAPPING-REFS",
@@ -53,6 +59,60 @@ CHILD_ORDER: dict[str, tuple[str, ...]] = {
         "WRITTEN-LOCAL-VARIABLES", "VARIATION-POINT",
     ),
 }
+
+
+_XML_DECLARATION = re.compile(rb"\A(?:\xef\xbb\xbf)?\s*<\?xml\b[^>]*?\bencoding\s*=\s*[\"']([^\"']*)[\"']")
+_ASCII = bytes(range(128))
+# 多字节编码的探测字符：单字节编码无法编码它们，多字节编码会得到多个字节。
+_MULTI_BYTE_PROBES = ("\u4e2d", "\u3042", "\uac00")
+
+
+def source_encoding(source: bytes) -> str:
+    """返回文件编码（Python 编解码器名称）：按 UTF-16 BOM 或 XML 声明判断，未声明时按 XML 规范视为 UTF-8。"""
+
+    if source[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return "utf-16"
+    match = _XML_DECLARATION.match(source)
+    if match is None:
+        return "utf-8"
+    return match.group(1).decode("ascii", "replace").strip() or "utf-8"
+
+
+def _is_single_byte_ascii_compatible(encoding: str) -> bool:
+    try:
+        if _ASCII.decode(encoding) != _ASCII.decode("ascii"):
+            return False
+    except (LookupError, UnicodeDecodeError):
+        return False
+    for probe in _MULTI_BYTE_PROBES:
+        try:
+            if len(probe.encode(encoding)) > 1:
+                return False
+        except UnicodeEncodeError:
+            continue
+    return True
+
+
+def encoding_problem(source: bytes) -> str | None:
+    """检查文件编码能否按字节定位并插入片段；返回问题描述，可修改时返回 ``None``。
+
+    UTF-8 及兼容 ASCII 的单字节编码（ISO-8859-x、Windows-125x 等）可以修改，片段按声明的编码写入，
+    无法表示的字符写成字符引用。UTF-16/32 不兼容 ASCII，GBK 等多字节编码 armodel 无法解析，均不支持。
+    """
+
+    if source[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in source[:4]:
+        return "UTF-16/UTF-32 ARXML cannot be modified; convert it to UTF-8"
+    encoding = source_encoding(source)
+    try:
+        codec = codecs.lookup(encoding).name
+    except LookupError:
+        return f"XML declaration encoding {encoding!r} is unknown"
+    if codec == "utf-8" or _is_single_byte_ascii_compatible(codec):
+        return None
+    return (
+        f"XML declaration encoding {encoding!r} is not supported for modification; use UTF-8 or a "
+        "single-byte encoding such as ISO-8859-1"
+    )
 
 
 @dataclass(frozen=True)
@@ -108,7 +168,7 @@ def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
             closing = source.find(b"</SHORT-NAME>", match.end())
             owner = stack[-2]
             if closing >= 0 and owner.path is None:
-                name = source[match.end():closing].strip().decode("utf-8")
+                name = source[match.end():closing].strip().decode(source_encoding(source), "replace")
                 owner.path = f"{owner.parent_path}/{name}"
     if stack:
         raise ValueError(f"Malformed ARXML: <{stack[-1].tag}> is not closed")
@@ -122,6 +182,42 @@ def element_span(source: bytes, path: str) -> ElementSpan:
     if len(spans) != 1:
         raise ValueError(f"Expected one element at {path}, found {len(spans)}")
     return spans[0]
+
+
+def element_tag(source: bytes, path: str) -> str | None:
+    """返回路径上第一个元素的标签（即引用中的 ``DEST``）；不存在时返回 ``None``。"""
+
+    spans = _path_index(source).get(path)
+    return spans[0].tag if spans else None
+
+
+@lru_cache(maxsize=8)
+def _casefold_index(source: bytes) -> dict[str, tuple[str, ...]]:
+    folded: dict[str, list[str]] = {}
+    for path in _path_index(source):
+        folded.setdefault(path.casefold(), []).append(path)
+    return {key: tuple(paths) for key, paths in folded.items()}
+
+
+def case_variants(source: bytes, path: str) -> list[str]:
+    """返回与 ``path`` 仅大小写不同的已有路径，仅用于 WARNING 提示；定位元素始终区分大小写。"""
+
+    return [other for other in _casefold_index(source).get(path.casefold(), ()) if other != path]
+
+
+@lru_cache(maxsize=8)
+def _children_index(source: bytes) -> dict[str, tuple[str, ...]]:
+    children: dict[str, list[str]] = {}
+    for path in _path_index(source):
+        parent, _, name = path.rpartition("/")
+        children.setdefault(parent, []).append(name)
+    return {parent: tuple(dict.fromkeys(names)) for parent, names in children.items()}
+
+
+def child_names(source: bytes, path: str) -> tuple[str, ...]:
+    """返回元素命名空间内的全部 SHORT-NAME，即中间无其他带名称元素的后代，与容器标签无关。"""
+
+    return _children_index(source).get(path, ())
 
 
 def child_spans(source: bytes, parent: ElementSpan) -> list[ElementSpan]:
@@ -170,7 +266,8 @@ def insert_at_offset(
 
     ``offset`` 通常是父容器的结束标签，片段比该行多缩进两格；``child_indent`` 为假时
     ``offset`` 是兄弟元素的开始标签，片段与它同级缩进。``<TAG></TAG>`` 写在同一行的空容器
-    会把结束标签挪到新的一行。片段按 UTF-8 编码写入，因此标签、端口名等允许使用中文。
+    会把结束标签挪到新的一行。片段按文件声明的编码写入，该编码无法表示的字符（如 ISO-8859-1 文件中的中文）
+    写成 XML 字符引用，因此枚举标签等文本仍可使用中文。
     """
 
     line_start = source.rfind(b"\n", 0, offset) + 1
@@ -190,8 +287,11 @@ def insert_at_offset(
         before, after = newline, base_indentation
 
     indentation = base_indentation + b"  " if child_indent else base_indentation
+    encoding = source_encoding(source)
     encoded_fragments = [
-        newline.join(indentation + line.encode("utf-8") for line in fragment.splitlines())
+        newline.join(
+            indentation + line.encode(encoding, "xmlcharrefreplace") for line in fragment.splitlines()
+        )
         for fragment in fragments
     ]
     insertion = newline.join(encoded_fragments) + newline

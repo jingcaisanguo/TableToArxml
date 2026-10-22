@@ -60,6 +60,7 @@
 ### 单元格
 
 - 单元格可以是文本、数字或 Excel 布尔值；首尾空白会去掉。数字按原值转为文本，整数形式的浮点数（如 `8.0`）按整数处理。
+- 不接受公式单元格（工具读到的是公式文本而非计算结果），请“粘贴为值”；也不接受含换行、制表符等控制字符的单元格。两者都报告工作表、列名和行号并记录 `ERROR`。
 - 合并单元格会展开为逐行值；模板使用 Excel 表格，建议逐行重复公共字段，避免合并妨碍排序和筛选。
 - 所有单元格都为空的行被忽略。必填单元格为空时，该行记录 `ERROR` 并跳过。
 - 布尔列接受 `TRUE`/`YES`/`Y`/`1` 和 `FALSE`/`NO`/`N`/`0`（不区分大小写），留空视为否；其他值记录 `ERROR` 并跳过该行。
@@ -75,8 +76,11 @@
 
 - `... Path`、`... Ref` 必须以 `/` 开头；`Type Path`、`Interface Path` 还必须至少包含“包/名称”两级。
 - 每个路径段和 `... Name` 都必须是合法 SHORT-NAME：ASCII 字母开头，只含字母、数字和下划线，最长 128 字符；不允许空段、末尾 `/` 或中文名称。`SW-C` 是工作簿标识，不套用此规则。
+- SHORT-NAME 和路径区分大小写匹配：仅大小写不同（如 `p_Status` 与 `P_STATUS`）视为不同对象，记录 `WARNING` 后照常生成；AUTOSAR 要求同一命名空间内不区分大小写唯一，由 EB 校验。工具不检查 AUTOSAR 版本。
 - `Target ARXML` 必须是相对路径且文件已存在；写绝对路径或文件不存在都记录 `ERROR`。
-- 工作簿不填写 `DEST`。端口接口引用按查到的接口类型推导；新类型和 SR/CS 数据类型列明确引用 `IMPLEMENTATION-DATA-TYPE`。这不是完整的跨文件类型语义校验。
+- 工作簿不填写 `DEST`。端口接口引用按查到的接口类型推导；类型引用列在清单或目标文件中找到对象时，`DEST` 取其实际元类，
+  元类不适用（如把 `SW-BASE-TYPE` 填到实现数据类型列）记录 `ERROR`，找不到时记录 `WARNING` 并按 `IMPLEMENTATION-DATA-TYPE` 写出。
+  这只检查引用目标的元类，不做类型兼容等语义校验。
 
 ## Components
 
@@ -98,7 +102,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | --- | --- | --- |
 | `Type Path` | 是 | 枚举 `IMPLEMENTATION-DATA-TYPE` 的路径 |
 | `Value` | 是 | 整数取值 |
-| `Label` | 是 | 取值对应的文本 |
+| `Label` | 是 | 取值对应的文本，写入 `VT`；不是 C 标识符（如中文）时记录 `WARNING`，RTE 可能需要另配 `SYMBOL` |
 | `Implementation Data Type Ref` | 是 | 底层实现数据类型，如 `/AUTOSAR_Platform/ImplementationDataTypes/uint8`，不是 `SW-BASE-TYPE` |
 | `Compu Method Ref` | 否 | 计算方法路径，留空时自动推导 |
 | `Data Constr Ref` | 否 | 数据约束路径，留空时自动推导 |
@@ -155,6 +159,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 ```
 
 数据约束的上下限取全部 `Value` 的最小值和最大值。三个元素所在的包都必须已存在。
+与已有计算方法、数据约束比较时上下限按数值比较（`1.0` 与 `1` 相同）。
 
 ## Arrays
 
@@ -164,7 +169,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | `Element Name` | 是 | 数组元素的 `SHORT-NAME` |
 | `Element Type Ref` | 是 | 元素的实现数据类型 |
 | `Array Size` | 是 | 正整数 |
-| `Array Size Semantics` | 否 | `FIXED-SIZE`（默认）或 `VARIABLE-SIZE` |
+| `Array Size Semantics` | 否 | `FIXED-SIZE`（新建时的默认值）或 `VARIABLE-SIZE`；留空时不与已有数组的该属性比较 |
 | `Target ARXML` | 是 | 写入的文件 |
 
 生成 `CATEGORY=ARRAY` 的实现数据类型，含一个 `CATEGORY=TYPE_REFERENCE` 的元素，元素带 `ARRAY-SIZE`、
@@ -187,7 +192,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | --- | --- | --- |
 | `Interface Path` | 是 | `SENDER-RECEIVER-INTERFACE` 的路径 |
 | `Data Element Name` | 是 | 数据元素 `SHORT-NAME`，同一接口内不能重复 |
-| `Data Type Ref` | 是 | 写入 `TYPE-TREF` 的实现数据类型 |
+| `Data Type Ref` | 是 | 写入 `TYPE-TREF` 的数据类型，可为实现数据类型或应用数据类型；`DEST` 取被引用对象的元类 |
 | `Is Queued` | 否 | 布尔，默认 `N`；`Y` 时生成 `SW-IMPL-POLICY=QUEUED` |
 | `Is Service` | 否 | 布尔，默认 `N`，写入接口的 `IS-SERVICE` |
 | `Target ARXML` | 是 | 写入的文件 |
@@ -218,7 +223,8 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 </SENDER-RECEIVER-INTERFACE>
 ```
 
-非队列元素不生成空的 `SW-DATA-DEF-PROPS`。队列元素通常应与 `R-Ports` 的正整数 `Queue Length` 配合使用。
+非队列元素不生成空的 `SW-DATA-DEF-PROPS`。队列属性决定端口 ComSpec 的种类（队列元素生成 `QUEUED-*-COM-SPEC`）；
+按 AUTOSAR 规则队列元素不应使用 `Read` 或 `ReceiveByValue`，工具只记录 `WARNING`，由 EB 校验。
 
 ## CS-Interfaces
 
@@ -228,7 +234,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | `Operation Name` | 是 | operation `SHORT-NAME` |
 | `Argument Name` | 有参数时 | 参数 `SHORT-NAME`，同一 operation 内不能重复 |
 | `Direction` | 有参数时 | `IN`、`OUT`、`INOUT`（不区分大小写） |
-| `Data Type Ref` | 有参数时 | 参数的实现数据类型 |
+| `Data Type Ref` | 有参数时 | 参数的数据类型（实现或应用数据类型） |
 | `Is Service` | 否 | 布尔，默认 `N` |
 | `Target ARXML` | 是 | 写入的文件 |
 
@@ -271,10 +277,11 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | 列 | 说明 |
 | --- | --- |
 | `Runnable Name` | 已有 runnable 的简称，`Create RTE Artifact=Y` 时必填 |
-| `Enable Update` | 布尔，默认 `N` |
-| `Queue Length` | 非负整数，留空或 `0` 表示不生成 |
+| `Enable Update` | 布尔，默认 `N`；只作用于非队列数据元素 |
+| `Queue Length` | 非负整数，留空或 `0` 表示不生成；只作用于队列数据元素（`SW-IMPL-POLICY=QUEUED`） |
 
-`Enable Update=Y` 与正数 `Queue Length` 互斥，同时填写记录 `ERROR`。
+两列分别作用于不同种类的数据元素，混合接口可以同时填写。填写了 `Enable Update=Y` 但端口的数据元素全部是队列元素，
+或填写了正数 `Queue Length` 但没有队列元素时，该列不适用于任何元素，记录 `WARNING` 并忽略该列，端口照常生成。
 端口的 Runnable/RTE 配置列仅在相应端口方向、接口类型和 `Create RTE Artifact` 设置下生效；
 `Create RTE Artifact=N` 时，RTE 配置列中的非空值（包括格式或取值不合法的内容）均记录 `WARNING` 并忽略；
 不会因为未启用的 RTE 配置阻止端口生成。启用 RTE 时，适用字段仍执行格式和值校验；合法但不适用的非空列记录 `WARNING` 并忽略，非法值记录 `ERROR`。
@@ -282,18 +289,21 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 为已有端口填写 ComSpec 列时，只比较工作簿中**非空**的 ComSpec 字段；留空表示不声明该项，不检查 ARXML 中对应项是否为空。
 例如只填写 `Transmission Acknowledge Timeout` 时，不会因为 ARXML 中的保护配置与默认值不同而冲突。
 显式填写 `N` 或 `Queue Length=0` 则会检查对应 ComSpec 不存在；填写启用值时仍要求相应 ComSpec 与接口数据元素匹配。
+已有端口按其 ComSpec 引用的数据元素及这些元素的队列属性计算期望值；已有端口没有 ComSpec 时按接口全部数据元素计算。
 
 ### ComSpec
 
-新端口在满足下列条件时为接口的**每个**数据元素生成一条 ComSpec。
+新端口在满足下列条件时为接口中**适用的**数据元素各生成一条 ComSpec；ComSpec 的种类由数据元素的
+`SW-IMPL-POLICY` 决定（constr_1129–1132）：`QUEUED` 为队列元素，其他取值或未设置为非队列元素。
 仅填 `N` 或 `Queue Length=0` 不会触发；超时明确填写 `0` 则会触发。
 全部留空不生成 `PROVIDED-COM-SPECS` / `REQUIRED-COM-SPECS`。
 
-| 端口 | 条件 | 生成的 ComSpec |
-| --- | --- | --- |
-| P-Port | 超时非空（含 `0`），或 `Uses End To End Protection=Y` | `NONQUEUED-SENDER-COM-SPEC`：`DATA-ELEMENT-REF`、`HANDLE-OUT-OF-RANGE=NONE`、`TRANSMISSION-ACKNOWLEDGE/TIMEOUT`（仅超时有值时）、`USES-END-TO-END-PROTECTION` |
-| R-Port | `Enable Update=Y` | `NONQUEUED-RECEIVER-COM-SPEC`：`DATA-ELEMENT-REF`、`ENABLE-UPDATE=true` |
-| R-Port | `Queue Length` 为正整数 | `QUEUED-RECEIVER-COM-SPEC`：`DATA-ELEMENT-REF`、`QUEUE-LENGTH` |
+| 端口 | 条件 | 适用元素 | 生成的 ComSpec |
+| --- | --- | --- | --- |
+| P-Port | 超时非空（含 `0`），或 `Uses End To End Protection=Y` | 非队列元素 | `NONQUEUED-SENDER-COM-SPEC`：`DATA-ELEMENT-REF`、`HANDLE-OUT-OF-RANGE=NONE`、`TRANSMISSION-ACKNOWLEDGE/TIMEOUT`（仅超时有值时）、`USES-END-TO-END-PROTECTION` |
+| P-Port | 同上 | 队列元素 | `QUEUED-SENDER-COM-SPEC`：内容同上（这些属性属于两者共同的 SenderComSpec） |
+| R-Port | `Enable Update=Y` | 非队列元素 | `NONQUEUED-RECEIVER-COM-SPEC`：`DATA-ELEMENT-REF`、`ENABLE-UPDATE=true` |
+| R-Port | `Queue Length` 为正整数 | 队列元素 | `QUEUED-RECEIVER-COM-SPEC`：`DATA-ELEMENT-REF`、`QUEUE-LENGTH` |
 
 ```xml
 <R-PORT-PROTOTYPE>
@@ -314,14 +324,16 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 
 | 端口 | 生成内容 | 前提 |
 | --- | --- | --- |
-| SR P-Port，`Access Kind=Send`（默认） | 每个数据元素一个 `DATA-SEND-POINT`（`VARIABLE-ACCESS`） | `Runnable Name` 指向已有 runnable |
+| SR P-Port，`Access Kind=Send`（默认） | 每个数据元素一个 `DATA-SEND-POINT`（`VARIABLE-ACCESS`） | `Runnable Name` 指向已有或本次 CS P-Port 新建的 runnable |
 | SR P-Port，`Access Kind=Write` | 每个数据元素一个 `DATA-WRITE-ACCESS` | 同上 |
 | SR R-Port，`Access Kind=ReceiveByArgument`（默认） | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-ARGUMENT` | 同上 |
-| SR R-Port，`Access Kind=ReceiveByValue` | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-VALUE` | 同上 |
-| SR R-Port，`Access Kind=Read` | 每个数据元素一个 `DATA-READ-ACCESS` | 同上 |
-| CS R-Port | 每个 operation 一个 `SYNCHRONOUS-SERVER-CALL-POINT`，`TIMEOUT` 固定为 `0.0` | `Runnable Name` 指向已有 runnable |
+| SR R-Port，`Access Kind=ReceiveByValue` | 每个数据元素一个 `DATA-RECEIVE-POINT-BY-VALUE` | 同上；队列元素记录 `WARNING` |
+| SR R-Port，`Access Kind=Read` | 每个数据元素一个 `DATA-READ-ACCESS` | 同上；队列元素或同时 `Enable Update=Y` 时记录 `WARNING` |
+| CS R-Port | 每个 operation 一个 `SYNCHRONOUS-SERVER-CALL-POINT`，`TIMEOUT` 固定为 `0.0` | `Runnable Name` 指向已有或本次 CS P-Port 新建的 runnable |
 | CS P-Port | 每个 operation 一个 `RUNNABLE-ENTITY` 和一个 `OPERATION-INVOKED-EVENT` | 组件有内部行为 |
 | 其他接口类型 | 不生成 | — |
+
+端口本身生成失败（如名称冲突）时，不再为它生成任何 RTE 对象。
 
 CS 生成对象的名称：
 
@@ -329,8 +341,8 @@ CS 生成对象的名称：
 | --- | --- |
 | 服务器调用点 | `scp_<端口名>_<operation>` |
 | operation 事件 | `oie_<端口名>_<operation>` |
-| runnable | 留空时 `RE_<端口名>_<operation>`；填写 `Runnable Name` 时用该名，接口有多个 operation 时追加 `_<operation>` |
-| runnable `SYMBOL` | 留空时与 runnable 名相同；填写且有多个 operation 时追加 `_<operation>` |
+| runnable | 留空时 `RE_<端口名>_<operation>`；填写 `Runnable Name` 时用该名，接口有多个 operation 时追加 `_<operation>`；多个 CS P-Port 得到同一名称且定义相同时共用一个 runnable |
+| runnable `SYMBOL` | 留空时与 runnable 名相同；填写且有多个 operation 时追加 `_<operation>`；与同组件其他 runnable 的 `SYMBOL` 重复时 `WARNING` |
 
 ## Data Accesses
 
@@ -340,13 +352,16 @@ CS 生成对象的名称：
 | 列 | 必填 | 说明 |
 | --- | --- | --- |
 | `SW-C` | 是 | 必须是 `Components` 中的简称 |
-| `Runnable Name` | 是 | 组件内部行为中已有 runnable 的简称 |
-| `Port Name` | 是 | 本次新建或 ARXML 中已有的端口 |
+| `Runnable Name` | 是 | 组件内部行为中已有（或本次 CS P-Port 新建）runnable 的简称 |
+| `Port Name` | 是 | 本次成功准备或 ARXML 中已有的 P/R 端口；不支持 PR-Port |
 | `Data Element Name` | 否 | 接口只有一个数据元素时可留空自动选用，多个时必填 |
 | `Access Kind` | 否 | 见下表；留空时 P-Port 取 `Send`，R-Port 取 `ReceiveByArgument` |
 | `Access Name` | 否 | 留空时自动命名 |
 
-`SW-C` + `Runnable Name` + `Port Name` + `Data Element Name` 组合不能重复。
+`SW-C` + `Runnable Name` + `Port Name` + `Data Element Name` + `Access Kind` 组合（名称区分大小写）不能重复，同一元素可用不同类别访问。
+解析出数据元素后，runnable、类别、端口和数据元素相同的请求（包括端口页 `Create RTE Artifact=Y` 展开的请求）合并为一个，
+`INFO` 记录；它们填写了不同的 `Access Name` 时记录 `ERROR`。runnable 中已有同类别、引用相同端口和数据元素的访问点时，
+不论名称直接复用，记录 `WARNING ... already exists as <名称>; skipped`。
 
 | Access Kind（不区分大小写） | 容器 | 端口方向 | 自动名称前缀 |
 | --- | --- | --- | --- |
@@ -356,7 +371,9 @@ CS 生成对象的名称：
 | `Read` | `DATA-READ-ACCESSS` | R | `dra_` |
 | `Write` | `DATA-WRITE-ACCESSS` | P | `dwa_` |
 
-类别与端口方向不符时记录 `ERROR`。runnable 必须已存在；缺少访问点容器时，工具会按 AUTOSAR schema 顺序创建容器。
+类别与端口方向不符时记录 `ERROR`。按 AUTOSAR 规则，队列数据元素不应使用 `Read` 或 `ReceiveByValue`，
+接收端 ComSpec 为 `ENABLE-UPDATE=true` 的数据元素不应使用 `Read`；工具只记录 `WARNING` 并照常生成，由 EB 校验。
+runnable 必须已存在；缺少访问点容器时，工具会按 AUTOSAR schema 顺序创建容器。
 
 ```xml
 <VARIABLE-ACCESS>

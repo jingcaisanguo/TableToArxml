@@ -29,11 +29,11 @@ MULTI_VALUE_SEPARATOR = "#"
 
 
 def load_channel_sets(model: ArxmlModel) -> dict[str, frozenset[str]]:
-    """从已加载的 ARXML 中读取各总线类型的物理通道集合。"""
+    """从已加载的 ARXML 中读取各总线类型的物理通道短名集合，仅用于提示拼写问题。"""
 
     channels = model.channels()
     return {
-        module_name: frozenset(name for name, module in channels.items() if module == module_name)
+        module_name: frozenset(name for name, modules in channels.items() if module_name in modules)
         for module_name in BUS_MODULES
     }
 
@@ -158,9 +158,13 @@ def process_green_table(
                     if not channels or not row.peer_port:
                         raise ValueError("channel or signal is empty")
                     for channel in channels:
-                        if channel not in channel_sets[module_name]:
-                            raise ValueError(f"channel '{channel}' is not defined in the {module_name} ARXML")
                         signal_path = _build_signal_path(channel, row.peer_port, signal_path_template)
+                        # 浅校验只要求最终 SystemSignal 存在；通道名仅在参与拼接路径时提示。
+                        if (not row.peer_port.startswith("/") and "${channel}" in signal_path_template
+                                and channel not in channel_sets[module_name]):
+                            LOGGER.warning(
+                                "%s %s row %s: channel '%s' is not a %s physical channel in the loaded ARXML",
+                                info.app_name, sheet, row.excel_row, channel, module_name)
                         model.validate_signal_mapping(signal_path)
                         # DataElement 优先取绿表 H 列，未填时与 app 端口同名。
                         signal_key = (signal_path, direction, app_prototype, row.app_port,
@@ -195,10 +199,10 @@ def generate_white_table(
 ) -> Path:
     """基于已加载的 ARXML 模型和已解析的绿表生成白表；有任何错误时全部处理完再失败。"""
 
+    general = resolve_general(general, model)
     channel_sets = load_channel_sets(model)
     component_type_map = build_component_type_map(
-        model, norm(general.get("Composition")), component_aliases, prototype_prefix)
-    general = resolve_general(general, model)
+        model, general["Composition"], component_aliases, prototype_prefix)
     workbook = create_white_workbook(general)
 
     # 一个绿表对应一个要创建的模块，模块类型必须能在 ARXML 中找到。

@@ -47,11 +47,6 @@
             <SYSTEM>
               <SHORT-NAME>ZCUPrototypeSystem</SHORT-NAME>
               <CATEGORY>SYSTEM_DESCRIPTION</CATEGORY>
-              <FIBEX-ELEMENTS>
-                <FIBEX-ELEMENT-REF-CONDITIONAL>
-                  <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE">/ARDesign/TopologyDesign/FLZCU</FIBEX-ELEMENT-REF>
-                </FIBEX-ELEMENT-REF-CONDITIONAL>
-              </FIBEX-ELEMENTS>
               <MAPPINGS>
                 <SYSTEM-MAPPING>
                   <SHORT-NAME>SystemMapping_BcmSystemImpl</SHORT-NAME>

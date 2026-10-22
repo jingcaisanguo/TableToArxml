@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import logging
 import tempfile
 import xml.etree.ElementTree as ET
@@ -12,6 +13,7 @@ from typing import Literal, Sequence
 from ..common.output import write_files_atomically
 from ..common.messages import clean_message
 from ..common.paths import validate_output_paths
+from . import xml_patch
 from .arxml_model import ArxmlDocument, DocumentSummary, load_document, load_generation
 
 LOGGER = logging.getLogger(__name__)
@@ -82,10 +84,12 @@ class SourceStore:
             return self._short_name_index
         index: dict[str, list[Path]] = defaultdict(list)
         for arxml_file in arxml_files:
+            source = self.read(arxml_file)
+            encoding = xml_patch.source_encoding(source)
             try:
-                text = self.read(arxml_file).decode("utf-8-sig")
-            except UnicodeDecodeError as error:
-                LOGGER.error("Cannot read UTF-8 ARXML %s: %s", arxml_file, clean_message(error))
+                text = source.decode("utf-8-sig" if codecs.lookup(encoding).name == "utf-8" else encoding)
+            except (LookupError, UnicodeDecodeError) as error:
+                LOGGER.error("Cannot read %s ARXML %s: %s", encoding.upper(), arxml_file, clean_message(error))
                 continue
             try:
                 root = ET.fromstring(text)
@@ -101,6 +105,50 @@ class SourceStore:
         self._short_name_index = dict(index)
         self._short_name_index_key = key
         return self._short_name_index
+
+    def _candidate_files(self, element_short_name: str, ignore_case: bool = False) -> list[Path]:
+        """按 SHORT-NAME 预筛候选文件；定义查找区分大小写，``ignore_case`` 只供大小写变体提示使用。"""
+
+        index = self.short_name_index(self.source_files)
+        if not ignore_case:
+            return list(index.get(element_short_name, ()))
+        folded = element_short_name.casefold()
+        files = [path for name, paths in index.items() if name.casefold() == folded for path in paths]
+        return [path for path in self.source_files if path in set(files)]
+
+    def _indexable_source(self, path: Path) -> bytes | None:
+        source = self.read(path)
+        try:
+            xml_patch.element_tag(source, "")
+        except ValueError:
+            return None
+        return source
+
+    def element_tag(self, element_path: str) -> tuple[Path, str] | None:
+        """按文件顺序返回首个定义完整路径的文件及其元素标签（元类）；含本次运行已插入的对象。"""
+
+        for candidate in self._candidate_files(element_path.rsplit("/", 1)[-1]):
+            source = self._indexable_source(candidate)
+            tag = None if source is None else xml_patch.element_tag(source, element_path)
+            if tag is not None:
+                return candidate, tag
+        return None
+
+    def case_variants(self, element_path: str) -> list[tuple[Path, str]]:
+        """返回全部文件中与 ``element_path`` 仅大小写不同的已有路径，仅用于 WARNING 提示。"""
+
+        variants: list[tuple[Path, str]] = []
+        for candidate in self._candidate_files(element_path.rsplit("/", 1)[-1], ignore_case=True):
+            source = self._indexable_source(candidate)
+            if source is not None:
+                variants.extend((candidate, other) for other in xml_patch.case_variants(source, element_path))
+        return variants
+
+    def encoding_problem(self, path: Path) -> str | None:
+        """要插入片段的文件编码不支持按字节修改时返回问题描述（见 :func:`xml_patch.encoding_problem`）。"""
+
+        problem = xml_patch.encoding_problem(self.read(path))
+        return None if problem is None else f"{path}: {problem}"
 
     def find_first_definition_file(self, element_path: str) -> Path | None:
         """返回清单及目标文件顺序中首次定义完整路径的文件。"""

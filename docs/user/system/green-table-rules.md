@@ -67,26 +67,26 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 | R-Port | I：上游组件 | J：上游 P-port | 当前绿表模块 | B：当前 R-port |
 | P-Port | 当前绿表模块 | B：当前 P-port | I：下游组件 | J：下游 R-port |
 
-最终连接名由工具取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`；超过 128 字符时截断并以 8 位哈希结尾。同名但端点不同的连接会报错退出。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
+最终连接名由工具取 `ac_<provider prototype>_<PPort>_<requester prototype>_<RPort>`；超过 128 字符时截断并以 8 位哈希结尾。不同端点因 `_` 拼接得到同一名称时（如 `a_b`+`c` 与 `a`+`b_c`），后出现的连接改为追加各部分结构化哈希的名称并记录 WARNING。H 和 K 不写入该连接页。不支持用 `#` 在普通组件、端口或信号字段中批量创建连接。
 
-装配连接强制要求 `P-port -> R-port`；端口引用的 interface 必须存在。接口引用相同时，不检查 SenderReceiver 数据元素及其类型；接口不同时，先复用已有的唯一有效映射，没有可复用映射才按 config 中的 `interfaceMismatch` 处理：`error`（缺省报错）、`skip`（WARNING 后跳过该连接）、`map`（允许新建接口映射再连接），不提供命令行参数。接口映射只校验两侧数据元素存在、配对完整且一一对应，不检查类型、位宽或结构兼容性。详情见 [configuration.md](configuration.md)。委托连接按内端口生成同方向外端口，不套用装配连接的 P/R 两端规则。
+装配连接强制要求 `P-port -> R-port`；端口引用的 interface 必须存在。接口引用相同时，不检查 SenderReceiver 数据元素及其类型；接口不同时，先复用已有的唯一有效映射，没有可复用映射才按 config 中的 `interfaceMismatch` 处理：`error`（缺省报错）、`skip`（WARNING 后跳过该连接）、`map`（允许新建接口映射再连接），不提供命令行参数。接口映射只校验引用的数据元素存在且一一对应；未覆盖的元素记录 WARNING，不检查类型、位宽或结构兼容性。详情见 [configuration.md](configuration.md)。委托连接按内端口生成同方向外端口，不套用装配连接的 P/R 两端规则。
 
 ## CAN/LIN 信号映射
 
 C 为 `CAN`/`LIN` 且 I 不精确等于 `E2EWrapper` 时，写入 `SenderReceiverToSignal`，不把通道名添加为组件。
 
-- I 必须是对应总线的物理通道短名。支持 `通道A#通道B`，逐个拆分、去除空白并验证；任一通道无效则整次失败，不发布本次产物。
+- I 为对应总线的物理通道短名，支持 `通道A#通道B`，逐个拆分、去除空白。通道名只用于按模板拼接信号路径：J 不是完整路径、模板含 `${channel}`，且该名称不是已加载模型中对应总线的物理通道时，记录 WARNING；是否有效以最终 SystemSignal 是否存在为准。
 - J 以 `/` 开头时直接作为完整信号路径；否则按 `signalPathTemplate` 展开，默认 `/${channel}/Signal/${signal}`。这是可配置的工具约定，不是 AUTOSAR 固定包结构。
 - R-Port 页的方向固定为 `IN`，且 B 必须为 R-port；P-Port 页固定为 `OUT`，且 B 必须为 P-port。`DataElement` 优先 H，H 空时使用 B，端口必须使用已定义的 SenderReceiverInterface。
-- `#` 仅用于本分支的 I 列；多个 J 信号需分行填写。即使 J 已是完整路径，也必须提供有效的 I 通道。
-- 验证通道存在且 CAN/LIN 类型匹配、信号引用为 SystemSignal；不追踪 triggering、I-SignalPort 或目标 ECU 的实际通信方向，也不要求信号已绑定到该通道。
-- 同名不同路径的信号不会合并。物理通道短名存在歧义时拒绝，不任取一个。
+- `#` 仅用于本分支的 I 列；多个 J 信号需分行填写。J 已是完整路径时，I 仍需填写，但不检查通道。
+- 只验证信号引用为 SystemSignal；不追踪物理通道、triggering、I-SignalPort 或目标 ECU 的实际通信方向，也不要求信号已绑定到该通道。
+- 同名不同路径的信号不会合并。不同簇中存在同名物理通道不影响转换。
 - 生成器检查组件、表格方向对应的 R/P 端口、interface、DataElement、信号和 ECU 引用；不比较数据类型、位宽、单位或缩放。引用错误整次失败，不发布本次产物。
-- 只有实际出现总线映射行时才要求相应通道存在；仅普通组件连接的模型不需要 CAN/LIN 通道。
+- 仅普通组件连接的模型不需要 CAN/LIN 通道。
 
 ### 信号组限制
 
-普通 `SenderReceiverToSignal` 映射禁止将 `SYSTEM-SIGNAL-GROUP` / `I-SIGNAL-GROUP` 对象当作普通信号。组成员信号允许单独映射，但记录 WARNING，提示后续集成确认组语义；不会自动提升为整个组映射。
+普通 `SenderReceiverToSignal` 映射禁止将 `SYSTEM-SIGNAL-GROUP` / `I-SIGNAL-GROUP` 对象当作普通信号。组成员信号允许单独映射，但记录 WARNING，提示后续集成确认组语义；不会自动提升为整个组映射。成员关系只按 SystemSignalGroup 与 I-SignalGroup 的引用判断，不遍历总线 triggering。
 
 工具不会自动将组成员提升为整个组映射，也不拆组绕过检查。绿表当前没有完整的组映射输入定义，组信号应走工程明确设计的组映射流程；现有白表生成器的 `SenderReceiverToSignalGroup` 页能力并不意味着绿表可自动创建完整字段级组映射。
 
@@ -118,7 +118,7 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 
 白表每次重新创建 6 个页签：`General`、`Components`、`AssemblySwConnection`、`DelegationSwConnection`、`SenderReceiverToSignal`、`SenderReceiverToSignalGroup`。其中 `DelegationSwConnection` 和 `SenderReceiverToSignalGroup` 当前只创建表头，绿表转换不填充这两类记录。
 
-读取白表时按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成 ARXML 时也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，连接名为 `dlc_<外端口>_<内prototype>_<内端口>`；信号组输出组引用，不检查 DataElement 的数据类型，不自动展开字段级映射。绿表模式每次都重新生成白表；手工修改后的白表可用白表模式（配置 `whiteTable` 或命令行 `--white-table`）直接生成 ARXML。
+读取白表时按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成 ARXML 时也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，连接名为 `dlc_<外端口>_<内prototype>_<内端口>`；信号组输出组引用，不检查 DataElement 的数据类型，不自动展开字段级映射，也不生成 AUTOSAR 要求的 `TYPE-MAPPING`（每行记录 WARNING，需在集成时补齐）。绿表模式每次都重新生成白表；手工修改后的白表可用白表模式（配置 `whiteTable` 或命令行 `--white-table`）直接生成 ARXML。
 
 合并绿表输出保留 R-Port/P-Port 的单元格内容、主要样式和工作表格式，以 `<模块>_R-Port`、`<模块>_P-Port` 命名页签并限制在 31 字符内；旧 INPUT/OUTPUT 页也会在合并结果中使用新名称。工具按不区分大小写的规则检查重复，冲突时依次追加 `~2`、`~3` 等序号，并为序号预留长度。它不保证复制图片、图表等所有 Excel 对象，也不改变源绿表。白表则只保留转换所需的值，不复制绿表格式。
 

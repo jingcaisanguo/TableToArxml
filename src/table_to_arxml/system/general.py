@@ -26,6 +26,8 @@ def resolve_general(general: dict, model: ArxmlModel) -> dict[str, str]:
     system_name = norm(general.get("System"))
     if system_name:
         system = model.find_system(system_name)
+        if system is None:
+            raise ValueError(f"config.general.System '{system_name}' was not found in the loaded ARXML files")
     else:
         systems = model.systems_containing(composition)
         if len(systems) != 1:
@@ -35,11 +37,11 @@ def resolve_general(general: dict, model: ArxmlModel) -> dict[str, str]:
         system = systems[0]
         LOGGER.info("config.general.System resolved from Composition %s: %s", composition, system.getFullName())
     # 已有 System 统一写完整路径，生成时按同路径拆分合并到该 System。
-    resolved["System"] = system.getFullName() if system is not None else system_name
+    resolved["System"] = system.getFullName()
 
     ecu_instance = norm(general.get("EcuInstance"))
     if not ecu_instance:
-        ecu_instances = model.system_ecu_instances(system) if system is not None else []
+        ecu_instances = model.system_ecu_instances(system)
         if len(ecu_instances) != 1:
             raise ValueError(
                 f"Cannot derive config.general.EcuInstance: System '{resolved['System']}' "

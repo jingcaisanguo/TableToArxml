@@ -233,5 +233,9 @@ def set_accessed_variable(access: Any, value: Any) -> None:
     _renamed(access, "setAccessedVariableRef", "setAccessedVariable")(value)
 
 
+def get_inner_port_iref(connector: Any) -> Any:
+    return _renamed(connector, "getInnerPortIRref", "getInnerPortIRef")()
+
+
 def set_inner_port_iref(connector: Any, iref: Any) -> None:
     _renamed(connector, "setInnerPortIRref", "setInnerPortIRef")(iref)

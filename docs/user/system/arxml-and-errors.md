@@ -70,7 +70,25 @@ excludeArxmlPatterns = [
 
 本次涉及的 ARXML 只加载一次。模型用于解析 General、组件、prototype 和通道；随后读取白表，在同一个模型上解析组件、端口、信号等引用。所有引用解析完成后才创建独立的输出文档并写出 ARXML，不重新加载输入文件。因此不会将输入的全部包和元素原样导出，也不会从绿表生成缺失的 SWC 类型。
 
-生成时支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、Composition 类型；其他类型明确报错。引用组件不新增实例，必须在目标 Composition 中存在且类型一致。新增 Atomic 组件缺少内部行为或实现时整次失败，不发布缺失实现映射的产物。嵌套 Composition 不生成实现映射。不提供 Rhapsody XML 等其他格式导出。
+生成时支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、SensorActuator、NvBlock、ServiceProxy、Parameter 及 Composition 类型（Parameter 类型需要 armodel 提供对应类）；PR-Port 及其他类型报错并说明是工具不支持。引用组件不新增实例，必须在目标 Composition 中存在且类型一致；`Add` 的实例已存在时不重复写出，只生成 System 映射。新增 Atomic 组件缺少内部行为或 SWC-IMPLEMENTATION 时记录 WARNING 并跳过 SwcToImplMapping（AUTOSAR 中该映射为 0..*）；多个实现引用同一内部行为时也只警告。嵌套 Composition 不生成实现映射，作为 `Add` 写入 SwcToEcuMapping 时记录 WARNING。不提供 Rhapsody XML 等其他格式导出。
+
+### AUTOSAR 输出规则
+
+输出是对已有元素的拆分片段（split），按 AUTOSAR 元模型的多重性与 `atpSplitable` 规则写出，只做浅校验，不区分或比对 AUTOSAR 版本。SHORT-NAME 采用各版本通用的规则：字母开头、仅含字母数字下划线、最长 128 字符（R4.0.3 至 R24-11 的 XSD 一致）。规范细则和版本一致性由后续 EB 等工具链校验：
+
+| 规则 | 行为 |
+| --- | --- |
+| 目标 Composition 中 COMPONENTS、PORTS、CONNECTORS 共用命名空间 | 新对象与已有或本次其他对象同名时报错；仅大小写不同时记录 WARNING，按不同对象生成；已有同名同端点的连接器直接复用不再写出，连接同一对端口但名称不同的已有连接器记录 WARNING 后复用 |
+| `System` 必须是已加载的 System（短名或完整路径） | 不存在或同名歧义时报错；根原型必须是该 System 的子元素，ECU-INSTANCE 必须存在且类型正确（与是否有信号映射无关） |
+| `System.fibexElement` 不可拆分 | 已有 System 没有 FIBEX-ELEMENTS 时写入 ECU；已引用该 ECU 时不重复写；引用了其他元素但不含该 ECU 时记录 WARNING，需手工补齐 |
+| `SYSTEM-VERSION` 为 1..1 | 沿用输入值；输入缺失时记录 WARNING，不臆造版本 |
+| `SystemMapping` 的子聚合不可拆分 | 同名 SystemMapping 已存在时报错，需改用其他 `general.systemMapping` |
+| `SwcToEcuMapping.component` 为 1..* | 没有 `Add` 组件时不生成空映射；既无新增组件也无信号映射时不生成 SystemMapping |
+| `PortInterfaceMappingSet.portInterfaceMapping` 不可拆分 | 需要新建映射而 `<Composition>_InterfaceMappings` 已存在于输入时报错 |
+| `SenderReceiverToSignalGroupMapping.typeMapping` 为 1..1 | 工具不推导记录类型映射，每行记录 WARNING |
+| 接口引用的 DEST | 按被引用对象的实际类型写出；输入端口声明的 DEST 不一致时记录 WARNING |
+| 重复的信号映射行 | 只生成一条并记录 WARNING |
+| 输出 release | 由 `arRelease` 决定，只影响输出声明的 schema；不与输入 ARXML 的版本比对 |
 
 底层 armodel 模型是进程内全局单例，不支持在同一进程中并行运行多个转换。不同配置/变体应串行运行或使用独立进程，并避免写入相同产物路径。
 
@@ -98,19 +116,24 @@ excludeArxmlPatterns = [
 | `No usable ARXML files found` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
 | `No green tables were selected` | 检查 glob、变体及相对配置目录的文件位置 |
 | `Cannot find the SW component type of green table(s)` | 绿表文件名未能匹配组件查询表；补齐输入类型/引用或修正文件名，任务退出 |
-| 纯组件模型没有 CAN/LIN | 允许；只在存在总线映射行时验证相应通道 |
-| `System ... was not found` 或缺少 `RootSwCompositionPrototype` | 自动推导根原型失败；检查所选 System 的短名和定义，必要时显式填写根原型路径 |
+| 纯组件模型没有 CAN/LIN | 允许；不检查物理通道 |
+| `System ... was not found` / `System is not defined` 或缺少 `RootSwCompositionPrototype` | System 必须已存在于输入；检查所选 System 的短名和定义，必要时显式填写根原型路径 |
+| `does not belong to System` | 根原型必须是所选 System 的 ROOT-SOFTWARE-COMPOSITION |
 | `unresolved component` / `Ambiguous component` | 外部组件未知或短名不唯一；补齐输入或配置 `componentAliases` |
-| `channel ... is not defined` | I 列不是相应 CAN/LIN 物理通道名，整次失败 |
+| `channel ... is not a CAN/LIN physical channel`（WARNING） | I 列不是相应总线的物理通道名；若随后报信号不存在，检查通道名或 `signalPathTemplate` |
 | `interface mismatch` | 装配连接两端接口不同且没有可复用映射；默认失败，可显式选择 `interfaceMismatch=skip` 或允许新建映射的 `map` |
-| `Cannot infer interface mapping` | 无法确定完整的一一元素映射；在 config 中显式配置 `interfaceMappings` |
-| `ECU instance is not defined` | 信号映射引用的目标 ECU 不存在；不要求提供完整通信拓扑或实际方向 |
-| `must be R-PORT-PROTOTYPE` / `must be P-PORT-PROTOTYPE` | 普通装配要求 P 到 R；总线 INPUT 使用 R，OUTPUT 使用 P |
+| `Cannot infer interface mapping` | 无法按名称配对任何元素；在 config 中显式配置 `interfaceMappings` |
+| `leaves data elements unmapped`（WARNING） | 接口映射未覆盖部分数据元素；确认这些元素确实不需要连接 |
+| `ECU instance is not defined` | General 引用的 ECU 不存在或不是 ECU-INSTANCE；不要求提供完整通信拓扑或实际方向 |
+| `must be R-PORT-PROTOTYPE` / `must be P-PORT-PROTOTYPE` | 普通装配要求 P 到 R；总线映射中 R-Port 页（IN）须为 R-port，P-Port 页（OUT）须为 P-port |
 | `cannot be mapped as an individual signal` | 信号组对象不能当作普通信号；组成员单独映射只记录 WARNING，不阻断生成 |
 | `column I or J is empty` / `column B is empty` | 必要字段不完整，按提示位置修正绿表 |
 | `<sheet> row <n>: ...` | 无效端口、信号或 DataElement 等引用导致整次失败 |
-| `no implementation` | 新增组件缺少 SWC-IMPLEMENTATION；补齐输入后重试 |
+| `SwcToImplMapping is not generated`（WARNING） | 新增组件缺少内部行为或 SWC-IMPLEMENTATION；集成前补齐 |
 | `Reference prototype does not exist` / `outside target composition` | Reference 必须真实存在于目标 Composition，不能把其他组合的实例直接移到目标下 |
+| `SHORT-NAMEs must be unique` | 新增的实例、外部端口或连接器与目标 Composition 中的其他对象同名 |
+| `differs only in case`（WARNING） | 名称仅大小写不同，部分 AUTOSAR 工具视为同名；由后续工具链确认 |
+| `already exists in the loaded ARXML ... cannot be split` | SystemMapping 或接口映射集已存在，不能在新文件中追加其子元素；改名或在原文件中维护 |
 | `Unsupported TransformationDescription <SOMEIP-TRANSFORMATION-DESCRIPTION>` | armodel 不支持该输入元素，按 ERROR 打印后跳过，不影响退出码；生成结果依赖该元素时需改用兼容的解析库或输入 |
 | `conflicting connector name` / `conflicting outer port` / `ambiguous component alias` | 白表数据存在不同对象共用名称的冲突；任务在清空模型及写出 ARXML 前中止 |
 | Excel `PermissionError` | 检查同名产物是否被 Excel 等程序占用 |

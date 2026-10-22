@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Callable, Sequence, Union
+from typing import Callable, Collection, Iterable, Mapping, Sequence, Union
 
 from . import xml_patch
 from ..common.messages import clean_message
@@ -24,6 +25,18 @@ from .workbook import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+IMPLEMENTATION_DATA_TYPE = "IMPLEMENTATION-DATA-TYPE"
+# ``IMPLEMENTATION-DATA-TYPE-REF`` 只能引用实现数据类型；数据原型的 ``TYPE-TREF`` 可引用
+# AUTOSAR-DATA-TYPE 的全部具体子类（AUTOSAR_00044.xsd 的 AUTOSAR-DATA-TYPE--SUBTYPES-ENUM）。
+IMPLEMENTATION_TYPE_DESTS = (IMPLEMENTATION_DATA_TYPE,)
+AUTOSAR_DATA_TYPE_DESTS = (
+    "APPLICATION-ARRAY-DATA-TYPE",
+    "APPLICATION-ASSOC-MAP-DATA-TYPE",
+    "APPLICATION-PRIMITIVE-DATA-TYPE",
+    "APPLICATION-RECORD-DATA-TYPE",
+    IMPLEMENTATION_DATA_TYPE,
+)
 
 
 @dataclass
@@ -69,6 +82,110 @@ def check_existing_definition(context: str, existing: object, expected: object) 
         return False
     LOGGER.warning("%s already exists with the same definition; skipped", context)
     return True
+
+
+def number_text(text: str) -> str:
+    """把数值文本规范化以便比较（``1.0`` 与 ``1`` 相同）；``INF`` 等非有限值和非数值保持原文。"""
+
+    try:
+        number = Decimal(text.strip())
+    except InvalidOperation:
+        return text
+    if not number.is_finite():
+        return text
+    return "0" if number.is_zero() else format(number.normalize(), "f")
+
+
+def _normalized_scales(definition: object) -> object:
+    if not isinstance(definition, tuple) or len(definition) != 2:
+        return definition
+    category, scales = definition
+    return category, tuple((number_text(lower), number_text(upper), label) for lower, upper, label in scales)
+
+
+def _normalized_limits(definition: object) -> object:
+    if not isinstance(definition, tuple):
+        return definition
+    return tuple((number_text(lower), number_text(upper)) for lower, upper in definition)
+
+
+def warn_case_variants(store: SourceStore, element_path: str, context: str) -> None:
+    """新对象与已有对象的路径仅大小写不同时只记录 WARNING，按不同对象继续生成（AUTOSAR 规则，由 EB 校验）。"""
+
+    variants = store.case_variants(element_path)
+    if variants:
+        LOGGER.warning(
+            "%s: %s differs only in case from existing %s; created as a distinct object, "
+            "left to EB validation",
+            context, element_path, ", ".join(f"{path} in {source}" for source, path in variants),
+        )
+
+
+def warn_name_case_variants(names: Iterable[str], name: str, context: str) -> None:
+    """同一命名空间中有与 ``name`` 仅大小写不同的名称时记录 WARNING。"""
+
+    similar = sorted({other for other in names if other != name and other.casefold() == name.casefold()})
+    if similar:
+        LOGGER.warning(
+            "%s: SHORT-NAME %s differs only in case from %s; created as a distinct object, "
+            "left to EB validation",
+            context, name, ", ".join(similar),
+        )
+
+
+def resolve_type_reference(
+    store: SourceStore,
+    type_path: str,
+    allowed: Collection[str],
+    planned_types: Mapping[str, str],
+    context: str,
+    column: str,
+) -> str | None:
+    """确定类型引用的 ``DEST``：按清单和目标文件查找被引用对象的元类（含本次已插入的对象）。
+
+    元类不在 ``allowed`` 中时记录 ERROR 并返回 ``None``；找不到时记录 WARNING，按实现数据类型写出。
+    """
+    found = store.element_tag(type_path)
+    if found is not None:
+        source, tag = found
+        if tag not in allowed:
+            LOGGER.error(
+                "Skipped %s: %s %s refers to %s in %s, expected %s",
+                context, column, type_path, tag, source, " or ".join(allowed),
+            )
+            return None
+        return tag
+    if type_path in planned_types:
+        return planned_types[type_path]
+    variants = store.case_variants(type_path)
+    hint = f" (case variants: {', '.join(path for _, path in variants)})" if variants else ""
+    LOGGER.warning(
+        "%s: %s %s not found in loaded ARXML%s; reference written unresolved with DEST=%s",
+        context, column, type_path, hint, IMPLEMENTATION_DATA_TYPE,
+    )
+    return IMPLEMENTATION_DATA_TYPE
+
+
+def _type_dests(
+    store: SourceStore,
+    references: Iterable[tuple[str, str]],
+    allowed: Collection[str],
+    planned_types: Mapping[str, str],
+    context: str,
+) -> dict[str, str] | None:
+    """逐个解析 ``(类型路径, 列名)``；任一引用元类不符时返回 ``None``。"""
+
+    dests: dict[str, str] = {}
+    failed = False
+    for type_path, column in references:
+        if type_path in dests:
+            continue
+        dest = resolve_type_reference(store, type_path, allowed, planned_types, context, column)
+        if dest is None:
+            failed = True
+        else:
+            dests[type_path] = dest
+    return None if failed else dests
 
 
 def check_port(existing: PortInfo | None, port: ResolvedPort) -> None:
@@ -154,6 +271,10 @@ def insert_package_element(
 ) -> bool:
     """把元素插入包的 ``ELEMENTS`` 容器；包内还没有该容器时在子包之前一并创建。"""
 
+    problem = store.encoding_problem(target_file)
+    if problem is not None:
+        LOGGER.error("Skipped %s: %s", context, problem)
+        return False
     source = store.read(target_file)
     try:
         updated = xml_patch.insert_or_create_child_container(
@@ -175,13 +296,16 @@ def insert_package_element(
 def apply_enumerations(
     enumerations: Sequence[EnumerationSpec],
     store: SourceStore,
+    planned_types: Mapping[str, str] | None = None,
 ) -> StepResult:
     """创建尚不存在的枚举类型，并把结果字节写入缓存。
 
     每个枚举生成三个元素：TEXTTABLE 计算方法、引用它的实现数据类型和限定取值
     范围的数据约束。三者分别比较自身定义，不递归展开引用；相同则 warning，
-    不同则 error 并提示改名，已有内容不会被覆盖。
+    不同则 error 并提示改名，已有内容不会被覆盖。上下限按数值比较（``1.0`` 等于 ``1``）。
+    ``planned_types`` 为本次工作簿新建的类型路径及其元类，用于解析尚未插入的类型引用。
     """
+    planned_types = planned_types or {}
     result = StepResult()
     for spec in enumerations:
         lower, upper = spec.limits
@@ -189,9 +313,9 @@ def apply_enumerations(
             _DefinitionOperation(
                 spec.compu_method_path,
                 "COMPU-METHOD",
-                lambda document, path: document.compu_method_definition(path),
+                lambda document, path: _normalized_scales(document.compu_method_definition(path)),
                 lambda document, package, name, spec=spec: document.add_compu_method(package, name, spec.values),
-                ("TEXTTABLE", tuple((value, value, label) for value, label in spec.values)),
+                _normalized_scales(("TEXTTABLE", tuple((value, value, label) for value, label in spec.values))),
             ),
             _DefinitionOperation(
                 spec.path,
@@ -208,11 +332,11 @@ def apply_enumerations(
             _DefinitionOperation(
                 spec.data_constr_path,
                 "DATA-CONSTR",
-                lambda document, path: document.data_constr_definition(path),
+                lambda document, path: _normalized_limits(document.data_constr_definition(path)),
                 lambda document, package, name, lower=lower, upper=upper: document.add_data_constr(
                     package, name, lower, upper,
                 ),
-                ((lower, upper),),
+                _normalized_limits(((lower, upper),)),
             ),
         )
 
@@ -230,9 +354,16 @@ def apply_enumerations(
                 ):
                     failed = True
                 continue
+            context = f"enumeration {spec.path} ({label})"
+            warn_case_variants(store, element_path, context)
+            if label == "IMPLEMENTATION-DATA-TYPE" and resolve_type_reference(
+                store, spec.base_type, IMPLEMENTATION_TYPE_DESTS, planned_types, context,
+                "Implementation Data Type Ref",
+            ) is None:
+                failed = True
+                break
             document = store.load(spec.target_file)
             package_path, _, name = element_path.rpartition("/")
-            context = f"enumeration {spec.path} ({label})"
             if not document.package_exists(package_path):
                 LOGGER.error(
                     "Skipped %s: package %s not found in %s", context, package_path, spec.target_file
@@ -270,9 +401,14 @@ def apply_composite_types(
     arrays: Sequence[ArraySpec],
     structures: Sequence[StructureSpec],
     store: SourceStore,
+    planned_types: Mapping[str, str] | None = None,
 ) -> StepResult:
-    """创建数组和结构体实现数据类型，并将 XML 片段写入缓存。"""
+    """创建数组和结构体实现数据类型，并将 XML 片段写入缓存。
 
+    已有数组只在工作簿填写了 ``Array Size Semantics`` 时比较该属性。
+    """
+
+    planned_types = planned_types or {}
     result = StepResult()
     seen_paths: set[str] = set()
     for spec in [*arrays, *structures]:
@@ -285,21 +421,34 @@ def apply_composite_types(
         existing_file = store.find_first_definition_file(spec.path)
         if existing_file is not None:
             document = store.load(existing_file)
+            existing = document.implementation_type_definition(spec.path)
             if isinstance(spec, ArraySpec):
+                semantics = spec.array_size_semantics
+                if not semantics:
+                    semantics = (
+                        existing.members[0][4] if existing is not None and len(existing.members) == 1
+                        else spec.effective_semantics
+                    )
                 expected = ImplementationTypeInfo("ARRAY", members=((
                     spec.element_name, "TYPE_REFERENCE", spec.element_type_ref,
-                    str(spec.array_size), spec.array_size_semantics,
+                    str(spec.array_size), semantics,
                 ),))
             else:
                 expected = ImplementationTypeInfo("STRUCTURE", members=tuple(
                     (name, "TYPE_REFERENCE", type_ref, "", "")
                     for name, type_ref in spec.members
                 ))
-            if not check_existing_definition(
-                f"{kind} {spec.path} in {existing_file}",
-                document.implementation_type_definition(spec.path), expected,
-            ):
+            if not check_existing_definition(f"{kind} {spec.path} in {existing_file}", existing, expected):
                 result.skipped += 1
+            continue
+        context = f"{kind} {spec.path}"
+        warn_case_variants(store, spec.path, context)
+        references = (
+            [(spec.element_type_ref, "Element Type Ref")] if isinstance(spec, ArraySpec)
+            else [(type_ref, "Member Type Ref") for _, type_ref in spec.members]
+        )
+        if _type_dests(store, references, IMPLEMENTATION_TYPE_DESTS, planned_types, context) is None:
+            result.skipped += 1
             continue
         document = store.load(spec.target_file)
         if not document.package_exists(spec.package_path):
@@ -320,7 +469,7 @@ def apply_composite_types(
                     spec.element_name,
                     spec.element_type_ref,
                     spec.array_size,
-                    spec.array_size_semantics,
+                    spec.effective_semantics,
                 )
             else:
                 fragment = document.add_structure_data_type(spec.package_path, spec.name, spec.members)
@@ -341,13 +490,15 @@ def apply_composite_types(
 def apply_interfaces(
     interfaces: Sequence[Union[InterfaceSpec, ClientServerInterfaceSpec]],
     store: SourceStore,
+    planned_types: Mapping[str, str] | None = None,
 ) -> StepResult:
     """创建尚不存在的 SR/CS 接口，并把结果字节写入缓存。
 
     已存在时比较接口类型、数据元素（或 operation 与参数）和服务标志，不修改已有定义；
     任何不一致都记录 error 并跳过该接口，由主流程阻止全部 ARXML 写盘。
-    返回新建接口路径列表和被跳过的数量。
+    新建时 ``TYPE-TREF`` 的 ``DEST`` 取被引用类型的实际元类。返回新建接口路径列表和被跳过的数量。
     """
+    planned_types = planned_types or {}
     result = StepResult()
     for spec in interfaces:
         if isinstance(spec, InterfaceSpec):
@@ -374,6 +525,17 @@ def apply_interfaces(
             ):
                 result.skipped += 1
             continue
+        context = f"{label} {spec.path}"
+        warn_case_variants(store, spec.path, context)
+        references = (
+            [(type_ref, "Data Type Ref") for _, type_ref, _ in spec.data_elements]
+            if isinstance(spec, InterfaceSpec)
+            else [(type_ref, "Data Type Ref") for _, arguments in spec.operations for _, type_ref, _ in arguments]
+        )
+        type_dests = _type_dests(store, references, AUTOSAR_DATA_TYPE_DESTS, planned_types, context)
+        if type_dests is None:
+            result.skipped += 1
+            continue
         document = store.load(spec.target_file)
         if not document.package_exists(spec.package_path):
             LOGGER.error(
@@ -388,11 +550,11 @@ def apply_interfaces(
         try:
             if isinstance(spec, InterfaceSpec):
                 fragment = document.add_sr_interface(
-                    spec.package_path, spec.name, spec.data_elements, spec.is_service,
+                    spec.package_path, spec.name, spec.data_elements, spec.is_service, type_dests,
                 )
             else:
                 fragment = document.add_cs_interface(
-                    spec.package_path, spec.name, spec.operations, spec.is_service,
+                    spec.package_path, spec.name, spec.operations, spec.is_service, type_dests,
                 )
         except ValueError as error:
             LOGGER.error("Skipped %s %s: %s", label, spec.path, clean_message(error))
@@ -413,7 +575,12 @@ def apply_client_server_artifacts(
     arxml_files: Sequence[Path],
     store: SourceStore,
 ) -> StepResult:
-    """为标记为 Y 的 CS 端口创建全部 operation 对应的内部行为对象。"""
+    """为标记为 Y 的 CS 端口创建全部 operation 对应的内部行为对象。
+
+    ``ports`` 只应包含已成功准备或已存在的端口。每个文件先插入 P-Port 的 runnable，再插入
+    operation 事件，重新加载后才创建 R-Port 的服务器调用点，因此调用点可以位于本次新建的 runnable 中。
+    单个 operation 或插入组失败只记录 error 并跳过，不中断其他对象。
+    """
 
     requested = [
         port
@@ -431,122 +598,253 @@ def apply_client_server_artifacts(
 
     result = StepResult()
     for component_file, component_ports in by_file.items():
-        document = store.load(component_file)
-        source = store.read(component_file)
-        call_fragments: dict[str, list[str]] = defaultdict(list)
-        event_fragments: dict[str, list[str]] = defaultdict(list)
-        runnable_fragments: dict[str, list[str]] = defaultdict(list)
-
+        problem = store.encoding_problem(component_file)
+        if problem is not None:
+            LOGGER.error("Skipped CS artifacts in %s", problem)
+            result.skipped += len(component_ports)
+            continue
+        valid_ports = []
         for port in component_ports:
-            operations = operations_by_interface.get(port.spec.interface_path, [])
-            if not operations:
+            if not operations_by_interface.get(port.spec.interface_path):
                 LOGGER.error("Skipped CS artifacts for %s: interface has no operations", port.port_path)
                 result.skipped += 1
-                continue
+            else:
+                valid_ports.append(port)
+        providers = [port for port in valid_ports if port.spec.direction != DIRECTION_REQUIRED]
+        requirers = [port for port in valid_ports if port.spec.direction == DIRECTION_REQUIRED]
+        if providers:
+            _apply_server_runnables(component_file, providers, operations_by_interface, store, result)
+        if requirers:
+            _apply_server_calls(component_file, requirers, operations_by_interface, store, result)
+    return result
+
+
+def _insert_groups(
+    source: bytes,
+    groups: Mapping[str, Sequence[tuple[str, str]]],
+    container_tag: str,
+    result: StepResult,
+) -> bytes:
+    """把 ``父路径 -> [(新对象路径, 片段)]`` 插入各父元素的容器；失败的组记录 error 并撤销其计划。"""
+
+    for parent_path, items in groups.items():
+        try:
+            source = xml_patch.insert_or_create_child_container(
+                source, parent_path, container_tag, [fragment for _, fragment in items]
+            )
+        except ValueError as error:
+            LOGGER.error("Skipped %s in %s: %s", container_tag, parent_path, clean_message(error))
+            result.skipped += len(items)
+            for object_path, _ in items:
+                if object_path in result.planned:
+                    result.planned.remove(object_path)
+    return source
+
+
+def _validate_cs_source(component_file: Path, source: bytes, store: SourceStore) -> None:
+    LOGGER.info("Re-parsing ARXML for validation: %s", component_file)
+    _document, diagnostics = load_bytes(source)
+    for diagnostic in diagnostics:
+        LOGGER.warning("armodel validation: %s", diagnostic)
+    store.write(component_file, source)
+
+
+def _apply_server_runnables(
+    component_file: Path,
+    ports: Sequence[ResolvedPort],
+    operations_by_interface: Mapping[str, list[str]],
+    store: SourceStore,
+    result: StepResult,
+) -> None:
+    """为 CS P-Port 的每个 operation 创建（或复用）runnable 和 operation 事件。"""
+
+    document = store.load(component_file)
+    source = store.read(component_file)
+    runnable_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    event_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    # 本次计划的 runnable：完整路径（区分大小写）-> SYMBOL/最小启动间隔/并发定义。
+    planned_runnables: dict[str, tuple[str, float, bool]] = {}
+    symbols: dict[str, dict[str, str]] = {}
+
+    for port in ports:
+        try:
             behavior_path = document.internal_behavior_path(port.component_path)
-            if behavior_path is None:
+            if behavior_path is not None and behavior_path not in symbols:
+                symbols[behavior_path] = document.runnable_symbols(behavior_path)
+        except ValueError as error:
+            LOGGER.error("Skipped CS artifacts for %s: %s", port.port_path, clean_message(error))
+            result.skipped += 1
+            continue
+        if behavior_path is None:
+            LOGGER.error("Skipped CS artifacts for %s: component has no internal behavior", port.port_path)
+            result.skipped += 1
+            continue
+        operations = operations_by_interface[port.spec.interface_path]
+        for operation in operations:
+            try:
+                if not _plan_server_runnable(
+                    document, source, port, operation, len(operations), behavior_path,
+                    planned_runnables, symbols[behavior_path], runnable_groups, event_groups, result,
+                ):
+                    result.skipped += 1
+            except ValueError as error:
                 LOGGER.error(
-                    "Skipped CS artifacts for %s: component has no internal behavior", port.port_path
+                    "Skipped CS artifacts for %s operation %s: %s", port.port_path, operation, clean_message(error)
                 )
                 result.skipped += 1
-                continue
 
-            for operation in operations:
-                operation_path = f"{port.spec.interface_path}/{operation}"
-                if port.spec.direction == DIRECTION_REQUIRED:
-                    runnable_path = document.find_runnable(port.component_path, port.spec.runnable_name)
-                    if runnable_path is None:
-                        LOGGER.error(
-                            "Skipped CS call for %s: runnable %s not found",
-                            port.port_path,
-                            port.spec.runnable_name,
-                        )
-                        result.skipped += 1
-                        continue
-                    name = generated_name(f"scp_{port.spec.name}_{operation}")
+    if not runnable_groups and not event_groups:
+        return
+    source = _insert_groups(source, runnable_groups, "RUNNABLES", result)
+    source = _insert_groups(source, event_groups, "EVENTS", result)
+    _validate_cs_source(component_file, source, store)
+
+
+def _plan_server_runnable(
+    document: ArxmlDocument,
+    source: bytes,
+    port: ResolvedPort,
+    operation: str,
+    operation_count: int,
+    behavior_path: str,
+    planned_runnables: dict[str, tuple[str, float, bool]],
+    symbols: dict[str, str],
+    runnable_groups: dict[str, list[tuple[str, str]]],
+    event_groups: dict[str, list[tuple[str, str]]],
+    result: StepResult,
+) -> bool:
+    """规划一个 operation 的 runnable 和事件；失败时记录 error 并返回 ``False``。"""
+
+    operation_path = f"{port.spec.interface_path}/{operation}"
+    runnable_name = port.spec.runnable_name or f"RE_{port.spec.name}_{operation}"
+    if port.spec.runnable_name and operation_count > 1:
+        runnable_name = f"{port.spec.runnable_name}_{operation}"
+    runnable_name = generated_name(runnable_name)
+    runnable_symbol = port.spec.runnable_symbol or runnable_name
+    if port.spec.runnable_symbol and operation_count > 1:
+        runnable_symbol = f"{port.spec.runnable_symbol}_{operation}"
+    runnable_path = f"{behavior_path}/{runnable_name}"
+    definition = (runnable_symbol, port.spec.minimum_start_interval, port.spec.can_be_invoked_concurrently)
+    behavior_names = xml_patch.child_names(source, behavior_path)
+
+    planned = planned_runnables.get(runnable_path)
+    if planned is not None:
+        if planned != definition:
+            LOGGER.error(
+                "Runnable %s is already planned in this run with a different definition: planned=%s, "
+                "requested=%s; please choose a different Runnable Name",
+                runnable_path, planned, definition,
+            )
+            return False
+        LOGGER.info("Runnable %s is already planned in this run with the same definition; reused", runnable_path)
+    elif document.element_exists(runnable_path):
+        if not check_existing_definition(
+            f"Runnable {runnable_path}", document.runnable_definition(runnable_path), definition,
+        ):
+            return False
+    else:
+        warn_name_case_variants(
+            [*behavior_names, *(
+                path.rpartition("/")[2] for path in planned_runnables
+                if path.rpartition("/")[0] == behavior_path
+            )],
+            runnable_name, f"CS artifacts for {port.port_path}: runnable in {behavior_path}",
+        )
+        duplicate_symbol = next((name for name, symbol in symbols.items() if symbol == runnable_symbol), None)
+        if duplicate_symbol is not None:
+            LOGGER.warning(
+                "Runnable %s uses SYMBOL %s, which is already used by runnable %s/%s",
+                runnable_path, runnable_symbol, behavior_path, duplicate_symbol,
+            )
+        runnable_groups[behavior_path].append((runnable_path, document.add_runnable(
+            behavior_path,
+            runnable_name,
+            runnable_symbol,
+            port.spec.minimum_start_interval,
+            port.spec.can_be_invoked_concurrently,
+        )))
+        planned_runnables[runnable_path] = definition
+        symbols[runnable_name] = runnable_symbol
+        result.planned.append(runnable_path)
+
+    event_name = generated_name(f"oie_{port.spec.name}_{operation}")
+    event_path = f"{behavior_path}/{event_name}"
+    expected_event = (port.port_path, operation_path, runnable_path)
+    if document.element_exists(event_path):
+        existing_event = document.read_operation_event(behavior_path, event_name)
+        definition_event = None if existing_event is None else (
+            existing_event.port_path, existing_event.operation_path, existing_event.runnable_path,
+        )
+        return check_existing_definition(f"Operation event {event_path}", definition_event, expected_event)
+    planned_names = [path.rpartition("/")[2] for path, _ in (*runnable_groups[behavior_path], *event_groups[behavior_path])]
+    warn_name_case_variants(
+        [*behavior_names, *planned_names], event_name,
+        f"CS artifacts for {port.port_path}: operation event in {behavior_path}",
+    )
+    event_groups[behavior_path].append((event_path, document.add_operation_event(
+        behavior_path, event_name, runnable_path, port.port_path, operation_path
+    )))
+    result.planned.append(event_path)
+    return True
+
+
+def _apply_server_calls(
+    component_file: Path,
+    ports: Sequence[ResolvedPort],
+    operations_by_interface: Mapping[str, list[str]],
+    store: SourceStore,
+    result: StepResult,
+) -> None:
+    """为 CS R-Port 的每个 operation 在指定 runnable 中创建同步服务器调用点。"""
+
+    document = store.load(component_file)
+    source = store.read(component_file)
+    call_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for port in ports:
+        for operation in operations_by_interface[port.spec.interface_path]:
+            operation_path = f"{port.spec.interface_path}/{operation}"
+            try:
+                runnable_path = document.find_runnable(port.component_path, port.spec.runnable_name)
+                if runnable_path is None:
+                    LOGGER.error(
+                        "Skipped CS call for %s: runnable %s not found",
+                        port.port_path,
+                        port.spec.runnable_name,
+                    )
+                    result.skipped += 1
+                    continue
+                name = generated_name(f"scp_{port.spec.name}_{operation}")
+                call_path = f"{runnable_path}/{name}"
+                if document.element_exists(call_path):
                     existing = document.read_server_call(runnable_path, name)
-                    if document.element_exists(f"{runnable_path}/{name}"):
-                        definition = None if existing is None else (
-                            existing.port_path, existing.operation_path, existing.timeout
-                        )
-                        if not check_existing_definition(
-                            f"Server call {runnable_path}/{name}", definition,
-                            (port.port_path, operation_path, 0.0),
-                        ):
-                            result.skipped += 1
-                        continue
-                    call_fragments[runnable_path].append(
-                        document.add_server_call(runnable_path, name, port.port_path, operation_path)
-                    )
-                    result.planned.append(f"{runnable_path}/{name}")
-                    continue
-
-                runnable_name = port.spec.runnable_name or f"RE_{port.spec.name}_{operation}"
-                if port.spec.runnable_name and len(operations) > 1:
-                    runnable_name = f"{port.spec.runnable_name}_{operation}"
-                runnable_name = generated_name(runnable_name)
-                runnable_symbol = port.spec.runnable_symbol or runnable_name
-                if port.spec.runnable_symbol and len(operations) > 1:
-                    runnable_symbol = f"{port.spec.runnable_symbol}_{operation}"
-                runnable_path = f"{behavior_path}/{runnable_name}"
-                if document.element_exists(runnable_path):
-                    if not check_existing_definition(
-                        f"Runnable {runnable_path}",
-                        document.runnable_definition(runnable_path),
-                        (runnable_symbol, port.spec.minimum_start_interval,
-                         port.spec.can_be_invoked_concurrently),
-                    ):
-                        result.skipped += 1
-                        continue
-                else:
-                    runnable_fragments[behavior_path].append(
-                        document.add_runnable(
-                            behavior_path,
-                            runnable_name,
-                            runnable_symbol,
-                            port.spec.minimum_start_interval,
-                            port.spec.can_be_invoked_concurrently,
-                        )
-                    )
-                    result.planned.append(runnable_path)
-
-                event_name = generated_name(f"oie_{port.spec.name}_{operation}")
-                existing_event = document.read_operation_event(behavior_path, event_name)
-                if document.element_exists(f"{behavior_path}/{event_name}"):
-                    definition = None if existing_event is None else (
-                        existing_event.port_path, existing_event.operation_path,
-                        existing_event.runnable_path,
+                    definition = None if existing is None else (
+                        existing.port_path, existing.operation_path, existing.timeout
                     )
                     if not check_existing_definition(
-                        f"Operation event {behavior_path}/{event_name}", definition,
-                        (port.port_path, operation_path, runnable_path),
+                        f"Server call {call_path}", definition, (port.port_path, operation_path, 0.0),
                     ):
                         result.skipped += 1
                     continue
-                event_fragments[behavior_path].append(
-                    document.add_operation_event(
-                        behavior_path, event_name, runnable_path, port.port_path, operation_path
-                    )
+                warn_name_case_variants(
+                    [*xml_patch.child_names(source, runnable_path), *(
+                        path.rpartition("/")[2] for path, _ in call_groups.get(runnable_path, ())
+                    )],
+                    name, f"CS call for {port.port_path}: server call point in {runnable_path}",
                 )
-                result.planned.append(f"{behavior_path}/{event_name}")
+                call_groups[runnable_path].append(
+                    (call_path, document.add_server_call(runnable_path, name, port.port_path, operation_path))
+                )
+                result.planned.append(call_path)
+            except ValueError as error:
+                LOGGER.error(
+                    "Skipped CS call for %s operation %s: %s", port.port_path, operation, clean_message(error)
+                )
+                result.skipped += 1
 
-        for runnable_path, fragments in call_fragments.items():
-            source = xml_patch.insert_or_create_child_container(
-                source, runnable_path, "SERVER-CALL-POINTS", fragments
-            )
-        for behavior_path, fragments in event_fragments.items():
-            source = xml_patch.insert_or_create_child_container(
-                source, behavior_path, "EVENTS", fragments
-            )
-        for behavior_path, fragments in runnable_fragments.items():
-            source = xml_patch.insert_or_create_child_container(
-                source, behavior_path, "RUNNABLES", fragments
-            )
-        if call_fragments or event_fragments or runnable_fragments:
-            LOGGER.info("Re-parsing ARXML for validation: %s", component_file)
-            load_bytes(source)
-            store.write(component_file, source)
-    return result
+    if call_groups:
+        _validate_cs_source(
+            component_file, _insert_groups(source, call_groups, "SERVER-CALL-POINTS", result), store
+        )
 
 
 def container_ready(source: bytes, element_path: str, container_tag: str) -> bool:
@@ -595,6 +893,12 @@ def build_changes(
     changes: list[FileChange] = []
     result = StepResult()
     for source_file in list(ports_by_file) + [path for path in accesses_by_file if path not in ports_by_file]:
+        problem = store.encoding_problem(source_file)
+        if problem is not None:
+            LOGGER.error("Skipped ports and data accesses in %s", problem)
+            result.skipped += len(ports_by_file.get(source_file, []))
+            result.skipped_accesses += len(accesses_by_file.get(source_file, []))
+            continue
         document = store.load(source_file)
         source = store.read(source_file)
         fragments_by_component: dict[str, list[str]] = defaultdict(list)
@@ -617,6 +921,13 @@ def build_changes(
                     )
                     existing_ports.append(port)
                     continue
+                existing_tag = xml_patch.element_tag(source, port.port_path)
+                if existing_tag is not None:
+                    raise ValueError(
+                        f"{port.port_path} exists as {existing_tag}, expected {port.spec.element_name}; "
+                        "please choose a different port name"
+                    )
+                warn_case_variants(store, port.port_path, f"port {port.port_path}")
                 if not container_ready(source, port.component_path, "PORTS"):
                     result.skipped += 1
                     continue
@@ -629,6 +940,7 @@ def build_changes(
                     port.update_elements,
                     port.queued_elements,
                     port.sender_elements,
+                    port.queued_sender_elements,
                 )
                 check_port(document.read_port(port.component_path, port.spec.name), port)
             except ValueError as error:
@@ -646,10 +958,11 @@ def build_changes(
                 existing_access = document.read_access(access.runnable_path, access.name, access.kind)
                 if existing_access is not None:
                     check_access(existing_access, access)
-                    LOGGER.warning(
-                        "Data access %s already exists with the same definition; skipped",
-                        access.access_path,
-                    )
+                    if not access.reused:
+                        LOGGER.warning(
+                            "Data access %s already exists with the same definition; skipped",
+                            access.access_path,
+                        )
                     accesses_to_validate.append(access)
                     continue
                 if document.element_exists(access.access_path):

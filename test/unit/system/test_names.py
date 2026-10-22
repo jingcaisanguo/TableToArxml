@@ -6,7 +6,8 @@ from openpyxl import Workbook, load_workbook
 import pytest
 
 from helpers import ROOT
-from table_to_arxml.system.arxml_generator import MAX_SHORT_NAME, connector_name
+from table_to_arxml.common.names import MAX_SHORT_NAME
+from table_to_arxml.system.arxml_generator import connector_name, disambiguated_connector_name
 from table_to_arxml.system.green_table import (
     MAX_SHEET_NAME,
     R_PORT_SHEET,
@@ -19,6 +20,17 @@ from table_to_arxml.system.green_table import (
 def test_connector_name_separates_parts():
     assert connector_name("dlc_", "O", "AB", "C") == "dlc_O_AB_C"
     assert connector_name("dlc_", "O", "AB", "C") != connector_name("dlc_", "O", "A", "BC")
+
+
+def test_ambiguous_connector_names_are_disambiguated_by_structured_hash():
+    base = connector_name("ac_", "a_b", "c")
+    assert base == connector_name("ac_", "a", "b_c")
+    first = disambiguated_connector_name(base, "a_b", "c")
+    second = disambiguated_connector_name(base, "a", "b_c")
+    assert first != second
+    assert first.startswith(base + "_") and second.startswith(base + "_")
+    long_name = connector_name("ac_", "P" * 80, "port", "R" * 80, "port")
+    assert len(disambiguated_connector_name(long_name, "P" * 80, "port")) == MAX_SHORT_NAME
 
 
 def test_long_connector_names_are_truncated_with_stable_hash():

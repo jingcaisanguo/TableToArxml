@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence, cast
+from typing import Callable, Iterable, Sequence, cast
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 from ..common.messages import clean_message
 from ..common.names import autosar_path, c_identifier, generated_name, short_name
@@ -86,14 +89,18 @@ class EnumerationSpec(_AutosarPath):
 
 @dataclass(frozen=True)
 class ArraySpec(_AutosarPath):
-    """``Arrays`` 表中的固定长度实现数据类型。"""
+    """``Arrays`` 表中的固定长度实现数据类型；``array_size_semantics`` 为空表示未填写，新建时按 FIXED-SIZE。"""
 
     path: str
     target_file: Path
     element_name: str
     element_type_ref: str
     array_size: int
-    array_size_semantics: str = "FIXED-SIZE"
+    array_size_semantics: str = ""
+
+    @property
+    def effective_semantics(self) -> str:
+        return self.array_size_semantics or "FIXED-SIZE"
 
 
 @dataclass(frozen=True)
@@ -186,13 +193,29 @@ class AccessSpec:
     name: str
 
 
+class FormulaCell:
+    """公式单元格的占位值：工具读取公式文本而非计算结果，因此不接受公式。"""
+
+    def __init__(self, formula: object) -> None:
+        self.formula = formula
+
+    def __str__(self) -> str:
+        return str(self.formula)
+
+
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f]")
+
+
 def normalized_cell(value: object, context: str) -> str:
     """把单元格转为去除首尾空白的文本；非文本内容视为配置错误。
 
-    数字按整数或原样格式化，方便枚举取值这类列直接填数值。
+    数字按整数或原样格式化，方便枚举取值这类列直接填数值。换行、制表符等控制字符会被
+    ARXML 缩进改写（如 VT 文本），公式单元格只能读到公式文本，两者都报错。
     """
     if value is None:
         return ""
+    if isinstance(value, FormulaCell):
+        raise ValueError(f"{context}: formula cells are not supported; paste values instead")
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
     if isinstance(value, int):
@@ -201,6 +224,10 @@ def normalized_cell(value: object, context: str) -> str:
         return str(int(value)) if value.is_integer() else str(value)
     if not isinstance(value, str):
         raise ValueError(f"{context} must be text, got {type(value).__name__}")
+    if _CONTROL_CHARACTERS.search(value):
+        raise ValueError(
+            f"{context} contains control characters such as line breaks or tabs: {value!r}"
+        )
     return value.strip()
 
 
@@ -210,7 +237,10 @@ def sheet_values(sheet) -> list[tuple[object, ...]]:
     openpyxl 只在合并区域左上角保存值，其余单元格为 ``None``；展开后各行都能
     独立解析，工作簿是否合并单元格不影响结果。
     """
-    values = [[cell.value for cell in row] for row in sheet.iter_rows()]
+    values = [
+        [FormulaCell(cell.value) if cell.data_type == "f" else cell.value for cell in row]
+        for row in sheet.iter_rows()
+    ]
     for merged in sheet.merged_cells.ranges:
         anchor = values[merged.min_row - 1][merged.min_col - 1]
         for row_index in range(merged.min_row - 1, merged.max_row):
@@ -220,9 +250,18 @@ def sheet_values(sheet) -> list[tuple[object, ...]]:
 
 
 def load_workbook_sheets(workbook_path: Path) -> Sheets:
-    """一次读出工作簿全部工作表的值；需要合并区域信息，因此不能用 read_only 模式。"""
+    """一次读出工作簿全部工作表的值；需要合并区域信息，因此不能用 read_only 模式。
 
-    workbook = load_workbook(workbook_path, data_only=False)
+    文件损坏或不是 xlsx 时转换为带文件名的 ``ValueError``，由入口记录为 ERROR 而不是打印堆栈。
+    """
+
+    try:
+        workbook = load_workbook(workbook_path, data_only=False)
+    except (BadZipFile, InvalidFileException, KeyError, ValueError, TypeError) as error:
+        raise ValueError(
+            f"Cannot read workbook {workbook_path.name}: not a valid .xlsx file "
+            f"({type(error).__name__}: {clean_message(error)})"
+        ) from error
     try:
         supported = {name.casefold() for name in SHEET_HEADERS}
         sheets: Sheets = {}
@@ -437,10 +476,27 @@ def _group_members(
 
 
 def _is_duplicate(members: Sequence[tuple], name: str, label: str, context: str) -> bool:
+    """同名成员记录 error；仅大小写不同时只警告并视为不同成员（AUTOSAR 规则，由 EB 校验）。"""
+
     if any(member[0] == name for member in members):
         LOGGER.error("Skipped duplicate %s %s in %s", label, name, context)
         return True
+    similar = [member[0] for member in members if member[0].casefold() == name.casefold()]
+    if similar:
+        LOGGER.warning(
+            "%s %s in %s: SHORT-NAME differs only in case from %s; kept as a distinct object, "
+            "left to EB validation",
+            label, name, context, ", ".join(similar),
+        )
     return False
+
+
+def _is_c_identifier(value: str) -> bool:
+    try:
+        c_identifier(value)
+    except ValueError:
+        return False
+    return True
 
 
 def default_enum_path(type_path: str, package: str, prefix: str = "") -> str:
@@ -491,6 +547,12 @@ def read_enumerations(sheets: Sheets, project_root: Path) -> list[EnumerationSpe
         if any(label == row["Label"] for _, label in values):
             LOGGER.error("Skipped duplicate label %s in %s", row["Label"], context)
             continue
+        if not _is_c_identifier(row["Label"]):
+            LOGGER.warning(
+                "Enumeration %s label %r is not a C identifier; it is written as VT, "
+                "but the RTE may need a SYMBOL for this value (TPS_SWCT_01431)",
+                path, row["Label"],
+            )
         values.append((value, row["Label"]))
 
     return [
@@ -532,8 +594,8 @@ def read_arrays(sheets: Sheets, project_root: Path) -> list[ArraySpec]:
                 "Skipped %s: Array Size must be a positive integer: %s", context, row["Array Size"]
             )
             continue
-        semantics = (row.get("Array Size Semantics", "") or "FIXED-SIZE").upper()
-        if semantics not in ARRAY_SIZE_SEMANTICS:
+        semantics = row.get("Array Size Semantics", "").upper()
+        if semantics and semantics not in ARRAY_SIZE_SEMANTICS:
             LOGGER.error(
                 "Skipped %s: Array Size Semantics must be FIXED-SIZE or VARIABLE-SIZE: %s",
                 context,
@@ -650,6 +712,13 @@ def read_cs_interfaces(sheets: Sheets, project_root: Path) -> list[ClientServerI
         if operations is None:
             continue
         operation = row["Operation Name"]
+        same_case = [name for name in operations if name.casefold() == operation.casefold() and name != operation]
+        if same_case and operation not in operations:
+            LOGGER.warning(
+                "%s operation %s: SHORT-NAME differs only in case from %s; kept as a distinct object, "
+                "left to EB validation",
+                context, operation, ", ".join(same_case),
+            )
         if operation in operations and (not has_argument or not operations[operation]):
             LOGGER.error(
                 "Skipped %s operation %s: duplicate or conflicting zero-argument declaration",
@@ -679,7 +748,8 @@ def read_com_spec_flags(
 ) -> tuple[bool, int, float | None, bool] | None:
     """解析端口行的 ComSpec 列；取值非法时记录 error 并返回 ``None``。
 
-    P-Ports 只有发送确认超时和 E2E 保护；R-Ports 的 ``Enable Update`` 与 ``Queue Length`` 互斥。
+    P-Ports 只有发送确认超时和 E2E 保护；R-Ports 的 ``Enable Update`` 只作用于非队列元素，
+    ``Queue Length`` 只作用于队列元素，按接口元素的 ``SW-IMPL-POLICY`` 分别生效。
     """
 
     context = f"port {row['Port Name']} in {sheet_name}"
@@ -707,9 +777,6 @@ def read_com_spec_flags(
         if parsed is None:
             return None
         queue_length = parsed
-    if enable_update and queue_length:
-        LOGGER.error("Skipped %s: Enable Update and Queue Length are mutually exclusive", context)
-        return None
     return enable_update, int(queue_length), None, False
 
 
@@ -860,8 +927,18 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
                 continue
             key = (port.component_key, port.name)
             if key in seen_ports:
-                LOGGER.error("Skipped duplicate port for component %s: %s", *key)
+                LOGGER.error("Skipped duplicate port for component %s: %s", port.component_key, port.name)
                 continue
+            similar = [
+                name for component_key, name in seen_ports
+                if component_key == port.component_key and name.casefold() == port.name.casefold()
+            ]
+            if similar:
+                LOGGER.warning(
+                    "Port %s for component %s: SHORT-NAME differs only in case from %s; "
+                    "kept as a distinct port, left to EB validation",
+                    port.name, port.component_key, ", ".join(similar),
+                )
             seen_ports.add(key)
             ports.append(port)
 
@@ -872,16 +949,36 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
     return components, ports
 
 
+def warn_case_variant_paths(paths: Iterable[tuple[str, str]]) -> None:
+    """本次新建对象的完整路径仅大小写不同时只记录 WARNING，按不同对象继续生成（AUTOSAR 规则，由 EB 校验）。
+
+    ``paths`` 为 ``(路径, 对象类别)``，按工作簿顺序排列；完全相同的路径由各步骤按已有定义处理。
+    """
+    first: dict[str, list[tuple[str, str]]] = {}
+    for path, label in paths:
+        known = first.setdefault(path.casefold(), [])
+        if any(known_path == path for known_path, _ in known):
+            continue
+        if known:
+            LOGGER.warning(
+                "%s %s: SHORT-NAME path differs only in case from %s in the workbook; "
+                "created as a distinct object, left to EB validation",
+                label, path, ", ".join(f"{known_label} {known_path}" for known_path, known_label in known),
+            )
+        known.append((path, label))
+
+
 def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> list[AccessSpec]:
     """读取 ``Data Accesses`` 表，返回逐条访问点请求。
 
     只做与 ARXML 无关的静态校验：组件必须在 ``Components`` 表中出现、
-    ``Access Kind`` 必须是已知取值、同一端口的同一数据元素不能重复。
+    ``Access Kind`` 必须是已知取值、同一端口、数据元素和类别的行不能重复。
+    数据元素留空或与端口页自动展开重复的请求，在解析出数据元素后再合并。
     """
     rows = read_sheet_rows(sheets, DATA_ACCESS_SHEET)
 
     specs: list[AccessSpec] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for row in rows:
         component_key = row["SW-C"]
         if component_key not in components:
@@ -909,9 +1006,14 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
             row["Runnable Name"],
             row["Port Name"],
             row.get("Data Element Name", ""),
+            kind,
         )
         if unique in seen:
-            LOGGER.error("Skipped duplicate data access row: %s / %s / %s / %s", *unique)
+            LOGGER.error(
+                "Skipped duplicate data access row: %s / %s / %s / %s / %s",
+                component_key, row["Runnable Name"], row["Port Name"],
+                row.get("Data Element Name", ""), label or "default Access Kind",
+            )
             continue
         seen.add(unique)
         specs.append(

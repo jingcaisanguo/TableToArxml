@@ -9,6 +9,32 @@
 旧工作簿仍可使用完整的 `INPUT`/`OUTPUT` 组合，无需批量改名；中间方案 `RECEIVE`/`SEND` 不作为兼容别名。
 同一工作簿必须完整使用 `R-Port`/`P-Port` 或旧 `INPUT`/`OUTPUT`，不能混用或同时保留两套。合并绿表产物统一将页签命名为 `<模块>_R-Port` 和 `<模块>_P-Port`。
 
+## AUTOSAR 规则浅校验调整
+
+两个工具按 AUTOSAR 元模型（多重性、不可拆分聚合、引用元类型）调整了输出和校验，仍只做浅校验：不区分或比对 AUTOSAR 版本，不检查数据类型兼容、总线拓扑或 RTE 语义；只影响生成正确性的问题报 ERROR，其余规范细则只记录 WARNING，由后续 EB 等工具链校验。升级后请对比生成差异并关注新增 WARNING。
+
+System 工具：
+
+- 已有 System 已引用目标 ECU 时，输出不再重复写 `FIBEX-ELEMENTS`（该聚合不可拆分）；引用了其他元素但不含目标 ECU 时只警告，需在原 System 中补齐。基线样例因此减少了 FIBEX-ELEMENTS 片段。
+- `general.System` 必须是已加载的 System，短名会解析为其完整路径；根原型必须属于该 System，ECU-INSTANCE 必须存在且类型正确。以前短名可能在 Composition 包下另建 System，现在会报错或合并到已有 System。
+- 同名 SystemMapping 或需要追加映射的 `<Composition>_InterfaceMappings` 已存在于输入时报错；请改用其他 `general.systemMapping`，或在原文件中维护接口映射。
+- 目标 Composition 内新实例、外部端口和连接器与已有或本次其他对象同名时报错，仅大小写不同只警告；已有同名同端点的连接器直接复用。
+- 新增原子组件缺少 SWC-IMPLEMENTATION 改为 WARNING 并跳过 SwcToImplMapping；没有 `Add` 组件时不再生成空 SwcToEcuMapping。
+- 放宽：接口映射未覆盖的元素只警告；CAN/LIN 物理通道不存在或在多个簇中同名不再报错，只以最终 SystemSignal 是否存在为准。
+- 新增 WARNING：信号组映射缺少 TYPE-MAPPING、已有 System 缺少 SYSTEM-VERSION、接口 DEST 与对象类型不一致、重复的信号映射行。
+
+SWC 工具：
+
+- ComSpec 按数据元素的 `SW-IMPL-POLICY` 选择：队列元素的 P-Port 生成 `QUEUED-SENDER-COM-SPEC`（以前统一为 `NONQUEUED-SENDER-COM-SPEC`）；R-Port 的 `Enable Update` 只作用于非队列元素、`Queue Length` 只作用于队列元素，两列不再互斥；填写的值不适用于任何元素时记录 WARNING 并忽略该列。
+- 访问类别与 AUTOSAR 约束冲突（队列元素使用 `Read` 或 `ReceiveByValue`、启用 update 的元素使用 `Read`）只记录 WARNING，访问点照常生成，由 EB 校验。
+- SHORT-NAME 或路径仅大小写不同（工作簿内部或与已有 ARXML 相比）只记录 WARNING，按不同对象生成；完全同名仍按原规则报错或复用。访问点去重和 `Data Accesses` 重复判定区分大小写，并加入 `Access Kind`。
+- 新增 ERROR：类型引用的元类型错误；含公式或控制字符（含换行）的单元格；目标 ARXML 为 UTF-16/UTF-32 或 GBK 等多字节编码；对 PR-Port 创建访问点；同一访问点的多行填写了不同的 `Access Name`（包括仅大小写不同，以前会静默合并）。
+- 目标 ARXML 为 ISO-8859-1、Windows-1252 等单字节编码时，片段按该编码写入，无法表示的字符写成字符引用；以前片段固定按 UTF-8 写入，非 ASCII 字符会与文件声明的编码不一致。
+- 确定数据元素后合并重复访问请求，已有同类访问点引用相同端口和元素时直接复用（不论名称）。自动命名避让 runnable 下全部子对象名称。
+- 同次运行新建的 runnable 可被服务器调用点和数据访问点引用；单个 CS 对象失败只记 ERROR，不中断汇总。
+- 放宽：计算方法与数据约束的上下限按数值比较（`1.0` 与 `1` 相同）；`Array Size Semantics` 留空时不与已有数组比较。
+- 新增 WARNING：枚举 Label 不是 C 标识符、同一组件内 runnable `SYMBOL` 重复、类型引用在已加载 ARXML 中找不到。
+
 ## 0.3.1 → 0.4.0
 
 两个工具的配置文件改用 TOML（可写 `#` 注释），格式见 [配置文件格式](README.md#配置文件格式)。配置字段、工作簿格式和生成结果均不变。

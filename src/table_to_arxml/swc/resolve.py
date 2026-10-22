@@ -6,9 +6,10 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from ..common.messages import clean_message
+from . import xml_patch
 from ..common.names import generated_name
 from .arxml_model import AccessInfo, InterfaceSummary, PortInfo
 from .constants import (
@@ -42,7 +43,11 @@ ACCESS_NAME_PREFIXES = {
 
 @dataclass(frozen=True)
 class ResolvedPort:
-    """补全了目标文件、接口元类和 ComSpec 引用之后的端口请求。"""
+    """补全了目标文件、接口元类和 ComSpec 引用之后的端口请求。
+
+    ComSpec 的种类由数据元素的 ``SW-IMPL-POLICY`` 决定（constr_1129–1132）：``queued_sender_elements``
+    是 ``sender_elements`` 中需要生成 ``QUEUED-SENDER-COM-SPEC`` 的队列元素。
+    """
 
     spec: PortSpec
     component_path: str
@@ -51,6 +56,7 @@ class ResolvedPort:
     update_elements: tuple[str, ...] = ()
     queued_elements: tuple[tuple[str, int], ...] = ()
     sender_elements: tuple[tuple[str, float | None, bool], ...] = ()
+    queued_sender_elements: tuple[str, ...] = ()
 
     @property
     def port_path(self) -> str:
@@ -59,7 +65,7 @@ class ResolvedPort:
 
 @dataclass(frozen=True)
 class ResolvedAccess:
-    """补全了 runnable 路径、访问点类别和引用目标之后的访问点请求。"""
+    """补全了 runnable 路径、访问点类别和引用目标之后的访问点请求；``reused`` 表示复用已有访问点。"""
 
     spec: AccessSpec
     component_path: str
@@ -69,6 +75,7 @@ class ResolvedAccess:
     name: str
     port_path: str
     data_path: str
+    reused: bool = False
 
     @property
     def container(self) -> str:
@@ -81,7 +88,10 @@ class ResolvedAccess:
 
 @dataclass(frozen=True)
 class LocatedAccess:
-    """访问点请求在组件文件中定位到的信息，尚未确定数据元素和名称。"""
+    """访问点请求在组件文件中定位到的信息，尚未确定数据元素和名称。
+
+    ``update_elements`` 是该端口接收端 ComSpec 中 ``ENABLE-UPDATE=true`` 的数据元素（已有或本次新建）。
+    """
 
     spec: AccessSpec
     component_path: str
@@ -89,7 +99,19 @@ class LocatedAccess:
     runnable_path: str
     kind: str
     interface_path: str
-    name_exists: bool = False
+    update_elements: tuple[str, ...] = ()
+
+    @property
+    def port_path(self) -> str:
+        return f"{self.component_path}/{self.spec.port_name}"
+
+
+@dataclass(frozen=True)
+class RunnableNamespace:
+    """runnable 的命名空间：全部直接子对象的 SHORT-NAME（区分大小写）及各类已有访问点。"""
+
+    names: tuple[str, ...]
+    accesses: dict[str, list[AccessInfo]]
 
 
 def find_definition(
@@ -214,9 +236,15 @@ def _com_spec_paths(
     existing: PortInfo | None,
     elements: list[str],
 ) -> tuple[str, ...] | None:
-    """确定 ComSpec 引用的数据元素路径：新建端口展开接口全部元素，已有端口沿用其 ComSpec 的引用。"""
+    """确定 ComSpec 引用的数据元素路径：新建端口和没有 ComSpec 的已有端口展开接口全部元素，
+    其他已有端口沿用其 ComSpec 的引用。"""
 
-    if existing is None:
+    data_paths: tuple[str, ...] = () if existing is None else tuple(dict.fromkeys(
+        [*existing.update_elements]
+        + [path for path, _ in existing.queued_elements]
+        + [path for path, _, _ in existing.sender_elements]
+    ))
+    if not data_paths:
         if not elements:
             LOGGER.error(
                 "Skipped port %s: ComSpec flags require data elements but interface %s has none",
@@ -225,14 +253,9 @@ def _com_spec_paths(
             )
             return None
         return tuple(f"{port.interface_path}/{element}" for element in elements)
-    data_paths = tuple(dict.fromkeys(
-        [*existing.update_elements]
-        + [path for path, _ in existing.queued_elements]
-        + [path for path, _, _ in existing.sender_elements]
-    ))
-    if not data_paths or any(path.rpartition("/")[0] != port.interface_path for path in data_paths):
+    if any(path.rpartition("/")[0] != port.interface_path for path in data_paths):
         LOGGER.error(
-            "Port %s/%s already exists with missing or conflicting ComSpec references; "
+            "Port %s/%s already exists with conflicting ComSpec references; "
             "please choose a different port name",
             component_path,
             port.name,
@@ -342,22 +365,42 @@ def resolve_ports(
         update_elements: tuple[str, ...] = ()
         queued_elements: tuple[tuple[str, int], ...] = ()
         sender_elements: tuple[tuple[str, float | None, bool], ...] = ()
+        queued_senders: tuple[str, ...] = ()
         if port.needs_com_specs:
             existing = existing_ports.get((port.component_key, port.name))
-            elements = [] if existing is not None else interface_elements(
-                arxml_files, port.interface_path, store
-            )
+            elements = interface_elements(arxml_files, port.interface_path, store)
             data_paths = _com_spec_paths(port, component_path, existing, elements)
             if data_paths is None:
                 continue
+            summary = interface_summary(arxml_files, port.interface_path, store)
+            queued_names = set(() if summary is None else summary.queued_data_elements)
+            queued_paths = tuple(path for path in data_paths if path.rpartition("/")[2] in queued_names)
+            plain_paths = tuple(path for path in data_paths if path not in queued_paths)
             if port.direction == DIRECTION_PROVIDED:
                 sender_elements = tuple(
                     (data_path, port.ack_timeout, port.uses_protection) for data_path in data_paths
                 )
-            elif port.enable_update:
-                update_elements = data_paths
+                queued_senders = queued_paths
             else:
-                queued_elements = tuple((data_path, port.queue_length) for data_path in data_paths)
+                # 列对所选数据元素都不适用时只提示并忽略该列，端口照常生成，由 EB 做完整校验。
+                if port.enable_update and not plain_paths:
+                    LOGGER.warning(
+                        "Port %s: Enable Update applies only to non-queued data elements, "
+                        "but all ComSpec data elements of %s are queued (SW-IMPL-POLICY=QUEUED); "
+                        "column ignored",
+                        port.name, port.interface_path,
+                    )
+                if port.queue_length > 0 and not queued_paths:
+                    LOGGER.warning(
+                        "Port %s: Queue Length applies only to queued data elements "
+                        "(SW-IMPL-POLICY=QUEUED), but no ComSpec data element of %s is queued; "
+                        "column ignored",
+                        port.name, port.interface_path,
+                    )
+                if port.enable_update:
+                    update_elements = plain_paths
+                if port.queue_length > 0:
+                    queued_elements = tuple((data_path, port.queue_length) for data_path in queued_paths)
 
         resolved.append(
             ResolvedPort(
@@ -368,6 +411,7 @@ def resolve_ports(
                 update_elements=update_elements,
                 queued_elements=queued_elements,
                 sender_elements=sender_elements,
+                queued_sender_elements=queued_senders,
             )
         )
     return resolved
@@ -412,19 +456,41 @@ def expand_port_accesses(
     return specs
 
 
+def _port_from_document(
+    document,
+    source: bytes,
+    component_path: str,
+    port_name: str,
+    planned: ResolvedPort | None,
+) -> tuple[str, str, tuple[str, ...]] | str:
+    """返回端口的方向、接口路径和 ``ENABLE-UPDATE`` 元素；无法作为访问点目标时返回错误描述。"""
+
+    existing = document.read_port(component_path, port_name)
+    if existing is not None and existing.direction in DEFAULT_ACCESS_KINDS:
+        return existing.direction, existing.interface_path, existing.update_elements
+    if existing is None and planned is not None:
+        return planned.spec.direction, planned.spec.interface_path, planned.update_elements
+    port_path = f"{component_path}/{port_name}"
+    if (existing is not None and existing.type_name == "PRPortPrototype") or (
+        xml_patch.element_tag(source, port_path) == "PR-PORT-PROTOTYPE"
+    ):
+        return f"PR-Port {port_path} is not supported; use a P-Port or R-Port"
+    return f"port {port_path} is neither planned in this run nor an existing port prototype"
+
+
 def locate_accesses(
     components: dict[str, ComponentSpec],
     specs: Sequence[AccessSpec],
     resolved_ports: Sequence[ResolvedPort],
     component_files: dict[str, Path],
     store: SourceStore,
-) -> tuple[list[LocatedAccess], dict[tuple[str, str], dict[str, AccessInfo]]]:
+) -> tuple[list[LocatedAccess], dict[str, RunnableNamespace]]:
     """按组件文件分组解析 runnable、端口方向和已有访问点。
 
-    每个组件文件只加载一次；同时返回相关 runnable 中已存在的访问点，供后续
-    自动生成名称时判重和复用。
+    每个组件文件只加载一次；同时返回相关 runnable 的命名空间（全部直接子对象名称和各类已有访问点），
+    供后续复用已有访问点和自动命名避让。
     """
-    # 本次将要创建的端口，按“组件简称 + 端口名”索引。
+    # 本次处理成功的端口，按“组件简称 + 端口名”索引。
     planned = {(port.spec.component_key, port.spec.name): port for port in resolved_ports}
     specs_by_key: dict[str, list[AccessSpec]] = defaultdict(list)
     for spec in specs:
@@ -438,11 +504,12 @@ def locate_accesses(
         specs_by_key[spec.component_key].append(spec)
 
     located: list[LocatedAccess] = []
-    existing_accesses: dict[tuple[str, str], dict[str, AccessInfo]] = defaultdict(dict)
+    namespaces: dict[str, RunnableNamespace] = {}
     for component_key, component_specs in specs_by_key.items():
         component_path = components[component_key].path
         component_file = component_files[component_key]
         document = store.load(component_file)
+        source = store.read(component_file)
 
         for spec in component_specs:
             runnable_path = document.find_runnable(component_path, spec.runnable_name)
@@ -455,23 +522,14 @@ def locate_accesses(
                 )
                 continue
 
-            port = planned.get((component_key, spec.port_name))
-            if port is not None:
-                direction = port.spec.direction
-                interface_path = port.spec.interface_path
-            else:
-                existing = document.read_port(component_path, spec.port_name)
-                if existing is None or existing.direction not in DEFAULT_ACCESS_KINDS:
-                    LOGGER.error(
-                        "Skipped data access for port %s: port %s/%s is neither "
-                        "planned in this run nor an existing port prototype",
-                        spec.port_name,
-                        component_path,
-                        spec.port_name,
-                    )
-                    continue
-                direction = existing.direction
-                interface_path = existing.interface_path
+            port = _port_from_document(
+                document, source, component_path, spec.port_name,
+                planned.get((component_key, spec.port_name)),
+            )
+            if isinstance(port, str):
+                LOGGER.error("Skipped data access for port %s: %s", spec.port_name, port)
+                continue
+            direction, interface_path, update_elements = port
 
             kind = spec.kind or DEFAULT_ACCESS_KINDS[direction]
             if ACCESS_DIRECTIONS[kind] != direction:
@@ -486,11 +544,14 @@ def locate_accesses(
                 )
                 continue
 
-            key = (runnable_path, kind)
-            if key not in existing_accesses:
-                existing_accesses[key] = {
-                    access.name: access for access in document.list_accesses(runnable_path, kind)
-                }
+            if runnable_path not in namespaces:
+                namespaces[runnable_path] = RunnableNamespace(
+                    xml_patch.child_names(source, runnable_path),
+                    {
+                        access_kind: document.list_accesses(runnable_path, access_kind)
+                        for access_kind in ACCESS_CONTAINERS
+                    },
+                )
             located.append(
                 LocatedAccess(
                     spec=spec,
@@ -499,44 +560,36 @@ def locate_accesses(
                     runnable_path=runnable_path,
                     kind=kind,
                     interface_path=interface_path,
-                    name_exists=bool(spec.name) and document.element_exists(f"{runnable_path}/{spec.name}"),
+                    update_elements=update_elements,
                 )
             )
-    return located, existing_accesses
+    return located, namespaces
 
 
 def generate_access_name(
-    taken: dict[str, AccessInfo],
-    runnable_path: str,
+    taken: Mapping[str, str],
+    used: Mapping[str, str],
     kind: str,
     port_name: str,
     data_element: str,
-    port_path: str,
-    data_path: str,
-    used_names: set[tuple[str, str]],
 ) -> str | None:
-    """为留空的 ``Access Name`` 生成一个在该 runnable 内不冲突的名称。
+    """为留空的 ``Access Name`` 生成一个在该 runnable 命名空间内不冲突的名称。
 
-    优先使用 ``<前缀><端口名>``；被同 runnable 中的其他访问点占用时依次尝试
-    追加数据元素名和序号。已存在且引用目标完全一致的同名访问点会被复用，
-    因此重复执行不会生成新名称。
+    ``taken`` 与 ``used`` 以 casefold 名称为键，分别是 runnable 已有的全部直接子对象（各类访问点、
+    服务器调用点等）和本次运行已分配的名称。自动命名主动避开仅大小写不同的名称，减少 EB 校验时的提示。
+    优先使用 ``<前缀><端口名>``，被占用时依次尝试追加数据元素名和序号。
     """
     base = f"{ACCESS_NAME_PREFIXES[kind]}{port_name}"
     candidates = [base, f"{base}_{data_element}"]
     candidates += [f"{base}_{data_element}{index}" for index in range(2, 100)]
     for raw_candidate in candidates:
         candidate = generated_name(raw_candidate)
-        if (runnable_path, candidate) in used_names:
-            continue
-        existing = taken.get(candidate)
-        if existing is None:
-            return candidate
-        if existing.port_path == port_path and existing.data_path == data_path:
+        if candidate.casefold() not in taken and candidate.casefold() not in used:
             return candidate
     return None
 
 
-def resolve_data_element(spec: AccessSpec, interface_path: str, elements: list[str]) -> str | None:
+def resolve_data_element(spec: AccessSpec, interface_path: str, elements: Sequence[str]) -> str | None:
     """确定访问点指向的数据元素；无法唯一确定时记录 error 并返回 ``None``。"""
 
     if not elements:
@@ -554,7 +607,7 @@ def resolve_data_element(spec: AccessSpec, interface_path: str, elements: list[s
                 spec.port_name,
                 interface_path,
                 len(elements),
-                elements,
+                list(elements),
             )
             return None
         return elements[0]
@@ -564,10 +617,22 @@ def resolve_data_element(spec: AccessSpec, interface_path: str, elements: list[s
             spec.port_name,
             spec.data_element,
             interface_path,
-            elements,
+            list(elements),
         )
         return None
     return spec.data_element
+
+
+def _access_kind_problem(item: LocatedAccess, data_path: str, queued: bool) -> str | None:
+    """访问点类别与数据元素实现策略、接收端 ComSpec 的组合提示；属于 AUTOSAR 规则，只警告，由 EB 校验。"""
+
+    if queued and item.kind == ACCESS_READ:
+        return "AUTOSAR does not allow DataReadAccess for queued data elements"
+    if queued and item.kind == ACCESS_RECEIVE_BY_VALUE:
+        return "AUTOSAR does not allow ReceiveByValue for queued data elements"
+    if item.kind == ACCESS_READ and data_path in item.update_elements:
+        return "AUTOSAR does not allow DataReadAccess when the receiver ComSpec has ENABLE-UPDATE=true"
+    return None
 
 
 def resolve_accesses(
@@ -577,67 +642,81 @@ def resolve_accesses(
     component_files: dict[str, Path],
     arxml_files: Sequence[Path],
     store: SourceStore,
-) -> list[ResolvedAccess]:
-    """把每条访问点请求补全为可直接生成 VARIABLE-ACCESS 的完整描述。
+) -> tuple[list[ResolvedAccess], int]:
+    """把每条访问点请求补全为可直接生成 VARIABLE-ACCESS 的完整描述，返回结果和被合并的重复请求数。
 
-    先按组件文件分组定位 runnable、端口方向和已有访问点，再解析数据元素并生成
-    名称：后端的模型是全局单例，加载接口所在文件会使组件文档失效，因此两个阶段
-    必须分开。已有同名访问点只比较自身引用，不查询引用目标；只有新建或无法
-    确定数据元素时才读取接口。任一条件不满足时只记录 error 并跳过该条请求。
+    先按组件文件分组定位 runnable、端口方向和已有访问点，再解析数据元素并生成名称：
+    后端的模型是全局单例，加载接口所在文件会使组件文档失效，因此两个阶段必须分开。
+    解析出数据元素后按 ``(runnable, 类别, 端口, 数据元素)`` 的原文合并重复请求；已有访问点引用相同
+    端口和数据元素时直接复用（不论名称）。访问类别与队列策略、ENABLE-UPDATE 的 AUTOSAR 组合规则只警告；
+    其他条件不满足时记录 error 并跳过该条请求。
     """
-    located, existing_accesses = locate_accesses(
+    located, namespaces = locate_accesses(
         components, specs, resolved_ports, component_files, store
     )
 
-    resolved: list[ResolvedAccess] = []
-    used_names: set[tuple[str, str]] = set()
+    groups: dict[tuple[str, str, str, str], list[tuple[LocatedAccess, str]]] = {}
     for item in located:
-        port_path = f"{item.component_path}/{item.spec.port_name}"
-        taken = existing_accesses[(item.runnable_path, item.kind)]
-        existing = taken.get(item.spec.name)
-        if not item.spec.name and item.spec.data_element:
-            candidate = generate_access_name(
-                taken,
-                item.runnable_path,
-                item.kind,
-                item.spec.port_name,
-                item.spec.data_element,
-                port_path,
-                f"{item.interface_path}/{item.spec.data_element}",
-                used_names,
-            )
-            existing = taken.get(candidate or "")
-        if item.name_exists and existing is None:
-            LOGGER.error(
-                "Data access %s/%s already exists as a different kind of object; "
-                "please choose a different access name",
-                item.runnable_path,
-                item.spec.name,
-            )
-            continue
-        if existing is not None:
-            data_element = item.spec.data_element or existing.data_path.rpartition("/")[2]
-            if not data_element:
-                LOGGER.error(
-                    "Data access %s/%s already exists with a missing data reference; "
-                    "please choose a different access name",
-                    item.runnable_path,
-                    existing.name,
-                )
-                continue
-        else:
-            data_element = resolve_data_element(
-                item.spec,
-                item.interface_path,
-                interface_elements(arxml_files, item.interface_path, store),
-            )
+        summary = interface_summary(arxml_files, item.interface_path, store)
+        elements = () if summary is None else summary.data_elements
+        data_element = resolve_data_element(item.spec, item.interface_path, elements)
         if data_element is None:
             continue
-
         data_path = f"{item.interface_path}/{data_element}"
-        if item.spec.name:
-            name = item.spec.name
-            if (item.runnable_path, name) in used_names:
+        problem = _access_kind_problem(
+            item, data_path, summary is not None and data_element in summary.queued_data_elements
+        )
+        if problem is not None:
+            LOGGER.warning(
+                "Data access for port %s data element %s in %s: %s; created anyway, "
+                "left to EB validation",
+                item.spec.port_name, data_element, item.runnable_path, problem,
+            )
+        # 仅大小写不同的路径是不同对象，按原文去重。
+        key = (item.runnable_path, item.kind, item.port_path, data_path)
+        groups.setdefault(key, []).append((item, data_path))
+
+    resolved: list[ResolvedAccess] = []
+    merged = 0
+    used: dict[str, set[str]] = defaultdict(set)
+    for requests in groups.values():
+        item, data_path = requests[0]
+        names = list(dict.fromkeys(request.spec.name for request, _ in requests if request.spec.name))
+        context = f"{item.runnable_path} ({item.spec.port_name} -> {data_path.rpartition('/')[2]})"
+        if len(names) > 1:
+            LOGGER.error(
+                "Skipped data access %s: workbook rows request the same access with different "
+                "Access Names %s; keep one row",
+                context, ", ".join(names),
+            )
+            continue
+        if len(requests) > 1:
+            merged += len(requests) - 1
+            LOGGER.info("Merged %d duplicate data access request(s) for %s", len(requests) - 1, context)
+        if names:
+            item = next(request for request, _ in requests if request.spec.name)
+
+        namespace = namespaces[item.runnable_path]
+        existing = next(
+            (
+                access for access in namespace.accesses[item.kind]
+                if access.port_path == item.port_path and access.data_path == data_path
+            ),
+            None,
+        )
+        if existing is not None:
+            LOGGER.warning("Data access %s already exists as %s; skipped", context, existing.name)
+            name = existing.name
+        elif names:
+            name = names[0]
+            if name in namespace.names:
+                LOGGER.error(
+                    "Skipped data access %s: SHORT-NAME %s is already used by %s/%s; "
+                    "please choose a different access name",
+                    context, name, item.runnable_path, name,
+                )
+                continue
+            if name in used[item.runnable_path]:
                 LOGGER.error(
                     "Skipped data access %s/%s: the name is already used in this run; "
                     "fill in a unique Access Name",
@@ -645,16 +724,21 @@ def resolve_accesses(
                     name,
                 )
                 continue
+            similar = [
+                other for other in (*namespace.names, *used[item.runnable_path])
+                if other.casefold() == name.casefold()
+            ]
+            if similar:
+                LOGGER.warning(
+                    "Data access %s/%s: SHORT-NAME differs only in case from %s; "
+                    "created as a distinct object, left to EB validation",
+                    item.runnable_path, name, ", ".join(sorted(set(similar))),
+                )
         else:
             generated = generate_access_name(
-                taken,
-                item.runnable_path,
-                item.kind,
-                item.spec.port_name,
-                data_element,
-                port_path,
-                data_path,
-                used_names,
+                {other.casefold(): other for other in namespace.names},
+                {other.casefold(): other for other in used[item.runnable_path]},
+                item.kind, item.spec.port_name, data_path.rpartition("/")[2],
             )
             if generated is None:
                 LOGGER.error(
@@ -665,7 +749,7 @@ def resolve_accesses(
                 )
                 continue
             name = generated
-        used_names.add((item.runnable_path, name))
+        used[item.runnable_path].add(name)
 
         resolved.append(
             ResolvedAccess(
@@ -675,8 +759,9 @@ def resolve_accesses(
                 runnable_path=item.runnable_path,
                 kind=item.kind,
                 name=name,
-                port_path=port_path,
+                port_path=item.port_path,
                 data_path=data_path,
+                reused=existing is not None,
             )
         )
-    return resolved
+    return resolved, merged

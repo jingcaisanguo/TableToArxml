@@ -29,6 +29,7 @@ from table_to_arxml.common.armodel_compat import (
     set_accessed_variable,
     set_communication_direction,
     set_enable_update,
+    get_inner_port_iref,
     set_inner_port_iref,
     strip_handle_timeout_type,
 )
@@ -162,6 +163,7 @@ def test_inner_port_iref_setter_matches_this_armodel_version():
     set_inner_port_iref(connector, marker)
     getter = getattr(connector, "getInnerPortIRref", None) or connector.getInnerPortIRef
     assert getter() is marker
+    assert get_inner_port_iref(connector) is marker
 
 
 def test_signal_mapping_direction_is_written_on_every_version():
