@@ -24,7 +24,7 @@
 从 GitHub Release 下载 `table_to_arxml-<版本>-py3-none-any.whl` 后执行：
 
 ```powershell
-python -m pip install --upgrade --upgrade-strategy eager ./table_to_arxml-0.4.0-py3-none-any.whl
+python -m pip install --upgrade --upgrade-strategy eager ./table_to_arxml-<版本>-py3-none-any.whl
 table-to-system-arxml --help
 table-to-swc-arxml --help
 ```
@@ -32,7 +32,7 @@ table-to-swc-arxml --help
 也可以直接用 Release 中 wheel 附件的下载链接安装，或在项目的 `requirements.txt` 中固定版本：
 
 ```text
-table-to-arxml @ <Release 中 table_to_arxml-0.4.0-py3-none-any.whl 的下载链接>
+table-to-arxml @ <Release 中 table_to_arxml-<版本>-py3-none-any.whl 的下载链接>
 ```
 
 - 安装时自动安装依赖：`armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另装 `tomli>=1.1.0`（读取 TOML 配置）。armodel 上限固定在已验证的 `1.9.8`，排除包入口不完整的 `1.9.1`；新版本须补充兼容测试、通过后提交更新版本上限。新环境从索引安装时 pip 默认选择约束范围内可用的最新版；上面的 `--upgrade --upgrade-strategy eager` 也会升级已有环境中满足约束但较旧的依赖（不限于 armodel）。范围外的 armodel 在工具启动时报错。
@@ -45,6 +45,15 @@ table-to-arxml @ <Release 中 table_to_arxml-0.4.0-py3-none-any.whl 的下载链
 | --- | --- |
 | `table-to-system-arxml`、`table-to-swc-arxml` | 安装后的命令 |
 | `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` | 命令不在 `PATH` 时使用，参数相同 |
+
+`table_to_arxml.system` 和 `table_to_arxml.swc` 是 Python 模块路径，不是独立 shell 命令。运行模块时必须通过 Python 的 `-m` 选项，例如：
+
+```powershell
+python -m table_to_arxml.system --config ./config/system.toml
+python -m table_to_arxml.swc --config ./config/swc.toml
+```
+
+使用虚拟环境时，确保 `python` 来自安装 wheel 的同一个环境。`pyproject.toml` 注册的安装命令是 `table-to-system-arxml` 和 `table-to-swc-arxml`，并不会创建名为 `table_to_arxml.system` 的终端命令。
 
 - 两个工具的配置文件使用 TOML 格式，见下文 [配置文件格式](#配置文件格式)。
 - 两个工具可在命令行覆盖的配置项使用统一命名（如 `outputDir` 对应 `--output-dir`），命令行优先，参数名须完整书写。并非所有配置项都有命令行参数；System 的接口映射等选项只在配置文件中设置，完整列表见各工具说明。
