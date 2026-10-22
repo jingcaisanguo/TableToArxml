@@ -13,6 +13,7 @@ from table_to_arxml.swc.xml_patch import (
     case_variants,
     child_names,
     encoding_problem,
+    insert_at_offset,
     insert_or_create_child_container,
 )
 
@@ -211,8 +212,23 @@ def test_namespace_helpers_use_short_name_paths():
     (b"<?xml version='1.0' encoding='utf-8'?>", False),
     (b'\xef\xbb\xbf<?xml version="1.0"?>', False),
     (b"", False),
-    (b'<?xml version="1.0" encoding="ISO-8859-1"?>', True),
+    (b'<?xml version="1.0" encoding="ISO-8859-1"?>', False),
+    (b'<?xml version="1.0" encoding="windows-1252"?>', False),
+    (b'<?xml version="1.0" encoding="US-ASCII"?>', False),
+    (b'<?xml version="1.0" encoding="GBK"?>', True),
+    (b'<?xml version="1.0" encoding="Shift_JIS"?>', True),
     (b'<?xml version="1.0" encoding="UTF-16"?>', True),
+    (b'<?xml version="1.0" encoding="no-such-codec"?>', True),
+    ('<?xml version="1.0" encoding="UTF-16"?>'.encode("utf-16"), True),
 ])
-def test_only_utf8_declarations_can_be_modified(declaration, problem):
+def test_utf8_and_single_byte_declarations_can_be_modified(declaration, problem):
     assert (encoding_problem(declaration + b"\n<AUTOSAR/>") is not None) == problem
+
+
+def test_fragments_follow_declared_encoding_with_character_references():
+    source = (b'<?xml version="1.0" encoding="ISO-8859-1"?>\n<AUTOSAR>\n  <AR-PACKAGES>\n'
+              b"  </AR-PACKAGES>\n</AUTOSAR>\n")
+    offset = source.index(b"  </AR-PACKAGES>")
+    result = insert_at_offset(source, offset, ["<VT>caf\u00e9 \u4e2d</VT>"])
+    assert b"<VT>caf\xe9 &#20013;</VT>" in result
+    assert "caf\u00e9 \u4e2d" in result.decode("iso-8859-1").replace("&#20013;", "\u4e2d")

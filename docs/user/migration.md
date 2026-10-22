@@ -28,7 +28,8 @@ SWC 工具：
 - ComSpec 按数据元素的 `SW-IMPL-POLICY` 选择：队列元素的 P-Port 生成 `QUEUED-SENDER-COM-SPEC`（以前统一为 `NONQUEUED-SENDER-COM-SPEC`）；R-Port 的 `Enable Update` 只作用于非队列元素、`Queue Length` 只作用于队列元素，两列不再互斥；填写的值不适用于任何元素时记录 WARNING 并忽略该列。
 - 访问类别与 AUTOSAR 约束冲突（队列元素使用 `Read` 或 `ReceiveByValue`、启用 update 的元素使用 `Read`）只记录 WARNING，访问点照常生成，由 EB 校验。
 - SHORT-NAME 或路径仅大小写不同（工作簿内部或与已有 ARXML 相比）只记录 WARNING，按不同对象生成；完全同名仍按原规则报错或复用。访问点去重和 `Data Accesses` 重复判定区分大小写，并加入 `Access Kind`。
-- 新增 ERROR：类型引用的元类型错误；含公式或控制字符（含换行）的单元格；目标 ARXML 声明非 UTF-8 编码；对 PR-Port 创建访问点；同一访问点的多行填写了不同的 `Access Name`（包括仅大小写不同，以前会静默合并）。
+- 新增 ERROR：类型引用的元类型错误；含公式或控制字符（含换行）的单元格；目标 ARXML 为 UTF-16/UTF-32 或 GBK 等多字节编码；对 PR-Port 创建访问点；同一访问点的多行填写了不同的 `Access Name`（包括仅大小写不同，以前会静默合并）。
+- 目标 ARXML 为 ISO-8859-1、Windows-1252 等单字节编码时，片段按该编码写入，无法表示的字符写成字符引用；以前片段固定按 UTF-8 写入，非 ASCII 字符会与文件声明的编码不一致。
 - 确定数据元素后合并重复访问请求，已有同类访问点引用相同端口和元素时直接复用（不论名称）。自动命名避让 runnable 下全部子对象名称。
 - 同次运行新建的 runnable 可被服务器调用点和数据访问点引用；单个 CS 对象失败只记 ERROR，不中断汇总。
 - 放宽：计算方法与数据约束的上下限按数值比较（`1.0` 与 `1` 相同）；`Array Size Semantics` 留空时不与已有数组比较。

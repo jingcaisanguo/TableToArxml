@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import codecs
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -61,17 +62,56 @@ CHILD_ORDER: dict[str, tuple[str, ...]] = {
 
 
 _XML_DECLARATION = re.compile(rb"\A(?:\xef\xbb\xbf)?\s*<\?xml\b[^>]*?\bencoding\s*=\s*[\"']([^\"']*)[\"']")
+_ASCII = bytes(range(128))
+# 多字节编码的探测字符：单字节编码无法编码它们，多字节编码会得到多个字节。
+_MULTI_BYTE_PROBES = ("\u4e2d", "\u3042", "\uac00")
+
+
+def source_encoding(source: bytes) -> str:
+    """返回文件编码（Python 编解码器名称）：按 UTF-16 BOM 或 XML 声明判断，未声明时按 XML 规范视为 UTF-8。"""
+
+    if source[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return "utf-16"
+    match = _XML_DECLARATION.match(source)
+    if match is None:
+        return "utf-8"
+    return match.group(1).decode("ascii", "replace").strip() or "utf-8"
+
+
+def _is_single_byte_ascii_compatible(encoding: str) -> bool:
+    try:
+        if _ASCII.decode(encoding) != _ASCII.decode("ascii"):
+            return False
+    except (LookupError, UnicodeDecodeError):
+        return False
+    for probe in _MULTI_BYTE_PROBES:
+        try:
+            if len(probe.encode(encoding)) > 1:
+                return False
+        except UnicodeEncodeError:
+            continue
+    return True
 
 
 def encoding_problem(source: bytes) -> str | None:
-    """片段按 UTF-8 写入，XML 声明了其他编码时插入会得到不一致的文件；返回问题描述。"""
+    """检查文件编码能否按字节定位并插入片段；返回问题描述，可修改时返回 ``None``。
 
-    match = _XML_DECLARATION.match(source)
-    if match is None or match.group(1).decode("ascii", "replace").casefold() == "utf-8":
+    UTF-8 及兼容 ASCII 的单字节编码（ISO-8859-x、Windows-125x 等）可以修改，片段按声明的编码写入，
+    无法表示的字符写成字符引用。UTF-16/32 不兼容 ASCII，GBK 等多字节编码 armodel 无法解析，均不支持。
+    """
+
+    if source[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in source[:4]:
+        return "UTF-16/UTF-32 ARXML cannot be modified; convert it to UTF-8"
+    encoding = source_encoding(source)
+    try:
+        codec = codecs.lookup(encoding).name
+    except LookupError:
+        return f"XML declaration encoding {encoding!r} is unknown"
+    if codec == "utf-8" or _is_single_byte_ascii_compatible(codec):
         return None
     return (
-        f"XML declaration encoding {match.group(1).decode('ascii', 'replace')!r} is not supported; "
-        "only UTF-8 ARXML can be modified"
+        f"XML declaration encoding {encoding!r} is not supported for modification; use UTF-8 or a "
+        "single-byte encoding such as ISO-8859-1"
     )
 
 
@@ -128,7 +168,7 @@ def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
             closing = source.find(b"</SHORT-NAME>", match.end())
             owner = stack[-2]
             if closing >= 0 and owner.path is None:
-                name = source[match.end():closing].strip().decode("utf-8")
+                name = source[match.end():closing].strip().decode(source_encoding(source), "replace")
                 owner.path = f"{owner.parent_path}/{name}"
     if stack:
         raise ValueError(f"Malformed ARXML: <{stack[-1].tag}> is not closed")
@@ -226,7 +266,8 @@ def insert_at_offset(
 
     ``offset`` 通常是父容器的结束标签，片段比该行多缩进两格；``child_indent`` 为假时
     ``offset`` 是兄弟元素的开始标签，片段与它同级缩进。``<TAG></TAG>`` 写在同一行的空容器
-    会把结束标签挪到新的一行。片段按 UTF-8 编码写入，因此标签、端口名等允许使用中文。
+    会把结束标签挪到新的一行。片段按文件声明的编码写入，该编码无法表示的字符（如 ISO-8859-1 文件中的中文）
+    写成 XML 字符引用，因此枚举标签等文本仍可使用中文。
     """
 
     line_start = source.rfind(b"\n", 0, offset) + 1
@@ -246,8 +287,11 @@ def insert_at_offset(
         before, after = newline, base_indentation
 
     indentation = base_indentation + b"  " if child_indent else base_indentation
+    encoding = source_encoding(source)
     encoded_fragments = [
-        newline.join(indentation + line.encode("utf-8") for line in fragment.splitlines())
+        newline.join(
+            indentation + line.encode(encoding, "xmlcharrefreplace") for line in fragment.splitlines()
+        )
         for fragment in fragments
     ]
     insertion = newline.join(encoded_fragments) + newline

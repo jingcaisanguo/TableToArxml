@@ -514,15 +514,41 @@ def test_control_characters_are_rejected(tmp_path):
     assert "Enumerations!Label2 contains control characters" in result.stderr
 
 
-def test_non_utf8_target_is_not_modified(tmp_path):
+def _convert_twins(tmp_path, encoding: str) -> None:
+    path = tmp_path / "twins.arxml"
+    text = path.read_text(encoding="utf-8").replace('encoding="UTF-8"', f'encoding="{encoding}"', 1)
+    path.write_bytes(text.encode(encoding))
+
+
+def test_single_byte_target_keeps_its_encoding(tmp_path):
+    write_twins(tmp_path, {
+        "Enumerations": [{"Type_Path": "/Pkg/E", "Value": "0", "Label": "caf\u00e9\u4e2d",
+                          "Implementation_Data_Type_Ref": "/Pkg/uint8", "Compu_Method_Ref": "/Pkg/E_cm",
+                          "Data_Constr_Ref": "/Pkg/E_dc", "Target_ARXML": "twins.arxml"}],
+    }, minimal=True)
+    _convert_twins(tmp_path, "ISO-8859-1")
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 0, result.stderr
+    data = (tmp_path / "out" / "twins.arxml").read_bytes()
+    assert data.startswith(b'<?xml version="1.0" encoding="ISO-8859-1"?>')
+    assert b"<VT>caf\xe9&#20013;</VT>" in data
+    assert ET.fromstring(data).find(".//ar:VT", {"ar": "http://autosar.org/schema/r4.0"}).text == "caf\u00e9\u4e2d"
+    assert rerun_on_output(tmp_path).returncode == 0
+
+
+@pytest.mark.parametrize("encoding, message", [
+    ("UTF-16", "UTF-16/UTF-32 ARXML cannot be modified"),
+    ("GBK", "multi-byte encodings are not supported"),
+])
+def test_unsupported_target_encodings_are_not_modified(tmp_path, encoding, message):
     write_twins(tmp_path, {
         "Components": [B],
         "P-Ports": [{"SW_C": "B", "Port_Name": "p_Out", "Port_Interface_Ref": "/Pkg/If"}],
     }, minimal=True)
-    patch_twins(tmp_path, 'encoding="UTF-8"', 'encoding="ISO-8859-1"')
+    _convert_twins(tmp_path, encoding)
     result = run_prepared_twins(tmp_path)
     assert result.returncode == 1
-    assert "XML declaration encoding 'ISO-8859-1' is not supported" in result.stderr
+    assert message in result.stderr
     assert not (tmp_path / "out").exists()
 
 

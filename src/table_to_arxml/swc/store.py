@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import logging
 import tempfile
 import xml.etree.ElementTree as ET
@@ -83,10 +84,12 @@ class SourceStore:
             return self._short_name_index
         index: dict[str, list[Path]] = defaultdict(list)
         for arxml_file in arxml_files:
+            source = self.read(arxml_file)
+            encoding = xml_patch.source_encoding(source)
             try:
-                text = self.read(arxml_file).decode("utf-8-sig")
-            except UnicodeDecodeError as error:
-                LOGGER.error("Cannot read UTF-8 ARXML %s: %s", arxml_file, clean_message(error))
+                text = source.decode("utf-8-sig" if codecs.lookup(encoding).name == "utf-8" else encoding)
+            except (LookupError, UnicodeDecodeError) as error:
+                LOGGER.error("Cannot read %s ARXML %s: %s", encoding.upper(), arxml_file, clean_message(error))
                 continue
             try:
                 root = ET.fromstring(text)
@@ -142,7 +145,7 @@ class SourceStore:
         return variants
 
     def encoding_problem(self, path: Path) -> str | None:
-        """要插入片段的文件声明了非 UTF-8 编码时返回问题描述。"""
+        """要插入片段的文件编码不支持按字节修改时返回问题描述（见 :func:`xml_patch.encoding_problem`）。"""
 
         problem = xml_patch.encoding_problem(self.read(path))
         return None if problem is None else f"{path}: {problem}"
