@@ -107,37 +107,71 @@ def test_publish_creates_draft_then_publishes(tmp_path, monkeypatch, publisher):
 
 
 @pytest.mark.parametrize("draft", [False, True])
-def test_recovery_only_uploads_missing_assets(tmp_path, monkeypatch, publisher, draft):
+@pytest.mark.parametrize("recover", [False, True])
+@pytest.mark.parametrize("existing_count", [0, 1])
+def test_existing_release_only_uploads_missing_assets(
+    tmp_path, monkeypatch, publisher, draft, recover, existing_count,
+):
     publish, _ = publisher
     names = assets(tmp_path)
     calls = release_gh(monkeypatch, publish, [{
-        "tag_name": "1.2.3", "assets": [{"name": names[0]}], "draft": draft,
+        "tag_name": "1.2.3",
+        "assets": [{"name": name} for name in names[:existing_count]],
+        "draft": draft, "name": "User title", "body": "User notes", "prerelease": True,
     }])
-    publish("1.2.3", True, tmp_path)
-    assert calls[1:] == [("release", "upload", "1.2.3", str(tmp_path / names[1]))]
+    publish("1.2.3", recover, tmp_path)
+    assert calls[1:] == [
+        ("release", "upload", "1.2.3", str(tmp_path / name))
+        for name in names[existing_count:]
+    ]
     assert not any("--clobber" in call for call in calls)
 
 
-@pytest.mark.parametrize("recover,exists,message", [
-    (False, True, "already exists"),
-    (True, False, "requires an existing release"),
-])
-def test_preflight_rejects_wrong_release_state(monkeypatch, publisher, recover, exists, message):
+def test_recovery_requires_existing_release(monkeypatch, publisher):
     _, preflight = publisher
-    release_gh(monkeypatch, preflight, [{"tag_name": "1.2.3"}] if exists else [])
-    with pytest.raises(ValueError, match=message):
-        preflight("1.2.3", recover)
+    release_gh(monkeypatch, preflight, [])
+    with pytest.raises(ValueError, match="requires an existing release"):
+        preflight("1.2.3", True)
 
 
-def test_recovery_refuses_completed_release(tmp_path, monkeypatch, publisher):
+@pytest.mark.parametrize("recover", [False, True])
+@pytest.mark.parametrize("draft", [False, True])
+def test_completed_release_is_successful_noop(tmp_path, monkeypatch, publisher, recover, draft):
     publish, _ = publisher
     names = assets(tmp_path)
     calls = release_gh(monkeypatch, publish, [{
-        "tag_name": "1.2.3", "assets": [{"name": name} for name in names], "draft": False,
+        "tag_name": "1.2.3", "assets": [{"name": name} for name in names], "draft": draft,
     }])
-    with pytest.raises(ValueError, match="nothing to recover"):
-        publish("1.2.3", True, tmp_path)
+    publish("1.2.3", recover, tmp_path)
     assert len(calls) == 1
+
+
+def test_release_created_after_preflight_is_reused(tmp_path, monkeypatch, publisher):
+    publish, preflight = publisher
+    names = assets(tmp_path)
+    release_gh(monkeypatch, preflight, [])
+    assert preflight("1.2.3", False) is None
+    calls = release_gh(monkeypatch, publish, [{
+        "tag_name": "1.2.3", "assets": [], "draft": False,
+    }])
+    publish("1.2.3", False, tmp_path)
+    assert calls[1:] == [
+        ("release", "upload", "1.2.3", str(tmp_path / name)) for name in names
+    ]
+
+
+def test_upload_failure_is_reported(tmp_path, monkeypatch, publisher):
+    publish, _ = publisher
+    assets(tmp_path)
+
+    def failing_upload(*arguments):
+        if arguments[0] == "api":
+            return json.dumps([[{"tag_name": "1.2.3", "assets": [], "draft": False}]])
+        raise subprocess.CalledProcessError(1, arguments, stderr="Upload failed")
+
+    monkeypatch.setitem(publish.__globals__, "gh", failing_upload)
+    with pytest.raises(subprocess.CalledProcessError):
+        publish("1.2.3", False, tmp_path)
 
 
 def test_api_failure_is_not_treated_as_missing_release(tmp_path, monkeypatch, publisher):

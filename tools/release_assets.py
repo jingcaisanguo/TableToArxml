@@ -1,4 +1,4 @@
-"""Publish new releases or explicitly restore missing assets without overwriting."""
+"""Publish releases or fill missing assets without overwriting existing content."""
 
 from __future__ import annotations
 
@@ -28,12 +28,6 @@ def release_state(tag: str, recover: bool) -> dict | None:
     release = next((item for page in pages for item in page if item["tag_name"] == tag), None)
     if recover and release is None:
         raise ValueError(f"Recovery requires an existing release: {tag}")
-    if not recover and release is not None:
-        raise ValueError(f"Release {tag} already exists; use explicit missing-asset recovery")
-    if recover and release is not None:
-        existing = {asset["name"] for asset in release["assets"]}
-        if set(asset_names(tag)) <= existing:
-            raise ValueError(f"Release {tag} has all expected assets; nothing to recover")
     return release
 
 
@@ -49,6 +43,9 @@ def publish(tag: str, recover: bool, directory: Path) -> None:
         return
     existing = {asset["name"] for asset in release["assets"]}
     missing = [name for name in names if name not in existing]
+    if not missing:
+        print(f"Release {tag} has all expected assets; nothing to upload")
+        return
     for name in missing:
         gh("release", "upload", tag, str(directory / name))
         print(f"Restored missing asset: {name}")
