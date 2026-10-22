@@ -147,7 +147,7 @@ CI 对 armodel 1.8.7、1.9.2、1.9.8 运行这些测试；依赖上限为 `1.9.8
 | --- | --- | --- |
 | [tests.yml](../../.github/workflows/tests.yml) | 源码、文档、测试、工具脚本、模板或依赖变更、PR、手动及发布调用 | Ubuntu/Windows × Python 3.9/3.13 × armodel 1.8.7/1.9.2/1.9.8：ruff、全部测试和环境脚本语法检查 |
 | [wheel.yml](../../.github/workflows/wheel.yml) | 源码、打包、交付文档或样例变更、PR、手动 | 构建安装 wheel，在仓库外检查命令、依赖、配置错误退出码及 BCM/MC/SWC 基线，打包用户说明并上传 artifact |
-| [release.yml](../../.github/workflows/release.yml) | 推送 `x.y.z` 标签 | 构建、校验版本、发布到 GitHub Release，见 [release.md](release.md) |
+| [release.yml](../../.github/workflows/release.yml) | 推送 `x.y.z` 标签、公开发布 Release 或手动补齐附件 | 构建、校验版本、创建 Release 或补齐缺失附件，保留已有发布信息，见 [release.md](release.md) |
 
 ## 内部工程集成
 
