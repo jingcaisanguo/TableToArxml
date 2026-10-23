@@ -169,7 +169,7 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
     # 依赖检查通过后才导入 armodel 相关模块，版本不符时给出明确错误而非导入异常。
     from .arxml_generator import generate_composition_arxml
     from .arxml_model import ArxmlModel
-    from .base_merge import merge_base_connections
+    from .base_merge import merge_base_arxml, prepare_base_model
     from .green_table import merge_green_workbooks
     from .green_to_white import generate_white_table
     from .white_table import read_composition_input
@@ -215,6 +215,11 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
         results: list[tuple[Path, Path]] = []
         for index, job in enumerate(jobs):
             LOGGER.info("Generating %s from %s", job.output_prefix, job.config_path)
+            mergeable_interface_mapping_sets: frozenset[str] = frozenset()
+            if index in bases:
+                base_model, mergeable_interface_mapping_sets = prepare_base_model(
+                    bases[index], staging / "merge-inputs" / f"{index}.arxml", model.document)
+                model.add(base_model)
             if job.white_input is not None:
                 white_table_path = job.white_table
                 composition_input = job.white_input
@@ -232,12 +237,13 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 output_file=staging / f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}",
                 system_mapping=job.system_mapping, ar_release=job.ar_release,
                 interface_mismatch=job.mismatch_policy, interface_mappings=job.interface_mappings,
-                generate_system=job.generate_system)
+                generate_system=job.generate_system, additive=index in bases,
+                mergeable_interface_mapping_sets=mergeable_interface_mapping_sets)
             if index in bases:
                 system = model.find_system(composition_input.general["System"])
                 if system is None:
                     raise ValueError(f"System '{composition_input.general['System']}' was not found")
-                merge_base_connections(
+                merge_base_arxml(
                     composition_arxml, bases[index], model.document,
                     composition_input.general["Composition"], system.getFullName(),
                 )

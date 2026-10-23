@@ -93,11 +93,13 @@ table-to-swc-arxml --help
 | [green_to_white.py](../../src/table_to_arxml/system/green_to_white.py) | 绿表转白表 |
 | [white_table.py](../../src/table_to_arxml/system/white_table.py) | 白表布局、创建、格式化和读取 |
 | [arxml_generator.py](../../src/table_to_arxml/system/arxml_generator.py) | 解析白表引用并用 armodel 生成输出；连接器命名见 `connector_name` |
-| [base_merge.py](../../src/table_to_arxml/system/base_merge.py) | 可选 `merge` 输出模式：按 AUTOSAR 路径保留同名 base 的连线及信号映射，合并去重并检查引用，不复制无关配置 |
+| [base_merge.py](../../src/table_to_arxml/system/base_merge.py) | 可选 `merge` 输出模式：保留完整 base XML，按 AUTOSAR 路径增量追加表格对象，去重并检查冲突与引用 |
 
 - 多个配置共用一次 `ArxmlModel.load`；生成的 ARXML 写到独立文档，加载的模型保留给后续配置复用。
-- `outputMode` 默认 `replace`，保留原有生成结果；`merge` 只把本配置唯一同名 base 的连接器、信号映射及必要接口映射合入暂存 ARXML，
-  在 `model.add` 前完成，后续配置能引用合并结果。base 从加载集合排除，输出与 base 重合时报错；所有合并检查成功后才原子发布。
+- `outputMode` 默认 `replace`，保留原有生成结果；`merge` 以本配置唯一同名 base 的原始 XML 为基础，仅追加缺失的表格对象及必要依赖。
+  base 的定义通过临时解析片段加入模型，片段不含 CONNECTORS 和 System MAPPINGS，避免旧连线被提前跳过或 base 映射被误判为外部不可拆分映射。
+  合并时保留 base 的属性、其他对象、注释和元数据；已有实例不重新生成 ECU/实现映射。最终合并结果在后续配置执行前加入模型。
+  输出与 base 重合时报错；所有合并检查成功后才原子发布，解析片段不发布。
 - 产物先写到临时目录，没有工具自身 ERROR 或运行异常时才发布到输出目录；armodel 解析器诊断不单独决定失败。
 - 组合实例链只在 `ArxmlModel.composition_chains` 中实现，嵌套上限为 `MAX_COMPOSITION_DEPTH`；总线类型统一由 `bus_module` 判断。
 - 输出是对已有元素的拆分片段：`_Resolver.check_composition_names` 检查目标 Composition 命名空间（同名报错、仅大小写不同只警告），`resolve_system`

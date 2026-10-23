@@ -2,7 +2,7 @@
 
 TableToArxml 提供两个 Python 命令行工具，把 Excel 表格中的 AUTOSAR 配置转换为 ARXML：
 
-- **System 工具**：由绿表生成白表和 Composition/System ARXML，也支持直接从白表生成 ARXML；可选择保留同名 base 文件中的连线和信号映射。
+- **System 工具**：由绿表生成白表和 Composition/System ARXML，也支持直接从白表生成 ARXML；可选择以同名 base 文件为基础增量添加 SWC 实例、连线和信号映射。
 - **SWC 工具**：根据工作簿向已有 ARXML 增量添加组件端口、接口、数据类型和 RTE 访问对象。
 
 两个工具随同一个 `table-to-arxml` wheel 安装，适用于 Python 3.9 及以上版本。

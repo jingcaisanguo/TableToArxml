@@ -87,7 +87,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | `--log-dir` | 指定日志目录，覆盖 `logDir`；参数或配置必须提供，无默认值；不能与产物目录相同 |
 | `--log-level` | 覆盖 `logLevel`，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
 | `--white-table` | 强制白表模式并使用该白表，忽略 config 的 `greenTables`/`whiteTable`；未传时按 config 中写了哪个字段自动选择模式；只能配合单个 `--config` |
-| `--output-mode` | 覆盖 `outputMode`，`replace` 为默认完整生成；`merge` 保留 lst 中同名 base 的连线及信号映射，再合并本次表格结果 |
+| `--output-mode` | 覆盖 `outputMode`，`replace` 为默认完整生成；`merge` 以 lst 中同名 base 为基础，仅增量添加 SWC 实例、连线和信号映射 |
 
 ### 输出模式
 
@@ -95,7 +95,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 输出到 `outputDir`，不保留旧文件中的手工连线或映射。“完整生成”仍遵循下文的 split 输出规则，
 不表示把工程所有输入 ARXML 打包成一个文件。
 
-需要保留手动添加的连线时，设置顶层参数 `outputMode = "merge"`，或运行：
+需要基于已有文件增量添加内容时，设置顶层参数 `outputMode = "merge"`，或运行：
 
 ```powershell
 table-to-system-arxml --config ./config/system.toml --output-mode merge
@@ -104,21 +104,24 @@ table-to-system-arxml --config ./config/system.toml --output-mode merge
 - base 来自本配置使用的 lst，文件名为 `<outputPrefix>System.arxml`，匹配不区分大小写；
   复用 lst 与 EB 生成 lst 均支持。路径展开、去重和用户排除规则照常生效；
   必须恰好找到一个文件，否则报错，不会从 output 目录自行寻找，也不会退回 `replace`。
-- base 不进入输入模型，避免旧产物影响本次表格生成；合并结果仍写到 output，禁止输出路径与 base 为同一个文件。
-- 只保留 Composition 的 `CONNECTORS`，以及 SystemMapping 的
-  `SENDER-RECEIVER-TO-SIGNAL-MAPPING` / `SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING`。
-  连线引用且仅存在于 base 的接口映射定义会一并保留；为使保留的连线引用有效，也会复制 base 中缺失的组件原型和端口原型依赖，不复制无关对象。
-- 按完整 AUTOSAR 路径匹配 Composition 和 System；base 中有待保留的连线或信号映射，
-  但本次输出未生成对应对象时明确报错。例如 base 有信号映射时不能设置 `generateSystem = false`。
-- base 保留内容的引用必须能在当前输入模型或本次输出中找到，元类型须匹配。
-  对于未复制的依赖（例如组件类型），应先在其他输入文件或当前表格中提供定义。
-- 相同连线或映射不重复添加；同名连线内容不同、相同引用的映射配置不同等冲突报错，不静默覆盖。
+- 以完整 base XML 为输出起点，保留其已有 SWC 实例、端口、连线、各类映射、系统属性、其他对象及元数据。
+  XML 缩进、命名空间前缀和编码可能重新序列化，不保证输出与原文件逐字节一致。
+  合并结果仍写到 output，禁止输出路径与 base 为同一个文件。
+- base 中的定义参与表格引用解析，因此白表可以 `Reference` 或 `Add` 一个仅在 base 中定义的已有实例。
+  `Add` 的同路径实例类型一致时复用，不重复创建，也不重新生成其 ECU/实现映射；类型不一致报错。
+- 按完整 AUTOSAR 路径向目标 Composition/System 追加表格请求的缺失 SWC 实例、连线、
+  `SENDER-RECEIVER-TO-SIGNAL-MAPPING` / `SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING`，
+  以及新实例所需的 ECU/实现映射、连线所需的外部端口和接口映射。不删除或覆盖 base 对象，也不把其他输入文件整体复制进输出。
+- `generateSystem = false` 只关闭本次 System 映射生成，不删除 base 中已有的 System 或信号映射。
+- 相同连线或映射不重复添加，保留 base 的原名称和元数据；同名连线端点不同、相同引用的映射配置不同等冲突报错，不静默覆盖。
+  新增内容及目标 base 连线/信号映射的引用须能在输入模型或合并输出中找到，元类型须匹配。
   不比较文件 AUTOSAR 版本，不做总线拓扑或类型兼容深校验。
 - 任一合并失败，本次所有配置均不发布产物；base 不会被修改。
 
 多配置：重复 `--config` 时各配置共用一次 ARXML 加载，避免重复解析工程 ARXML。
 
-- 加载集合是各配置清单的并集，并排除所有配置本次要生成的 `<outputPrefix>System.arxml`。
+- 初始加载集合是各配置清单的并集，并排除所有配置本次要生成的 `<outputPrefix>System.arxml`；
+  `merge` 配置处理前会另外加载其 base 的定义供解析引用，完整 XML 则独立保留用于增量输出。
 - 按 `--config` 顺序依次生成；前一个配置新生成的 ARXML 会追加到模型中，因此被引用的配置要排在前面（例如 B 配置引用 A 配置新增的实例时，A 须在前）。
 - 各配置的 `outputPrefix` 不能重复或仅大小写不同，开始生成前会检查最终输出路径；未传 `--log-level` 时，各配置写了的 `logLevel` 必须一致，否则报错。
 - 未传 `--output-dir` 或 `--log-dir` 时，每份配置必须提供对应的 `outputDir` 或 `logDir`，且各自解析后的目录必须一致。

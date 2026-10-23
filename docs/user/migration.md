@@ -7,8 +7,10 @@
 
 新增顶层配置 `outputMode` 和命令行 `--output-mode`。不填写时仍为 `replace`，现有脚本及样例行为不变。
 显式选择 `merge` 时，从 lst 中匹配唯一的 `<outputPrefix>System.arxml`，
-将其中的连线、信号/信号组映射及连线所需接口映射合入本次生成结果，仍写到 output，不修改 base。
-其他 base 内容不复制；找不到唯一 base、引用缺失或合并冲突时阻止写出。
+以完整 base 为输出起点，仅追加表格请求且尚不存在的 SWC 实例、连线、信号/信号组映射及必要依赖，仍写到 output，不修改 base。
+与早期“重新生成后只保留 base 连线和信号映射”的 merge 实现不同，现在保留全部 base 内容，不删除或覆盖已有对象；
+相同对象复用，类型、连线或映射冲突时报错。`generateSystem = false` 不再移除 base 中已有的 System 内容。
+找不到唯一 base、引用缺失或合并冲突时阻止写出。TOML 和兼容的 JSON 配置使用相同规则。
 完整边界见 [System 输出模式](system/README.md#输出模式)。
 
 ## 绿表页签命名调整

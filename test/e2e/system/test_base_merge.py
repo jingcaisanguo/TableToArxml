@@ -1,4 +1,4 @@
-"""System output modes preserve only selected base content without modifying the source."""
+"""System merge preserves the complete base and appends table objects without modifying the source."""
 
 import shutil
 import json
@@ -56,7 +56,7 @@ def prepare_base(directory, mapped=False):
 
 
 @pytest.mark.parametrize("mode", ["default", "replace", "merge"])
-def test_output_mode_retains_only_connections_and_signal_mappings(tmp_path, mode):
+def test_output_mode_preserves_complete_base_only_in_merge_mode(tmp_path, mode):
     base = prepare_base(tmp_path)
     before = base.read_bytes()
     config = write_config(tmp_path, generateSystem=True, **({} if mode == "default" else {"outputMode": mode}))
@@ -67,7 +67,7 @@ def test_output_mode_retains_only_connections_and_signal_mappings(tmp_path, mode
     paths = [item.text for item in root.findall(".//ar:SYSTEM-SIGNAL-REF", NS)]
     assert set(paths) == ({"/Pkg/Signal", "/Pkg/Signal2"} if mode == "merge" else {"/Pkg/Signal2"})
     assert len(root.findall(".//ar:SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING", NS)) == (1 if mode == "merge" else 0)
-    assert "UnrelatedBaseSignal" not in (tmp_path / "out" / base.name).read_text(encoding="utf-8")
+    assert ("UnrelatedBaseSignal" in (tmp_path / "out" / base.name).read_text(encoding="utf-8")) == (mode == "merge")
     assert base.read_bytes() == before
 
 
@@ -91,7 +91,7 @@ def test_merge_deduplicates_and_cli_overrides_configuration(tmp_path):
 
 @pytest.mark.parametrize("problem", [
     "missing", "ambiguous", "excluded", "broken", "missing-reference", "wrong-dest",
-    "conflict", "system-disabled", "overlap",
+    "conflict", "overlap",
 ])
 def test_merge_errors_do_not_publish_or_modify_base(tmp_path, problem):
     base = prepare_base(tmp_path)
@@ -117,9 +117,6 @@ def test_merge_errors_do_not_publish_or_modify_base(tmp_path, problem):
             "Components": COMPONENTS, "AssemblySwConnection": [ASSEMBLY],
         })
         base.write_text(base.read_text(encoding="utf-8").replace("/Pkg/A/pOut", "/Pkg/A/pWide"), encoding="utf-8")
-    elif problem == "system-disabled":
-        options["generateSystem"] = False
-        write_white_table(tmp_path, {"Components": COMPONENTS})
     else:
         options["outputDir"] = "."
     before = base.read_bytes()
@@ -140,7 +137,7 @@ def test_merge_creates_signal_mapping_container_when_table_has_no_signals(tmp_pa
     assert len(root.findall(".//ar:SENDER-RECEIVER-TO-SIGNAL-MAPPING", NS)) == 1
 
 
-def test_merge_ignores_connections_from_non_target_compositions(tmp_path):
+def test_merge_preserves_non_target_compositions_without_moving_their_connectors(tmp_path):
     base = prepare_base(tmp_path)
     tree = ET.parse(base)
     elements = tree.getroot().find("ar:AR-PACKAGES/ar:AR-PACKAGE/ar:ELEMENTS", NS)
@@ -158,7 +155,10 @@ def test_merge_ignores_connections_from_non_target_compositions(tmp_path):
     result = run_tool(SYSTEM, "--config", write_config(tmp_path, generateSystem=True, outputMode="merge"))
     assert result.returncode == 0, result.stderr
     root = ET.parse(tmp_path / "out" / base.name).getroot()
-    assert not root.findall(".//ar:ASSEMBLY-SW-CONNECTOR", NS)
+    assert len(root.findall(".//ar:ASSEMBLY-SW-CONNECTOR", NS)) == 2
+    target = next(item for item in root.findall(".//ar:COMPOSITION-SW-COMPONENT-TYPE", NS)
+                  if item.findtext("ar:SHORT-NAME", namespaces=NS) == "Top")
+    assert not target.findall("ar:CONNECTORS/*", NS)
     assert len(root.findall(".//ar:SENDER-RECEIVER-TO-SIGNAL-MAPPING", NS)) == 1
 
 
@@ -174,7 +174,7 @@ def test_merge_preserves_only_required_interface_mapping_dependencies(tmp_path):
     assert not root.findall(".//ar:AR-PACKAGE/ar:AR-PACKAGES", NS)
 
 
-def test_merge_preserves_delegation_and_excludes_old_ecu_mappings(tmp_path):
+def test_merge_preserves_ports_and_system_when_system_generation_is_disabled(tmp_path):
     base = prepare_base(tmp_path)
     write_white_table(tmp_path, {
         "Components": COMPONENTS, "DelegationSwConnection": [["A", "pOut", "outer"]],
@@ -202,8 +202,8 @@ def test_merge_preserves_delegation_and_excludes_old_ecu_mappings(tmp_path):
     assert result.returncode == 0, result.stderr
     root = ET.parse(tmp_path / "out" / base.name).getroot()
     assert len(root.findall(".//ar:DELEGATION-SW-CONNECTOR", NS)) == 1
-    assert not root.findall(".//ar:PORTS", NS)
-    assert not root.findall(".//ar:SYSTEM-MAPPING", NS)
+    assert len(root.findall(".//ar:PORTS", NS)) == 1
+    assert root.find(".//ar:SYSTEM-MAPPING/ar:SHORT-NAME", NS).text == "OldEcuMapping"
 
 
 def test_merge_works_with_multiple_configurations_and_base_names(tmp_path):
@@ -288,4 +288,121 @@ def test_merge_rejects_splitting_an_external_system_mapping(tmp_path):
     assert result.returncode == 1, result.stderr
     assert "Cannot split existing SYSTEM-MAPPING" in result.stderr
     assert not (tmp_path / "new-output").exists()
+    assert base.read_bytes() == before
+
+
+def test_merge_adds_base_only_swc_references_and_is_repeatable(tmp_path):
+    base = prepare_base(tmp_path)
+    tree = ET.parse(base)
+    composition = tree.getroot().find(".//ar:COMPOSITION-SW-COMPONENT-TYPE", NS)
+    composition.set("UUID", "keep-composition-uuid")
+    composition.insert(1, ET.fromstring(f'<DESC xmlns="{NS["ar"]}"><L-2 L="EN">Keep base</L-2></DESC>'))
+    composition.append(ET.fromstring(f"""
+        <COMPONENTS xmlns="{NS['ar']}">
+          <SW-COMPONENT-PROTOTYPE UUID="keep-prototype-uuid"><SHORT-NAME>BaseOnly</SHORT-NAME>
+            <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/Pkg/A</TYPE-TREF>
+          </SW-COMPONENT-PROTOTYPE>
+          <SW-COMPONENT-PROTOTYPE><SHORT-NAME>Unrequested</SHORT-NAME>
+            <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/Pkg/B</TYPE-TREF>
+          </SW-COMPONENT-PROTOTYPE>
+        </COMPONENTS>"""))
+    tree.getroot().insert(0, ET.Comment("preserve base comment"))
+    tree.getroot().set("{http://www.w3.org/2001/XMLSchema-instance}schemaLocation",
+                       f"{NS['ar']} AUTOSAR_00048.xsd")
+    tree.write(base, encoding="utf-8", xml_declaration=True)
+    before = base.read_bytes()
+    write_white_table(tmp_path, {
+        "Components": [["BaseOnly", "BaseOnly", "/Pkg/A", "Add"], ["NewB", "NewB", "/Pkg/B", "Add"]],
+        "AssemblySwConnection": [["BaseOnly", "pOut", "NewB", "rIn"]],
+        "SenderReceiverToSignal": [["/Pkg/Signal2", "OUT", "BaseOnly", "pOut", "a"]],
+    })
+    config = write_config(tmp_path, outputMode="merge", generateSystem=True)
+    result = run_tool(SYSTEM, "--config", config)
+    assert result.returncode == 0, result.stderr
+    output = tmp_path / "out" / base.name
+    root = ET.parse(output).getroot()
+    composition = root.find(".//ar:COMPOSITION-SW-COMPONENT-TYPE", NS)
+    assert composition.get("UUID") == "keep-composition-uuid"
+    assert composition.findtext("ar:DESC/ar:L-2", namespaces=NS) == "Keep base"
+    assert root.get("{http://www.w3.org/2001/XMLSchema-instance}schemaLocation").endswith("AUTOSAR_00048.xsd")
+    assert "preserve base comment" in output.read_text(encoding="utf-8")
+    prototypes = composition.findall("ar:COMPONENTS/ar:SW-COMPONENT-PROTOTYPE", NS)
+    assert {item.findtext("ar:SHORT-NAME", namespaces=NS) for item in prototypes} == {
+        "BaseOnly", "Unrequested", "NewB"}
+    assert prototypes[0].get("UUID") == "keep-prototype-uuid"
+    assert len(root.findall(".//ar:ASSEMBLY-SW-CONNECTOR", NS)) == 2
+    assert len(root.findall(".//ar:SENDER-RECEIVER-TO-SIGNAL-MAPPING", NS)) == 2
+    ecu_components = root.findall(".//ar:SWC-TO-ECU-MAPPING/ar:COMPONENT-IREFS/ar:COMPONENT-IREF", NS)
+    assert len(ecu_components) == 1
+    assert ecu_components[0].findtext("ar:TARGET-COMPONENT-REF", namespaces=NS) == "/Pkg/Top/NewB"
+    assert base.read_bytes() == before
+    shutil.copyfile(output, base)
+    expected = output.read_bytes()
+    result = run_tool(SYSTEM, "--config", config)
+    assert result.returncode == 0, result.stderr
+    assert output.read_bytes() == expected
+
+
+def test_merge_rejects_changing_type_of_base_only_swc(tmp_path):
+    base = prepare_base(tmp_path)
+    tree = ET.parse(base)
+    composition = tree.getroot().find(".//ar:COMPOSITION-SW-COMPONENT-TYPE", NS)
+    composition.append(ET.fromstring(f"""
+        <COMPONENTS xmlns="{NS['ar']}"><SW-COMPONENT-PROTOTYPE><SHORT-NAME>BaseOnly</SHORT-NAME>
+          <TYPE-TREF DEST="APPLICATION-SW-COMPONENT-TYPE">/Pkg/A</TYPE-TREF>
+        </SW-COMPONENT-PROTOTYPE></COMPONENTS>"""))
+    tree.write(base, encoding="utf-8", xml_declaration=True)
+    before = base.read_bytes()
+    write_white_table(tmp_path, {"Components": [["BaseOnly", "BaseOnly", "/Pkg/B", "Add"]]})
+    result = run_tool(SYSTEM, "--config", write_config(tmp_path, outputMode="merge", outputDir="new-output"))
+    assert result.returncode == 1, result.stderr
+    assert "prototype type mismatch" in result.stderr
+    assert base.read_bytes() == before
+    assert not (tmp_path / "new-output").exists()
+
+
+def test_merge_keeps_base_connector_name_and_metadata_for_duplicate_endpoints(tmp_path):
+    base = prepare_base(tmp_path)
+    tree = ET.parse(base)
+    connector = tree.getroot().find(".//ar:ASSEMBLY-SW-CONNECTOR", NS)
+    connector.set("UUID", "keep-connector-uuid")
+    connector.find("ar:SHORT-NAME", NS).text = "ManualConnector"
+    connector.insert(1, ET.fromstring(f'<DESC xmlns="{NS["ar"]}"><L-2 L="EN">Manual metadata</L-2></DESC>'))
+    tree.write(base, encoding="utf-8", xml_declaration=True)
+    write_white_table(tmp_path, {"Components": COMPONENTS, "AssemblySwConnection": [ASSEMBLY]})
+    result = run_tool(SYSTEM, "--config", write_config(tmp_path, outputMode="merge"))
+    assert result.returncode == 0, result.stderr
+    connectors = ET.parse(tmp_path / "out" / base.name).findall(".//ar:ASSEMBLY-SW-CONNECTOR", NS)
+    assert len(connectors) == 1
+    assert connectors[0].findtext("ar:SHORT-NAME", namespaces=NS) == "ManualConnector"
+    assert connectors[0].get("UUID") == "keep-connector-uuid"
+    assert connectors[0].findtext("ar:DESC/ar:L-2", namespaces=NS) == "Manual metadata"
+
+
+def test_merge_appends_new_swc_to_existing_base_ecu_mapping(tmp_path):
+    base = prepare_base(tmp_path)
+    config = write_config(tmp_path, outputMode="merge", generateSystem=True)
+    for name, expected in (("First", {"/Pkg/Top/First"}), ("Second", {"/Pkg/Top/First", "/Pkg/Top/Second"})):
+        write_white_table(tmp_path, {"Components": [[name, name, "/Pkg/A", "Add"]]})
+        result = run_tool(SYSTEM, "--config", config)
+        assert result.returncode == 0, result.stderr
+        output = tmp_path / "out" / base.name
+        root = ET.parse(output).getroot()
+        mappings = root.findall(".//ar:SWC-TO-ECU-MAPPING", NS)
+        assert len(mappings) == 1
+        assert {item.text for item in mappings[0].findall(
+            "ar:COMPONENT-IREFS/ar:COMPONENT-IREF/ar:TARGET-COMPONENT-REF", NS)} == expected
+        shutil.copyfile(output, base)
+
+
+def test_merge_appends_required_mapping_to_existing_base_interface_mapping_set(tmp_path):
+    base = prepare_base(tmp_path, mapped=True)
+    before = base.read_bytes()
+    write_white_table(tmp_path, {"Components": COMPONENTS, "AssemblySwConnection": [["A", "pWide", "B", "rIn"]]})
+    result = run_tool(SYSTEM, "--config", write_config(tmp_path, outputMode="merge", interfaceMismatch="map"))
+    assert result.returncode == 0, result.stderr
+    root = ET.parse(tmp_path / "out" / base.name).getroot()
+    assert len(root.findall(".//ar:PORT-INTERFACE-MAPPING-SET", NS)) == 1
+    assert len(root.findall(".//ar:VARIABLE-AND-PARAMETER-INTERFACE-MAPPING", NS)) == 2
+    assert len(root.findall(".//ar:ASSEMBLY-SW-CONNECTOR", NS)) == 2
     assert base.read_bytes() == before

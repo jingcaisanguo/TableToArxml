@@ -483,8 +483,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-mode",
         choices=OUTPUT_MODES,
-        help="replace: generate from tables only (default); merge: also retain base connectors and signal "
-             "mappings from the unique same-named ARXML in the list. Overrides config.outputMode",
+        help="replace: generate from tables only (default); merge: preserve the complete unique same-named "
+             "base ARXML in the list and append missing table objects. Overrides config.outputMode",
     )
     parser.add_argument(
         "--white-table",

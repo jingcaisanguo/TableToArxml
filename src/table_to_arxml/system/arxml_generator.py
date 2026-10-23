@@ -165,11 +165,13 @@ class _Resolver:
     def __init__(
         self, document: AUTOSAR, data: CompositionInput, interface_mismatch: str,
         interface_mappings: dict[tuple[str, str], dict[str, str]], system_mapping: str = "",
+        mergeable_interface_mapping_sets: frozenset[str] = frozenset(),
     ) -> None:
         self.document = document
         self.data = data
         self.interface_mismatch = interface_mismatch
         self.configured_interface_mappings = interface_mappings
+        self.mergeable_interface_mapping_sets = mergeable_interface_mapping_sets
         self.generated_interface_mappings: dict[str, _InterfaceMapping] = {}
         self.model = ArxmlModel(document, [], [])
         self.composition_path = autosar_path(data.general["Composition"], "General.Composition", 2)
@@ -259,7 +261,7 @@ class _Resolver:
                 raise ValueError(f"prototype type mismatch: {instance_path}")
         if action == "add" and existing is not None:
             LOGGER.info(
-                "%s: prototype %s already exists; it is not re-created, only its System mappings are generated",
+                "%s: prototype %s already exists; its definition is reused",
                 row.location, instance_path)
         implementation = ""
         if action == "add" and isinstance(component_type, AtomicSwComponentType):
@@ -406,7 +408,7 @@ class _Resolver:
                 "no data elements can be paired by name, configure interfaceMappings.dataElements")
         package_path, _, composition_name = self.composition_path.rpartition("/")
         set_path = f"{package_path}/{generated_name(composition_name + '_InterfaceMappings')}"
-        if self.lookup("find", set_path) is not None:
+        if self.lookup("find", set_path) is not None and set_path not in self.mergeable_interface_mapping_sets:
             raise ValueError(
                 f"PORT-INTERFACE-MAPPING-SET {set_path} already exists in the loaded ARXML; its "
                 "PORT-INTERFACE-MAPPINGS cannot be split across files, add the mapping there or configure "
@@ -720,7 +722,7 @@ def _component_iref(component: _Component, root: str, context: list[str]) -> Com
     return iref.setTargetComponentRef(_reference("SW-COMPONENT-PROTOTYPE", component.instance_path))
 
 
-def _write_model(document: AUTOSARDoc, resolver: _Resolver, generate_system: bool) -> None:
+def _write_model(document: AUTOSARDoc, resolver: _Resolver, generate_system: bool, additive: bool = False) -> None:
     parts = resolver.composition_path.strip("/").split("/")
     package = document.createARPackage(parts[0])
     for package_name in parts[1:-1]:
@@ -735,7 +737,8 @@ def _write_model(document: AUTOSARDoc, resolver: _Resolver, generate_system: boo
                 element_mapping.setFirstDataPrototypeRef(_reference("VARIABLE-DATA-PROTOTYPE", first))
                 element_mapping.setSecondDataPrototypeRef(_reference("VARIABLE-DATA-PROTOTYPE", second))
                 interface_mapping.addDataMapping(element_mapping)
-    added = sorted((component for component in resolver.components.values() if component.action == "add"),
+    added = sorted((component for component in resolver.components.values()
+                    if component.action == "add" and (not additive or not component.exists)),
                    key=lambda component: component.name)
     for component in added:
         if component.exists:
@@ -832,15 +835,18 @@ def generate_composition_arxml(
     interface_mismatch: str,
     interface_mappings: dict[tuple[str, str], dict[str, str]],
     generate_system: bool,
+    additive: bool = False,
+    mergeable_interface_mapping_sets: frozenset[str] = frozenset(),
 ) -> Path:
-    resolver = _Resolver(document, data, interface_mismatch, interface_mappings, system_mapping)
+    resolver = _Resolver(
+        document, data, interface_mismatch, interface_mappings, system_mapping, mergeable_interface_mapping_sets)
     resolver.resolve()
     if generate_system:
         resolver.resolve_system()
     # 写到独立文档，保留已加载的模型供后续配置复用；arRelease 只决定输出声明，不与输入版本比对。
     output = AUTOSARDoc()
     output.setARRelease(ar_release)
-    _write_model(output, resolver, generate_system)
+    _write_model(output, resolver, generate_system, additive)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     SystemArxmlWriter().save(str(output_file), output)
     LOGGER.info("Composition ARXML done: %s assemblies, %s delegations, %s signal mappings -> %s",
