@@ -91,7 +91,7 @@ def test_merge_deduplicates_and_cli_overrides_configuration(tmp_path):
 
 @pytest.mark.parametrize("problem", [
     "missing", "ambiguous", "excluded", "broken", "missing-reference", "wrong-dest",
-    "conflict", "wrong-composition", "system-disabled", "overlap",
+    "conflict", "system-disabled", "overlap",
 ])
 def test_merge_errors_do_not_publish_or_modify_base(tmp_path, problem):
     base = prepare_base(tmp_path)
@@ -117,9 +117,6 @@ def test_merge_errors_do_not_publish_or_modify_base(tmp_path, problem):
             "Components": COMPONENTS, "AssemblySwConnection": [ASSEMBLY],
         })
         base.write_text(base.read_text(encoding="utf-8").replace("/Pkg/A/pOut", "/Pkg/A/pWide"), encoding="utf-8")
-    elif problem == "wrong-composition":
-        base.write_text(base.read_text(encoding="utf-8").replace("<SHORT-NAME>Top</SHORT-NAME>",
-                                                              "<SHORT-NAME>OtherTop</SHORT-NAME>"), encoding="utf-8")
     elif problem == "system-disabled":
         options["generateSystem"] = False
         write_white_table(tmp_path, {"Components": COMPONENTS})
@@ -140,6 +137,28 @@ def test_merge_creates_signal_mapping_container_when_table_has_no_signals(tmp_pa
     assert result.returncode == 0, result.stderr
     root = ET.parse(tmp_path / "out" / base.name).getroot()
     assert len(root.findall(".//ar:SYSTEM-MAPPING", NS)) == 1
+    assert len(root.findall(".//ar:SENDER-RECEIVER-TO-SIGNAL-MAPPING", NS)) == 1
+
+
+def test_merge_ignores_connections_from_non_target_compositions(tmp_path):
+    base = prepare_base(tmp_path)
+    tree = ET.parse(base)
+    elements = tree.getroot().find("ar:AR-PACKAGES/ar:AR-PACKAGE/ar:ELEMENTS", NS)
+    composition = next(item for item in elements.findall("ar:COMPOSITION-SW-COMPONENT-TYPE", NS)
+                       if item.findtext("ar:SHORT-NAME", namespaces=NS) == "Top")
+    composition.find("ar:SHORT-NAME", NS).text = "OtherTop"
+    elements.append(ET.fromstring(f"""
+        <COMPOSITION-SW-COMPONENT-TYPE xmlns="{NS['ar']}">
+          <SHORT-NAME>Other</SHORT-NAME><CONNECTORS>
+            <ASSEMBLY-SW-CONNECTOR><SHORT-NAME>unrelated</SHORT-NAME></ASSEMBLY-SW-CONNECTOR>
+          </CONNECTORS>
+        </COMPOSITION-SW-COMPONENT-TYPE>"""))
+    tree.write(base, encoding="utf-8", xml_declaration=True)
+    write_white_table(tmp_path, {"Components": COMPONENTS})
+    result = run_tool(SYSTEM, "--config", write_config(tmp_path, generateSystem=True, outputMode="merge"))
+    assert result.returncode == 0, result.stderr
+    root = ET.parse(tmp_path / "out" / base.name).getroot()
+    assert not root.findall(".//ar:ASSEMBLY-SW-CONNECTOR", NS)
     assert len(root.findall(".//ar:SENDER-RECEIVER-TO-SIGNAL-MAPPING", NS)) == 1
 
 

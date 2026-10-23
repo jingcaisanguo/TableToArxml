@@ -107,11 +107,11 @@ table-to-system-arxml --config ./config/system.toml --output-mode merge
 - base 不进入输入模型，避免旧产物影响本次表格生成；合并结果仍写到 output，禁止输出路径与 base 为同一个文件。
 - 只保留 Composition 的 `CONNECTORS`，以及 SystemMapping 的
   `SENDER-RECEIVER-TO-SIGNAL-MAPPING` / `SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING`。
-  连线引用且仅存在于 base 的接口映射定义会一并保留；其他类型、组件实例、端口、ECU/实现映射、系统属性等不从 base 复制。
+  连线引用且仅存在于 base 的接口映射定义会一并保留；为使保留的连线引用有效，也会复制 base 中缺失的组件原型和端口原型依赖，不复制无关对象。
 - 按完整 AUTOSAR 路径匹配 Composition 和 System；base 中有待保留的连线或信号映射，
   但本次输出未生成对应对象时明确报错。例如 base 有信号映射时不能设置 `generateSystem = false`。
 - base 保留内容的引用必须能在当前输入模型或本次输出中找到，元类型须匹配。
-  若手工连线依赖仅存在于 base 的组件或端口，应先在其他输入文件或当前表格中提供定义。
+  对于未复制的依赖（例如组件类型），应先在其他输入文件或当前表格中提供定义。
 - 相同连线或映射不重复添加；同名连线内容不同、相同引用的映射配置不同等冲突报错，不静默覆盖。
   不比较文件 AUTOSAR 版本，不做总线拓扑或类型兼容深校验。
 - 任一合并失败，本次所有配置均不发布产物；base 不会被修改。

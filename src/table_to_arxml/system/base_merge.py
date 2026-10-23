@@ -27,6 +27,13 @@ def _name(element: ET.Element) -> str:
     return element.findtext("ar:SHORT-NAME", default="", namespaces=NS)
 
 
+def _warn_name(name: str, context: str) -> None:
+    try:
+        short_name(name, context)
+    except ValueError as error:
+        LOGGER.warning("%s; preserving the existing base object: %s", error, name)
+
+
 def _index(root: ET.Element) -> dict[str, ET.Element]:
     result: dict[str, ET.Element] = {}
 
@@ -103,6 +110,37 @@ def _owner(index: dict[str, ET.Element], path: str, tag: str) -> ET.Element:
     return owner
 
 
+def _retain_connection_dependency(
+    path: str,
+    base: dict[str, ET.Element],
+    root: ET.Element,
+    document: AUTOSAR,
+    tag: str,
+    container_name: str,
+) -> ET.Element | None:
+    source = base.get(path)
+    if source is None or source.tag != _tag(tag):
+        raise ValueError(f"Base connection references a missing {tag}: {path}")
+    owner_path, _, name = path.rpartition("/")
+    generated = _index(root)
+    owner = generated.get(owner_path)
+    if owner is None:
+        raise ValueError(f"Cannot retain base {tag}; generated owner is missing: {owner_path}")
+    if owner.tag != _tag("COMPOSITION-SW-COMPONENT-TYPE"):
+        raise ValueError(f"Cannot retain base {tag}; owner is not a Composition: {owner_path}")
+    for sibling_container in ("COMPONENTS", "PORTS", "CONNECTORS"):
+        for sibling in owner.findall(f"ar:{sibling_container}/*", NS):
+            if _name(sibling) != name:
+                continue
+            if sibling.tag != source.tag or _signature(sibling) != _signature(source):
+                raise ValueError(f"Base connection dependency conflicts with generated object: {path}")
+            return
+    retained = deepcopy(source)
+    _container(owner, container_name, ("PORTS", "CONNECTORS")).append(retained)
+    LOGGER.info("Retained base connection dependency: %s", path)
+    return retained
+
+
 def _retain_interface_mapping(
     path: str, base: dict[str, ET.Element], root: ET.Element, document: AUTOSAR,
 ) -> ET.Element | None:
@@ -140,7 +178,9 @@ def _retain_interface_mapping(
     return source
 
 
-def merge_base_connections(output_file: Path, base_file: Path, document: AUTOSAR) -> None:
+def merge_base_connections(
+    output_file: Path, base_file: Path, document: AUTOSAR, composition_path: str, system_path: str,
+) -> None:
     """Merge selected base subtrees; fail before publication on conflicts or dangling references."""
 
     LOGGER.info("Retaining connections and signal mappings from base ARXML: %s", base_file)
@@ -158,6 +198,8 @@ def merge_base_connections(output_file: Path, base_file: Path, document: AUTOSAR
     connectors = signals = 0
     for path, source in base.items():
         if source.tag == _tag("COMPOSITION-SW-COMPONENT-TYPE"):
+            if path != composition_path:
+                continue
             items = source.findall("ar:CONNECTORS/*", NS)
             if not items:
                 continue
@@ -167,7 +209,7 @@ def merge_base_connections(output_file: Path, base_file: Path, document: AUTOSAR
                 name = _name(item)
                 if not name:
                     raise ValueError(f"Base connector has no SHORT-NAME: {path}")
-                short_name(name, f"Base connector in {path}")
+                _warn_name(name, f"Base connector in {path}")
                 for container_name in ("PORTS", "COMPONENTS"):
                     if any(_name(child) == name for child in owner.findall(f"ar:{container_name}/*", NS)):
                         raise ValueError(f"Base connector conflicts with generated port or component: {path}/{name}")
@@ -175,6 +217,8 @@ def merge_base_connections(output_file: Path, base_file: Path, document: AUTOSAR
                     connectors += 1
                 retained.append(item)
         elif source.tag == _tag("SYSTEM"):
+            if path != system_path:
+                continue
             for mapping in source.findall("ar:MAPPINGS/ar:SYSTEM-MAPPING", NS):
                 items = [item for item in mapping.findall("ar:DATA-MAPPINGS/*", NS)
                          if item.tag in {_tag(name) for name in SIGNAL_MAPPINGS}]
@@ -190,7 +234,7 @@ def merge_base_connections(output_file: Path, base_file: Path, document: AUTOSAR
                 name = _name(mapping)
                 if not name:
                     raise ValueError(f"Base SYSTEM-MAPPING has no SHORT-NAME: {path}")
-                short_name(name, f"Base SYSTEM-MAPPING in {path}")
+                _warn_name(name, f"Base SYSTEM-MAPPING in {path}")
                 target = next((item for item in mappings if _name(item) == name), None)
                 if target is None:
                     if document.find(f"{path}/{name}") is not None:
@@ -207,6 +251,28 @@ def merge_base_connections(output_file: Path, base_file: Path, document: AUTOSAR
     }
     for path in sorted(dependencies):
         dependency = _retain_interface_mapping(path, base, root, document)
+        if dependency is not None:
+            retained.append(dependency)
+    dependencies = {
+        ((reference.text or "").strip(), reference.get("DEST", ""))
+        for item in tuple(retained)
+        for reference in item.iter()
+        if not len(reference) and reference.tag in {
+            _tag("CONTEXT-COMPONENT-REF"), _tag("TARGET-P-COMPONENT-REF"),
+            _tag("TARGET-P-PORT-REF"), _tag("TARGET-R-PORT-REF"), _tag("OUTER-PORT-REF"),
+        }
+    }
+    for path, destination in sorted(dependencies):
+        if not path or path in _index(root) or document.find(path) is not None:
+            continue
+        if destination == "SW-COMPONENT-PROTOTYPE":
+            dependency = _retain_connection_dependency(
+                path, base, root, document, "SW-COMPONENT-PROTOTYPE", "COMPONENTS")
+        elif destination in ("P-PORT-PROTOTYPE", "R-PORT-PROTOTYPE"):
+            dependency = _retain_connection_dependency(
+                path, base, root, document, destination, "PORTS")
+        else:
+            continue
         if dependency is not None:
             retained.append(dependency)
     merged = _index(root)

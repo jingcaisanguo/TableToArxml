@@ -234,7 +234,13 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 interface_mismatch=job.mismatch_policy, interface_mappings=job.interface_mappings,
                 generate_system=job.generate_system)
             if index in bases:
-                merge_base_connections(composition_arxml, bases[index], model.document)
+                system = model.find_system(composition_input.general["System"])
+                if system is None:
+                    raise ValueError(f"System '{composition_input.general['System']}' was not found")
+                merge_base_connections(
+                    composition_arxml, bases[index], model.document,
+                    composition_input.general["Composition"], system.getFullName(),
+                )
             if index < len(jobs) - 1:
                 # 同名旧文件已被排除，后续配置需要看到本次新生成的内容。
                 model.add(composition_arxml)
