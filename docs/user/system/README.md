@@ -87,6 +87,34 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | `--log-dir` | 指定日志目录，覆盖 `logDir`；参数或配置必须提供，无默认值；不能与产物目录相同 |
 | `--log-level` | 覆盖 `logLevel`，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
 | `--white-table` | 强制白表模式并使用该白表，忽略 config 的 `greenTables`/`whiteTable`；未传时按 config 中写了哪个字段自动选择模式；只能配合单个 `--config` |
+| `--output-mode` | 覆盖 `outputMode`，`replace` 为默认完整生成；`merge` 保留 lst 中同名 base 的连线及信号映射，再合并本次表格结果 |
+
+### 输出模式
+
+默认 `outputMode = "replace"` 保持原有行为：仅根据当前表格生成 Composition/System ARXML，
+输出到 `outputDir`，不保留旧文件中的手工连线或映射。“完整生成”仍遵循下文的 split 输出规则，
+不表示把工程所有输入 ARXML 打包成一个文件。
+
+需要保留手动添加的连线时，设置顶层参数 `outputMode = "merge"`，或运行：
+
+```powershell
+table-to-system-arxml --config ./config/system.toml --output-mode merge
+```
+
+- base 来自本配置使用的 lst，文件名为 `<outputPrefix>System.arxml`，匹配不区分大小写；
+  复用 lst 与 EB 生成 lst 均支持。路径展开、去重和用户排除规则照常生效；
+  必须恰好找到一个文件，否则报错，不会从 output 目录自行寻找，也不会退回 `replace`。
+- base 不进入输入模型，避免旧产物影响本次表格生成；合并结果仍写到 output，禁止输出路径与 base 为同一个文件。
+- 只保留 Composition 的 `CONNECTORS`，以及 SystemMapping 的
+  `SENDER-RECEIVER-TO-SIGNAL-MAPPING` / `SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING`。
+  连线引用且仅存在于 base 的接口映射定义会一并保留；其他类型、组件实例、端口、ECU/实现映射、系统属性等不从 base 复制。
+- 按完整 AUTOSAR 路径匹配 Composition 和 System；base 中有待保留的连线或信号映射，
+  但本次输出未生成对应对象时明确报错。例如 base 有信号映射时不能设置 `generateSystem = false`。
+- base 保留内容的引用必须能在当前输入模型或本次输出中找到，元类型须匹配。
+  若手工连线依赖仅存在于 base 的组件或端口，应先在其他输入文件或当前表格中提供定义。
+- 相同连线或映射不重复添加；同名连线内容不同、相同引用的映射配置不同等冲突报错，不静默覆盖。
+  不比较文件 AUTOSAR 版本，不做总线拓扑或类型兼容深校验。
+- 任一合并失败，本次所有配置均不发布产物；base 不会被修改。
 
 多配置：重复 `--config` 时各配置共用一次 ARXML 加载，避免重复解析工程 ARXML。
 

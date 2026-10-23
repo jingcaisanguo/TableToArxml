@@ -26,7 +26,7 @@ from ..common.errors import ConfigError
 from ..common.logs import setup_logging
 from ..common.messages import clean_message
 from ..common.output import write_files_atomically
-from ..common.paths import filesystem_path
+from ..common.paths import filesystem_path, validate_output_paths
 from .tresos_list import (
     generate_file_list,
     read_generated_list,
@@ -76,12 +76,16 @@ def _collect_arxml_paths(
 ) -> list[Path]:
     """用 EB 导入器生成清单（或复用已有清单），再读出本次需要加载的 ARXML。
 
-    两个阶段共用同一份文件集合，因此只需要加载一次；本次将要生成的同名 ARXML
-    必须排除，否则 composition 会把上一次的结果当成输入。
+    两个阶段共用同一份文件集合。merge 模式暂时保留本任务的同名 base 候选，
+    由调用方匹配并移出加载集合，避免把旧产物当成当前输入。
     """
 
     patterns = [*DEFAULT_EXCLUDE_PATTERNS, *job.exclude_patterns]
-    patterns.extend(rf".*[\\/]{re.escape(name)}$" for name in generated_arxml_names)
+    base_name = f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}"
+    patterns.extend(
+        rf".*[\\/]{re.escape(name)}$" for name in generated_arxml_names
+        if job.output_mode != "merge" or name != base_name
+    )
     excluded = options.exclude_arxml if options.exclude_arxml is not None else job.exclude_arxml
     exclusions = ArxmlExclusions(job.project_root, excluded, patterns)
     strict = options.strict_list if options.strict_list is not None else job.strict_list
@@ -165,6 +169,7 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
     # 依赖检查通过后才导入 armodel 相关模块，版本不符时给出明确错误而非导入异常。
     from .arxml_generator import generate_composition_arxml
     from .arxml_model import ArxmlModel
+    from .base_merge import merge_base_connections
     from .green_table import merge_green_workbooks
     from .green_to_white import generate_white_table
     from .white_table import read_composition_input
@@ -177,16 +182,32 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
         staging = Path(directory)
         generated_lists: dict[tuple, Path] = {}
         arxml_paths: list[Path] = []
+        bases: dict[int, Path] = {}
+        generated_keys = {name.casefold() for name in generated_names}
         seen: set[str] = set()
         for index, job in enumerate(jobs):
             list_name = f"{job.variant}.lst" if index == 0 else f"{job.variant}_{index}.lst"
             list_file, reuse_existing_list = _resolve_file_list(job, staging / list_name, options.arxml_file_list)
-            for path in _collect_arxml_paths(
-                    job, generated_names, list_file, reuse_existing_list, generated_lists, options):
+            paths = _collect_arxml_paths(
+                job, generated_names, list_file, reuse_existing_list, generated_lists, options)
+            if job.output_mode == "merge":
+                name = f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}"
+                candidates = [path for path in paths if path.name.casefold() == name.casefold()]
+                if len(candidates) != 1:
+                    raise ValueError(
+                        f"Merge mode requires exactly one base ARXML named {name} in {list_file}; "
+                        f"found {len(candidates)}: {', '.join(map(str, candidates))}")
+                bases[index] = candidates[0]
+                LOGGER.info("Merge base ARXML: %s", candidates[0])
+            for path in paths:
+                if path.name.casefold() in generated_keys:
+                    continue
                 key = os.path.normcase(str(path))
                 if key not in seen:
                     seen.add(key)
                     arxml_paths.append(path)
+        validate_output_paths(
+            (resolved_output_dir / name for name in generated_names), protected=bases.values())
         started = perf_counter()
         model = ArxmlModel.load(arxml_paths)
         LOGGER.info("Loaded %s ARXML files in %.1fs", len(model.paths), perf_counter() - started)
@@ -212,6 +233,8 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 system_mapping=job.system_mapping, ar_release=job.ar_release,
                 interface_mismatch=job.mismatch_policy, interface_mappings=job.interface_mappings,
                 generate_system=job.generate_system)
+            if index in bases:
+                merge_base_connections(composition_arxml, bases[index], model.document)
             if index < len(jobs) - 1:
                 # 同名旧文件已被排除，后续配置需要看到本次新生成的内容。
                 model.add(composition_arxml)
@@ -243,6 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             white_table=args.white_table,
             exclude_arxml=None if args.exclude_arxml is None else tuple(args.exclude_arxml),
             strict_list=args.strict_list,
+            output_mode=args.output_mode,
         )
         results = run(options)
     except ConfigError as exc:

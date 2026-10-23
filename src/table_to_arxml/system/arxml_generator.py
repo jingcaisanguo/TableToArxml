@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -33,7 +32,7 @@ from ..common.armodel_compat import (
 )
 from ..common.names import NAME_HASH_LENGTH, autosar_path, generated_name, short_name
 from .arxml_model import ArxmlModel
-from .values import ref_value
+from .values import class_destination, ref_value
 from .white_table import (
     ASSEMBLY_SHEET, COMPONENTS_SHEET, DELEGATION_SHEET, SIGNAL_GROUP_SHEET, SIGNAL_SHEET,
     CompositionInput, TableRow,
@@ -74,12 +73,6 @@ def disambiguated_connector_name(name: str, *parts: str) -> str:
 
     digest = sha256("\0".join(parts).encode("utf-8")).hexdigest()[:NAME_HASH_LENGTH]
     return generated_name(f"{name}_{digest}")
-
-
-def class_destination(element: object) -> str:
-    """由 armodel 类名得到 AUTOSAR DEST 字面量，如 ``SenderReceiverInterface`` -> ``SENDER-RECEIVER-INTERFACE``。"""
-
-    return re.sub(r"(?<!^)(?=[A-Z])", "-", type(element).__name__).upper()
 
 
 def _reference(destination: str, path: str) -> RefType:

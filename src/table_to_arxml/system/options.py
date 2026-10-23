@@ -27,12 +27,13 @@ DEFAULT_BUILD_TYPE = "Debug"
 # CMB 约定的 tresos 生成目录，EB 导入器把它作为 TRESOS_OUTPUT_BASE_DIR。
 DEFAULT_TRESOS_OUTPUT_BASE_DIR = "build/${variant}.${buildType}"
 INTERFACE_MISMATCH_POLICIES = ("error", "skip", "map")
+OUTPUT_MODES = ("replace", "merge")
 CONFIG_KEYS = frozenset({
     "defaultVariant", "buildType", "projectRoot", "logLevel", "outputDir", "logDir",
     "outputPrefix", "greenTables", "whiteTable", "tresosPreferenceFiles", "arxmlFileList", "strictList",
     "tresosOutputBaseDir", "excludeArxmlPatterns", "excludeArxml", "general", "componentAliases",
     "prototypePrefix", "e2eWrapperComponent", "signalPathTemplate", "arRelease", "interfaceMismatch",
-    "interfaceMappings", "generateSystem",
+    "interfaceMappings", "generateSystem", "outputMode",
 })
 GENERAL_CONFIG_KEYS = frozenset({"Composition", "System", "EcuInstance", "RootSwCompositionPrototype", "systemMapping"})
 INTERFACE_MAPPING_KEYS = {"providerInterface", "requesterInterface", "dataElements"}
@@ -52,6 +53,7 @@ class RunOptions:
     white_table: str | None = None
     exclude_arxml: tuple[str, ...] | None = None
     strict_list: bool | None = None
+    output_mode: str | None = None
 
 
 def _load_config(config_path: Path) -> dict:
@@ -214,6 +216,7 @@ class Job:
     build_type: str
     tresos_output_dir: Path | None
     strict_list: bool
+    output_mode: str
     green_tables: list[tuple[str, Path]] = field(default_factory=list)
     # 加载 ARXML 前预校验时解析的输入表，生成阶段直接复用，不再重复读取 Excel。
     green_infos: list[GreenWorkbookInfo] = field(default_factory=list)
@@ -242,6 +245,7 @@ def _prepare_job(
         "whiteTable": options.white_table,
         "excludeArxml": None if options.exclude_arxml is None else list(options.exclude_arxml),
         "strictList": options.strict_list,
+        "outputMode": options.output_mode,
     }
     for key, value in overrides.items():
         if value is None:
@@ -302,6 +306,9 @@ def _prepare_job(
     if mismatch_policy not in INTERFACE_MISMATCH_POLICIES:
         raise ConfigError("interfaceMismatch must be error, skip or map")
     generate_system = _boolean_option(config, "generateSystem", True)
+    output_mode = _string_option(config, "outputMode", "replace")
+    if output_mode not in OUTPUT_MODES:
+        raise ConfigError("config.outputMode must be replace or merge")
 
     arxml_file_list = None
     if "arxmlFileList" in config:
@@ -346,6 +353,7 @@ def _prepare_job(
         build_type=build_type,
         tresos_output_dir=tresos_output_dir,
         strict_list=_boolean_option(config, "strictList", False),
+        output_mode=output_mode,
     )
 
 
@@ -471,6 +479,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="append",
         help="Exclude a filename or projectRoot-relative ARXML path; repeat for multiple entries; "
              "overrides config.excludeArxml",
+    )
+    parser.add_argument(
+        "--output-mode",
+        choices=OUTPUT_MODES,
+        help="replace: generate from tables only (default); merge: also retain base connectors and signal "
+             "mappings from the unique same-named ARXML in the list. Overrides config.outputMode",
     )
     parser.add_argument(
         "--white-table",

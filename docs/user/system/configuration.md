@@ -17,6 +17,7 @@ logLevel = "INFO"
 outputDir = "output"
 logDir = "log"
 outputPrefix = "Bcm"
+outputMode = "replace"
 interfaceMismatch = "error"
 
 # 绿表模式（与 whiteTable 二选一）
@@ -49,6 +50,7 @@ EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
 | `outputDir`             | 路径字符串         | 与`--output-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录                                                                                                                                                                                                                         |
 | `logDir`                | 路径字符串         | 与`--log-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录；不能与产物目录相同                                                                                                                                                                                                        |
 | `outputPrefix`          | 字符串             | 必填非空值，例如`Bcm`；应仅填写名称前缀，不含目录、扩展名或 `System` 后缀                                                                                                                                                                                                                                       |
+| `outputMode` | 字符串 | 可选，默认 `replace`：只按表格完整生成本次 ARXML；`merge`：另外保留 lst 中唯一同名 base 文件的连线及信号映射；`--output-mode` 优先。两种模式都写入 `outputDir`，不是对 base 文件原地修改；详见 [输出模式](README.md#输出模式) |
 | `greenTables`           | 字符串或字符串数组 | 与`whiteTable` 二选一且不能同时存在；写则为绿表模式。具体`.xlsx` 文件或 glob，最终必须找到至少一个绿表                                                                                                                                                                                                          |
 | `whiteTable`            | 路径字符串         | 与`greenTables` 二选一且不能同时存在；写则为白表模式，直接由该白表生成并只发布 ARXML。基于配置目录，支持 `${variant}`；`--white-table` 可强制白表模式                                                                                                                                                         |
 | `tresosPreferenceFiles` | 字符串或字符串数组 | 仅 EB 模式必填；指向具体 XDM 文件，不展开 glob；有`arxmlFileList` 时可省略，即使保留也完全忽略                                                                                                                                                                                                                    |

@@ -93,8 +93,11 @@ table-to-swc-arxml --help
 | [green_to_white.py](../../src/table_to_arxml/system/green_to_white.py) | 绿表转白表 |
 | [white_table.py](../../src/table_to_arxml/system/white_table.py) | 白表布局、创建、格式化和读取 |
 | [arxml_generator.py](../../src/table_to_arxml/system/arxml_generator.py) | 解析白表引用并用 armodel 生成输出；连接器命名见 `connector_name` |
+| [base_merge.py](../../src/table_to_arxml/system/base_merge.py) | 可选 `merge` 输出模式：按 AUTOSAR 路径保留同名 base 的连线及信号映射，合并去重并检查引用，不复制无关配置 |
 
 - 多个配置共用一次 `ArxmlModel.load`；生成的 ARXML 写到独立文档，加载的模型保留给后续配置复用。
+- `outputMode` 默认 `replace`，保留原有生成结果；`merge` 只把本配置唯一同名 base 的连接器、信号映射及必要接口映射合入暂存 ARXML，
+  在 `model.add` 前完成，后续配置能引用合并结果。base 从加载集合排除，输出与 base 重合时报错；所有合并检查成功后才原子发布。
 - 产物先写到临时目录，没有工具自身 ERROR 或运行异常时才发布到输出目录；armodel 解析器诊断不单独决定失败。
 - 组合实例链只在 `ArxmlModel.composition_chains` 中实现，嵌套上限为 `MAX_COMPOSITION_DEPTH`；总线类型统一由 `bus_module` 判断。
 - 输出是对已有元素的拆分片段：`_Resolver.check_composition_names` 检查目标 Composition 命名空间（同名报错、仅大小写不同只警告），`resolve_system`
