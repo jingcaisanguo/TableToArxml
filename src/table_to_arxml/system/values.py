@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import re
+
 DEFAULT_PROTOTYPE_PREFIX = "its"
 DEFAULT_E2E_WRAPPER = "E2EWrapper"
 DEFAULT_SIGNAL_PATH_TEMPLATE = "/${channel}/Signal/${signal}"
 DEFAULT_AR_RELEASE = "R19-11"
+
+
+def class_destination(element: object) -> str:
+    """由 armodel 类名得到 AUTOSAR DEST 字面量。"""
+
+    return re.sub(r"(?<!^)(?=[A-Z])", "-", type(element).__name__).upper()
 
 
 def norm(value: object) -> str:

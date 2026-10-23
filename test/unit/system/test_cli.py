@@ -67,6 +67,7 @@ def test_config_is_required(tmp_path):
 
 @pytest.mark.parametrize("invalid, key, actual", [
     ({"strictList": "yes"}, "strictList", "'yes'"),
+    ({"outputMode": "append"}, "outputMode", "replace or merge"),
     ({"excludeArxml": ["good.arxml", 42]}, "excludeArxml[1]", "42"),
     ({"interfaceMappings": [
         {"providerInterface": "/Pkg/If", "requesterInterface": "/Pkg/Other", "dataElements": {"V": "V"}},
@@ -182,3 +183,32 @@ def test_cli_list_override_ignores_eb_configuration(tmp_path):
     config = write_config(tmp_path, tresosPreferenceFiles={"unused": True}, arxmlFileList=None)
     result = run_tool(SYSTEM, "--config", config, "--arxml-file-list", tmp_path / "model.lst")
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("mode", ["replace", "merge"])
+def test_eb_list_preserves_base_candidate_only_in_merge_mode(tmp_path, monkeypatch, mode):
+    from table_to_arxml.system.cli import _collect_arxml_paths
+    from table_to_arxml.system.options import RunOptions, prepare_jobs
+
+    write_model(tmp_path)
+    base = tmp_path / "TSystem.arxml"
+    base.write_text("base is not loaded as a model", encoding="utf-8")
+    prefs = tmp_path / "tresos" / ".prefs"
+    prefs.mkdir(parents=True)
+    (prefs / "importer.xdm").touch()
+    config_path = write_config(
+        tmp_path, outputMode=mode, tresosPreferenceFiles=["tresos/.prefs/importer.xdm"],
+    )
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    del config["arxmlFileList"]
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    options = RunOptions(config_paths=(config_path,))
+    job = prepare_jobs(options)[0]
+
+    def generate(preferences, output, list_file):
+        list_file.write_text("model.arxml\nTSystem.arxml\n", encoding="utf-8")
+
+    monkeypatch.setattr("table_to_arxml.system.cli.generate_file_list", generate)
+    paths = _collect_arxml_paths(job, [base.name], tmp_path / "generated.lst", False, {}, options)
+    assert (base in paths) == (mode == "merge")
+    assert tmp_path / "model.arxml" in paths

@@ -52,7 +52,7 @@ build/variantA.Debug/tresos/**/swcd/*.arxml
 
 | 规则 | 行为 |
 | --- | --- |
-| 即将生成的同名 ARXML | 自动排除任意目录下 `<outputPrefix>System.arxml`，文件名匹配不区分大小写，避免旧产物重新进入输入模型 |
+| 即将生成的同名 ARXML | 初始加载排除任意目录下 `<outputPrefix>System.arxml`，文件名匹配不区分大小写；`outputMode = "merge"` 时选取本配置唯一同名文件作为完整 base，其定义参与引用解析，仅向其追加表格请求的缺失对象，见 [输出模式](README.md#输出模式) |
 | 标定目录 | 内置正则排除 `dem/swcd_calibration/`、`dcm/swcd_calibration/` 下文件；这是本工具继承的过滤策略，不应理解为 EB 永远不会列出这些文件 |
 | `excludeArxmlPatterns` | 追加用户正则，不能取消内置排除 |
 
