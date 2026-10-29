@@ -87,7 +87,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | `--log-dir` | 指定日志目录，覆盖 `logDir`；参数或配置必须提供，无默认值；不能与产物目录相同 |
 | `--log-level` | 覆盖 `logLevel`，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
 | `--white-table` | 强制白表模式并使用该白表，忽略 config 的 `greenTables`/`whiteTable`；未传时按 config 中写了哪个字段自动选择模式；只能配合单个 `--config` |
-| `--output-mode` | 覆盖 `outputMode`，`replace` 为默认完整生成；`merge` 以 lst 中同名 base 为基础，仅增量添加 SWC 实例、连线和信号映射 |
+| `--output-mode` | 覆盖 `outputMode`，`replace` 为默认完整生成；`merge` 以 lst 中唯一同名 base 的完整内容为输出起点，仅追加表格请求的缺失对象及必要依赖 |
 
 ### 输出模式
 
