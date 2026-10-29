@@ -1,5 +1,7 @@
 """Literal paths and glob expressions share the same base-directory rules."""
 
+from pathlib import Path
+
 import pytest
 
 from table_to_arxml.common.paths import expand_path
@@ -25,3 +27,19 @@ def test_bracket_directory_is_not_part_of_glob_expression(tmp_path):
     assert resolve_config_path("*.xlsx", "workbook", None, project) == project / "one.xlsx"
     assert collect_green_workbooks(["*.xlsx"], "T", project) == [("one", project / "one.xlsx")]
     assert expand_path(project / "*.xlsx", tmp_path) == [project / "one.xlsx"]
+
+
+def test_wildcard_reported_as_existing_by_filesystem_is_still_expanded(tmp_path, monkeypatch):
+    tables = tmp_path / "greenTable" / "V"
+    tables.mkdir(parents=True)
+    (tables / "one.xlsx").touch()
+    pattern = tables / "*.xlsx"
+    exists, is_dir, is_file = Path.exists, Path.is_dir, Path.is_file
+    monkeypatch.setattr(Path, "exists", lambda self, *args, **kwargs: self == pattern or exists(self))
+    monkeypatch.setattr(Path, "is_dir", lambda self, *args, **kwargs: self == pattern or is_dir(self))
+    monkeypatch.setattr(Path, "is_file", lambda self, *args, **kwargs: self == pattern or is_file(self))
+    assert expand_path(pattern, tmp_path) == [tables / "one.xlsx"]
+    assert collect_green_workbooks([r"greenTable\${variant}\*.xlsx"], "V", tmp_path) == [
+        ("one", tables / "one.xlsx")
+    ]
+    assert resolve_config_path(r"greenTable\${variant}\*.xlsx", "workbook", "V", tmp_path) == tables / "one.xlsx"

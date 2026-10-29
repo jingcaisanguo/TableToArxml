@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -39,6 +40,14 @@ def test_entries_comments_quotes_backslashes_and_duplicates(project, caplog):
 def test_glob_entries_include_only_arxml(project):
     list_file = write_list(project, "sub/**/*.arxml", "*.*")
     assert names(read_arxml_list(list_file, project)) == ["b.arxml", "c.arxml", "a.arxml"]
+
+
+def test_glob_entry_reported_as_existing_file_is_still_expanded(project, monkeypatch):
+    pattern = project / "sub" / "*.arxml"
+    exists, is_file = Path.exists, Path.is_file
+    monkeypatch.setattr(Path, "exists", lambda self, *args, **kwargs: self == pattern or exists(self))
+    monkeypatch.setattr(Path, "is_file", lambda self, *args, **kwargs: self == pattern or is_file(self))
+    assert names(read_arxml_list(write_list(project, r"sub\*.arxml"), project, strict=True)) == ["b.arxml"]
 
 
 @pytest.mark.parametrize("entry, message", [

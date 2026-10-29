@@ -18,7 +18,7 @@ from ..common.config_file import read_config_file
 from ..common.errors import ConfigError
 from ..common.logs import LOG_LEVELS
 from ..common.messages import clean_message
-from ..common.paths import expand_path, filesystem_path
+from ..common.paths import expand_path, filesystem_path, literal_path_exists
 
 CONFIG_KEYS = (
     "defaultVariant",
@@ -82,7 +82,7 @@ def resolve_config_path(value: object, key: str, variant: str | None, config_dir
     except ValueError as error:
         raise ConfigError(f"Config option {key}: {error}") from error
     path = entry if entry.is_absolute() else config_dir / entry
-    if not path.exists() and glob.has_magic(str(entry)):
+    if glob.has_magic(str(entry)) and not literal_path_exists(path):
         directory = key in DIRECTORY_KEYS
         matches = sorted({
             candidate.resolve()

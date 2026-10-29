@@ -19,16 +19,34 @@ def filesystem_path(value: str) -> Path:
     return path
 
 
+def literal_path_exists(path: Path) -> bool:
+    """Some Windows drives report wildcard paths as existing, so check magic parts in the directory listing."""
+
+    if not path.exists():
+        return False
+    current = Path(path.anchor)
+    for part in path.parts[1 if path.anchor else 0:]:
+        if glob.has_magic(part):
+            try:
+                names = {os.path.normcase(entry.name) for entry in os.scandir(current)}
+            except OSError:
+                return False
+            if os.path.normcase(part) not in names:
+                return False
+        current /= part
+    return True
+
+
 def expand_path(entry: Path, base_dir: Path) -> list[Path]:
     """Prefer an existing literal path; expand only the caller's path expression."""
 
     candidate = entry if entry.is_absolute() else base_dir / entry
-    if candidate.exists() or not glob.has_magic(str(entry)):
+    if not glob.has_magic(str(entry)) or literal_path_exists(candidate):
         return [candidate]
     # Existing directory names (including brackets) are literals, not glob syntax.
     parent = candidate
     tail: list[str] = []
-    while not parent.is_dir() and parent != parent.parent:
+    while not (parent.is_dir() and literal_path_exists(parent)) and parent != parent.parent:
         tail.append(parent.name)
         parent = parent.parent
     pattern = str(Path(glob.escape(str(parent))).joinpath(*reversed(tail)))
