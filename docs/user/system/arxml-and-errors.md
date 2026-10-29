@@ -40,7 +40,7 @@ build/variantA.Debug/tresos/**/swcd/*.arxml
 1. 使用 UTF-8 文本，去除每行首尾空白及两端引号，跳过空行及以 `#` 开头的行。路径有空格无需加引号；不支持行尾注释、嵌套 `@其他清单` 或在行中展开 `${variant}`。清单规则与 `table-to-swc-arxml` 相同。
 2. 规范化目录分隔符；仅 EB 模式下，条目包含构建基目录的末级名称时，若下一层不是 `tresos`，就在其后补一层 `tresos`。例如 `build/variantA.Debug/bswm/swcd/a.arxml` 会补成 `build/variantA.Debug/tresos/bswm/swcd/a.arxml`。复用清单不做此补齐，须直接提供真实路径。
 3. 绝对路径直接使用。EB 模式的相对路径分别尝试 `projectRoot` 和从 XDM 推导出的 tresos 工程目录，**如果两处都存在，会都收集，不是只取第一处。** 复用清单的相对路径只基于 `projectRoot`。
-4. 支持 `*`、`?`、字符集合和递归 `**` 等 glob。只保留存在且扩展名为 `.arxml`（不区分大小写）的文件；单写目录不会递归扫描，需写 glob。
+4. 支持 `*`、`?`、字符集合和递归 `**` 等 glob；目录中确实存在完全同名的条目时按字面路径使用。只保留存在且扩展名为 `.arxml`（不区分大小写）的文件；单写目录不会递归扫描，需写 glob。
 5. 具体文件不存在、扩展名不是 `.arxml` 或 glob 无匹配时记录 `WARNING` 并跳过；`strictList` / `--strict-list` 为真时直接失败。被排除规则命中的不存在条目只记录 `INFO`。过滤后没有任何 ARXML 会报错。
 6. 解析到实际绝对路径后去重。同一物理路径只加载一次，但内容相同的不同文件不会按内容去重。
 
@@ -115,6 +115,7 @@ excludeArxmlPatterns = [
 | `tresos preference file does not exist` | 仅 EB 模式会检查；确认路径相对配置目录。已指定 lst 时不应出现此项检查 |
 | `No usable ARXML files found` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
 | `No green tables were selected` | 检查 glob、变体及相对配置目录的文件位置 |
+| `Green table file names must be AUTOSAR SHORT-NAMEs` | 列出的绿表文件名含 `-`、空格、中文、`[` 等字符或以数字开头；按 [绿表规则](green-table-rules.md#文件模块与页签) 改名，必要时配置 `componentAliases` |
 | `Cannot find the SW component type of green table(s)` | 绿表文件名未能匹配组件查询表；补齐输入类型/引用或修正文件名，任务退出 |
 | 纯组件模型没有 CAN/LIN | 允许；不检查物理通道 |
 | `System ... was not found` / `System is not defined` 或缺少 `RootSwCompositionPrototype` | System 必须已存在于输入；检查所选 System 的短名和定义，必要时显式填写根原型路径 |

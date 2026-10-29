@@ -55,7 +55,7 @@ python -m table_to_arxml.swc --config ./config/swc.toml
 
 使用虚拟环境时，确保 `python` 来自安装 wheel 的同一个环境。`pyproject.toml` 注册的安装命令是 `table-to-system-arxml` 和 `table-to-swc-arxml`，并不会创建名为 `table_to_arxml.system` 的终端命令。
 
-- 两个工具的配置文件使用 TOML 格式，见下文 [配置文件格式](#配置文件格式)。
+- 两个工具的配置文件推荐使用 TOML 格式，旧版 JSON 仍兼容，见下文 [配置文件格式](#配置文件格式)。
 - 两个工具可在命令行覆盖的配置项使用统一命名（如 `outputDir` 对应 `--output-dir`），命令行优先，参数名须完整书写。并非所有配置项都有命令行参数；System 的接口映射等选项只在配置文件中设置，完整列表见各工具说明。
 - 配置文件中的相对路径以配置文件所在目录为基准；命令行相对路径以当前工作目录为基准。
 - 日志目录必须通过 `--log-dir` 或配置指定；`table-to-system-arxml` 的产物目录也必须显式指定。安装后的命令不会向 `site-packages` 写配置、产物或日志。
@@ -84,4 +84,4 @@ greenTables = ["GreenTable/Bcm/*.xlsx"]
 Composition = "/ARDesign/SystemDesign/TopLevelComposition"
 ```
 
-旧版本使用的 JSON 配置文件仍兼容，可继续使用。
+旧版本使用的 JSON 配置文件仍兼容，可继续使用：扩展名为 `.toml` 的文件按 TOML 读取，其他扩展名一律按 JSON 读取，两种格式支持相同的配置项。

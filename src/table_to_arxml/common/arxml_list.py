@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
-from .paths import expand_path, filesystem_path
+from .paths import expand_path, filesystem_path, literal_path_exists
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def read_arxml_list(
             base / entry_path for base in (project_root, *search_dirs)
         ]
 
-        literal_matches = [path for path in bases if path.is_file()]
+        literal_matches = [path for path in bases if path.is_file() and literal_path_exists(path)]
         # 文件名本身可能含 ``[`` 等通配符字符：只要按字面存在，就不再当作通配符展开。
         if glob.has_magic(entry) and not literal_matches:
             candidates = sorted(
