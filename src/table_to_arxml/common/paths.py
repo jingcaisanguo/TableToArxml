@@ -37,16 +37,23 @@ def literal_path_exists(path: Path) -> bool:
     return True
 
 
-def expand_path(entry: Path, base_dir: Path) -> list[Path]:
-    """Prefer an existing literal path; expand only the caller's path expression."""
+def expand_path(entry: Path, base_dir: Path, *, literal_name: bool = True) -> list[Path]:
+    """Prefer an existing literal path; expand only the caller's path expression.
+
+    ``literal_name=False`` always expands wildcards in the final component, for inputs whose
+    names cannot legally contain glob characters.
+    """
 
     candidate = entry if entry.is_absolute() else base_dir / entry
-    if not glob.has_magic(str(entry)) or literal_path_exists(candidate):
+    if not glob.has_magic(str(entry)) or (
+            (literal_name or not glob.has_magic(entry.name)) and literal_path_exists(candidate)):
         return [candidate]
     # Existing directory names (including brackets) are literals, not glob syntax.
     parent = candidate
     tail: list[str] = []
-    while not (parent.is_dir() and literal_path_exists(parent)) and parent != parent.parent:
+    while parent == candidate or not (parent.is_dir() and literal_path_exists(parent)):
+        if parent == parent.parent:
+            break
         tail.append(parent.name)
         parent = parent.parent
     pattern = str(Path(glob.escape(str(parent))).joinpath(*reversed(tail)))

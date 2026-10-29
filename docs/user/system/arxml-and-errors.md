@@ -115,6 +115,7 @@ excludeArxmlPatterns = [
 | `tresos preference file does not exist` | 仅 EB 模式会检查；确认路径相对配置目录。已指定 lst 时不应出现此项检查 |
 | `No usable ARXML files found` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
 | `No green tables were selected` | 检查 glob、变体及相对配置目录的文件位置 |
+| `Green table file names must be AUTOSAR SHORT-NAMEs` | 列出的绿表文件名含 `-`、空格、中文、`[` 等字符或以数字开头；按 [绿表规则](green-table-rules.md#文件模块与页签) 改名，必要时配置 `componentAliases` |
 | `Cannot find the SW component type of green table(s)` | 绿表文件名未能匹配组件查询表；补齐输入类型/引用或修正文件名，任务退出 |
 | 纯组件模型没有 CAN/LIN | 允许；不检查物理通道 |
 | `System ... was not found` / `System is not defined` 或缺少 `RootSwCompositionPrototype` | System 必须已存在于输入；检查所选 System 的短名和定义，必要时显式填写根原型路径 |

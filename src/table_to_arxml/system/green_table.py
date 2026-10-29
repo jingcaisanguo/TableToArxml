@@ -14,6 +14,7 @@ from typing import Iterable
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
+from ..common.names import short_name
 from ..common.openpyxl_compat import copy_worksheet
 from ..common.paths import expand_path, filesystem_path
 from .values import norm
@@ -143,16 +144,20 @@ def collect_green_workbooks(
     variant: str,
     base_dir: Path,
 ) -> list[tuple[str, Path]]:
-    """展开绿表路径和 glob，以文件名 stem 作为 app 名并去重。"""
+    """展开绿表路径和 glob，以文件名 stem 作为 app 名并去重。
+
+    文件名即组件名，必须符合 AUTOSAR SHORT-NAME 规则，因此文件名部分的 ``*``、``?``、``[`` 总按通配符展开。
+    """
 
     result: list[tuple[str, Path]] = []
     seen_paths: set[Path] = set()
+    invalid_names: list[str] = []
     for entry in entries:
         rendered = norm(entry).replace("${variant}", variant)
         if not rendered:
             continue
         pattern = filesystem_path(rendered)
-        matches = expand_path(pattern, base_dir)
+        matches = expand_path(pattern, base_dir, literal_name=False)
 
         for match in sorted(matches, key=lambda path: str(path).casefold()):
             path = match.resolve()
@@ -160,10 +165,20 @@ def collect_green_workbooks(
                 continue
             if path.suffix.casefold() != ".xlsx" or not path.is_file():
                 raise FileNotFoundError(f"Green table does not exist: {path}")
+            try:
+                short_name(path.stem)
+            except ValueError:
+                invalid_names.append(str(path))
+                continue
             if path not in seen_paths:
                 seen_paths.add(path)
                 result.append((path.stem, path))
 
+    if invalid_names:
+        raise ValueError(
+            "Green table file names must be AUTOSAR SHORT-NAMEs (start with a letter, only ASCII letters, "
+            "digits and underscores, at most 128 characters) because they name components: "
+            + ", ".join(invalid_names))
     if not result:
         raise ValueError("No green tables were selected")
     return result
