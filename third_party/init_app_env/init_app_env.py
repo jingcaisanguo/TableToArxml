@@ -24,8 +24,8 @@ LOGGER = logging.getLogger("init_app_env")
 
 # wheel 文件名，按安装顺序排列；包名和版本自动读取。
 PIP_PACKAGES = (
+    # 按需填写需要安装的 wheel 文件名，按安装顺序排列。
     "armodel-1.9.2-py3-none-any.whl",
-    # 本仓库工具不使用，保留给外部工具。
     "py_eb_model-1.3.1-py3-none-any.whl",
     "table_to_arxml-0.3.0-py3-none-any.whl",
 )
