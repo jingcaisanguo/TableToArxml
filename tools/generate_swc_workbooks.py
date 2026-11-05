@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import ceil
 from pathlib import Path
 from unicodedata import east_asian_width
@@ -51,15 +51,21 @@ class Field:
 
 
 SWC = Field("SW-C", "必填", "—", "工作簿内组件标识；在 Components 中定义，不要求等于组件 SHORT-NAME。", "LIT", 14)
-TARGET = Field("Target ARXML", "必填", "—", "要插入对象的已有文件，相对 projectRoot；不是 outputDir 下的导出文件名。所在包也须已存在。", "arxml/Types.arxml", 46)
-TYPE_PATH = Field("Type Path", "必填", "—", "新建实现数据类型的完整 AUTOSAR 路径；同路径的成员/枚举行按顺序合并。", "/Pkg/Types/Mode", 46)
-INTERFACE_PATH = Field("Interface Path", "必填", "—", "新建接口的完整 AUTOSAR 路径；同路径的多行合并。", "/Pkg/Interfaces/Status", 46)
+TYPE_TARGET = Field("Target ARXML", "必填", "—", "要插入对象的已有文件，相对 projectRoot；不是 outputDir 下的导出文件名。所在包也须已存在。", "arxml/Types.arxml", 46)
+INTERFACE_TARGET = replace(TYPE_TARGET, example="arxml/Interfaces.arxml")
+ENUM_PATH = Field("Type Path", "必填", "—", "新建枚举实现数据类型的完整 AUTOSAR 路径；同路径的多行按行顺序合并为一个枚举的取值。", "/Pkg/Types/Mode", 46)
+ARRAY_PATH = Field("Type Path", "必填", "—", "新建数组实现数据类型的完整 AUTOSAR 路径；一行一个数组，本页内不能重复。", "/Pkg/Types/ModeArray", 46)
+STRUCT_PATH = Field("Type Path", "必填", "—", "新建结构体实现数据类型的完整 AUTOSAR 路径；同路径的多行按行顺序合并为一个结构体的成员。", "/Pkg/Types/Status", 46)
+SR_INTERFACE_PATH = Field("Interface Path", "必填", "—", "新建 SR 接口的完整 AUTOSAR 路径；同路径的多行按行顺序合并为一个接口的数据元素。", "/Pkg/Interfaces/Status", 46)
+CS_INTERFACE_PATH = Field("Interface Path", "必填", "—", "新建 CS 接口的完整 AUTOSAR 路径；同路径的多行合并为一个接口，按 Operation Name 分组。", "/Pkg/Interfaces/ModeService", 46)
 SERVICE = Field("Is Service", "可选", "N", "接口级 IS-SERVICE；同一接口的所有行必须一致。", "Y / N", 16, BOOLEAN_CHOICES)
-PORT_NAME = Field("Port Name", "必填", "—", "端口 SHORT-NAME；同一组件内 P/R 两页之间也不能重名。", "p_Status / r_Status", 28)
+P_PORT_NAME = Field("Port Name", "必填", "—", "端口 SHORT-NAME；同一组件内不能与其他端口重名。", "p_Status", 28)
+R_PORT_NAME = replace(P_PORT_NAME, example="r_Status")
 PORT_INTERFACE = Field("Port Interface Ref", "必填", "—", "已有或本次新建接口的完整路径。", "/Pkg/Interfaces/Status", 46)
-ARTIFACT = Field("Create RTE Artifact", "可选", "N", "Y：SR 按 Access Kind 创建全部元素的访问点；CS P 创建 runnable/event，CS R 创建同步调用点。不生成 C 源码。", "Y / N", 22, BOOLEAN_CHOICES)
-P_RUNNABLE = Field("Runnable Name", "SR 且 Artifact=Y 时必填", "CS 自动命名", "SR：已有 runnable 的简称。CS P：新建名称；留空用 RE_<端口>_<operation>，多 operation 时给手填名追加后缀。", "Run / RE_Service", 28)
-R_RUNNABLE = Field("Runnable Name", "Artifact=Y 时必填", "—", "组件内部行为中已有 runnable 的简称，不是完整 AUTOSAR 路径。", "Run", 28)
+P_ARTIFACT = Field("Create RTE Artifact", "可选", "N", "Y：SR 接口按 Access Kind 为全部数据元素创建发送/写访问点；CS 接口为每个 operation 新建 runnable 和 OPERATION-INVOKED-EVENT。不生成 C 源码。", "Y / N", 22, BOOLEAN_CHOICES)
+R_ARTIFACT = Field("Create RTE Artifact", "可选", "N", "Y：SR 接口按 Access Kind 为全部数据元素创建接收/读访问点；CS 接口为每个 operation 创建同步调用点。均创建在 Runnable Name 中，不生成 C 源码。", "Y / N", 22, BOOLEAN_CHOICES)
+P_RUNNABLE = Field("Runnable Name", "SR 且 Artifact=Y 时必填", "CS 自动命名", "SR：已有或本次新建 runnable 的简称。CS：新建 runnable 名称；留空用 RE_<端口>_<operation>，多 operation 时给手填名追加后缀。", "Run / RE_Service", 28)
+R_RUNNABLE = Field("Runnable Name", "Artifact=Y 时必填", "—", "已有或本次新建 runnable 的简称，不是完整 AUTOSAR 路径。", "Run", 28)
 P_ACCESS = Field("Access Kind", "可选", "Send", "仅 SR 且 Artifact=Y 生效；Send 为显式发送，Write 为隐式写访问。", "Send / Write", 26, ("Send", "Write"))
 R_ACCESS = Field("Access Kind", "可选", "ReceiveByArgument", "仅 SR 且 Artifact=Y 生效；ReceiveBy* 为显式接收，Read 为隐式读访问。", "ReceiveByValue / Read", 26, ("ReceiveByArgument", "ReceiveByValue", "Read"))
 
@@ -69,62 +75,62 @@ LAYOUT: dict[str, tuple[Field, ...]] = {
         Field("Component Path", "必填", "—", "清单中已有的软件组件类型路径；本页只建立映射，不新建组件。", "/BcmSystem/SwComponentTypes/LIT", 54),
     ),
     "Enumerations": (
-        TYPE_PATH,
+        ENUM_PATH,
         Field("Value", "必填", "—", "整数枚举值；同一类型内不能重复。", "0", 14, number="integer"),
         Field("Label", "必填", "—", "枚举值对应文本；同一类型内不能重复。", "Mode_Off", 28),
         Field("Implementation Data Type Ref", "必填", "—", "底层 IMPLEMENTATION-DATA-TYPE 的路径，不是 SW-BASE-TYPE。", "/AUTOSAR_Platform/ImplementationDataTypes/uint8", 46),
         Field("Compu Method Ref", "可选", "按 Type Path 推导", "生成的计算方法路径；默认同级 CompuMethods 包中的同名对象。", "/Pkg/CompuMethods/Mode", 40),
         Field("Data Constr Ref", "可选", "按 Type Path 推导", "生成的数据约束路径；默认同级 DataConstrs 包中的 dc_<类型名>。", "/Pkg/DataConstrs/dc_Mode", 40),
-        TARGET,
+        TYPE_TARGET,
     ),
     "Arrays": (
-        TYPE_PATH,
+        ARRAY_PATH,
         Field("Element Name", "必填", "—", "数组实现数据类型中的元素 SHORT-NAME。", "Element", 28),
         Field("Element Type Ref", "必填", "—", "数组元素的实现数据类型路径；引用其他元类（如 SW-BASE-TYPE）报错。", "/Pkg/Types/Mode", 46),
         Field("Array Size", "必填", "—", "正整数；VARIABLE-SIZE 时表示声明的最大长度。", "8", 16, number="positive_integer"),
         Field("Array Size Semantics", "可选", "FIXED-SIZE", "数组大小语义。", "FIXED-SIZE / VARIABLE-SIZE", 26, ARRAY_SIZE_SEMANTICS),
-        TARGET,
+        TYPE_TARGET,
     ),
     "Structures": (
-        TYPE_PATH,
+        STRUCT_PATH,
         Field("Member Name", "必填", "—", "一个成员一行；同一结构体成员名唯一，按行顺序生成。", "State", 28),
         Field("Member Type Ref", "必填", "—", "成员的实现数据类型路径，可引用本次新建的类型。", "/Pkg/Types/Mode", 46),
-        TARGET,
+        TYPE_TARGET,
     ),
     "SR-Interfaces": (
-        INTERFACE_PATH,
+        SR_INTERFACE_PATH,
         Field("Data Element Name", "必填", "—", "一个数据元素一行；同一接口内名称唯一。", "State", 28),
         Field("Data Type Ref", "必填", "—", "数据元素的数据类型路径（实现或应用数据类型），DEST 取被引用对象的元类。", "/Pkg/Types/Mode", 46),
         Field("Is Queued", "可选", "N", "Y 时生成 SW-IMPL-POLICY=QUEUED。", "Y / N", 16, BOOLEAN_CHOICES),
-        SERVICE, TARGET,
+        SERVICE, INTERFACE_TARGET,
     ),
     "CS-Interfaces": (
-        INTERFACE_PATH,
+        CS_INTERFACE_PATH,
         Field("Operation Name", "必填", "—", "一个参数一行；同一接口、同一 operation 的参数按行合并。无参数 operation 只填一行。", "Reset / SetMode", 28),
         Field("Argument Name", "有参数时必填", "全空表示无参数", "参数名、方向和类型必须全填或全空；同一 operation 不得混用无参数声明和参数行。", "Mode", 28),
         Field("Direction", "有参数时必填", "—", "参数方向；与 Argument Name、Data Type Ref 一起填写。", "IN / OUT / INOUT", 16, CS_ARGUMENT_DIRECTIONS),
         Field("Data Type Ref", "有参数时必填", "—", "参数的数据类型路径（实现或应用数据类型）；无参数 operation 留空。", "/Pkg/Types/Mode", 46),
-        SERVICE, TARGET,
+        SERVICE, INTERFACE_TARGET,
     ),
     "P-Ports": (
-        SWC, PORT_NAME, PORT_INTERFACE, ARTIFACT, P_RUNNABLE, P_ACCESS,
+        SWC, P_PORT_NAME, PORT_INTERFACE, P_ARTIFACT, P_RUNNABLE, P_ACCESS,
         Field("Transmission Acknowledge Timeout", "可选", "不生成", "SR 发送确认超时，单位秒；非负数，填写 0 也会触发 ComSpec 生成。", "0.01", 28, number="nonnegative"),
         Field("Uses End To End Protection", "可选", "N", "SR 发送端 E2E 标志；仅填 N 不会触发 ComSpec 生成。", "Y / N", 26, BOOLEAN_CHOICES),
-        Field("Runnable Symbol", "可选", "与新建 runnable 名相同", "仅 CS P 且 Artifact=Y 生效；C 函数符号，多 operation 时追加后缀。", "Service_Run", 28),
-        Field("Minimum Start Interval", "可选", "0.0 秒", "仅 CS P 且 Artifact=Y 生效；非负最小启动间隔，单位秒。", "0.01", 26, number="nonnegative"),
-        Field("Can Be Invoked Concurrently", "可选", "N", "仅 CS P 且 Artifact=Y 生效；允许并发调用。", "Y / N", 28, BOOLEAN_CHOICES),
+        Field("Runnable Symbol", "可选", "与新建 runnable 名相同", "仅 CS 接口且 Artifact=Y 生效；新建 runnable 的 C 函数符号，多 operation 时追加后缀。", "Service_Run", 28),
+        Field("Minimum Start Interval", "可选", "0.0 秒", "仅 CS 接口且 Artifact=Y 生效；新建 runnable 的非负最小启动间隔，单位秒。", "0.01", 26, number="nonnegative"),
+        Field("Can Be Invoked Concurrently", "可选", "N", "仅 CS 接口且 Artifact=Y 生效；新建 runnable 是否允许并发调用。", "Y / N", 28, BOOLEAN_CHOICES),
     ),
     "R-Ports": (
-        SWC, PORT_NAME, PORT_INTERFACE, ARTIFACT, R_RUNNABLE, R_ACCESS,
+        SWC, R_PORT_NAME, PORT_INTERFACE, R_ARTIFACT, R_RUNNABLE, R_ACCESS,
         Field("Enable Update", "可选", "N", "Y 时为非队列数据元素创建 NONQUEUED 接收 ComSpec（ENABLE-UPDATE）；全部元素为队列元素时 WARNING 并忽略。", "Y / N", 20, BOOLEAN_CHOICES),
         Field("Queue Length", "可选", "0 / 不生成", "非负整数；正数为队列元素（SW-IMPL-POLICY=QUEUED）生成 QUEUED 接收 ComSpec，没有队列元素时 WARNING 并忽略；0 或留空不生成。", "4", 20, number="nonnegative_integer"),
     ),
     "Data Accesses": (
         SWC,
-        Field("Runnable Name", "必填", "—", "已有或本次 CS P 新建 runnable 的简称；缺少访问点容器时自动创建。", "Run", 28),
+        Field("Runnable Name", "必填", "—", "已有或本次新建 runnable 的简称；缺少访问点容器时自动创建。", "Run", 28),
         Field("Port Name", "必填", "—", "已有或本次新建端口的 SHORT-NAME。", "r_Status", 28),
         Field("Data Element Name", "多元素接口时必填", "单元素自动选择", "只处理指定的数据元素。", "State", 28),
-        Field("Access Kind", "可选", "P: Send / R: ReceiveByArgument", "须匹配端口方向；本页可自定义名称或仅处理部分元素。", " / ".join(ACCESS_CHOICES), 26, ACCESS_CHOICES),
+        Field("Access Kind", "可选", "P: Send / R: ReceiveByArgument", "须匹配端口方向：P 端口用 Send / Write，R 端口用 ReceiveByArgument / ReceiveByValue / Read。", " / ".join(ACCESS_CHOICES), 26, ACCESS_CHOICES),
         Field("Access Name", "可选", "按端口名自动生成", "访问点 SHORT-NAME；同一 runnable 内不能冲突。", "dra_Status", 28),
     ),
 }
@@ -220,7 +226,7 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("流程 2：新接口", "类型（需要时）→ SR-Interfaces / CS-Interfaces → P/R-Ports。端口可以引用本次新建接口，接口可以引用本次新建类型。")
     paragraph("流程 3：访问点", "端口页 Artifact=Y：为全部元素自动创建；Data Accesses：只选部分元素或自定义名称。同一访问需求不要在两处重复填写。")
     paragraph("页签与表头", "未使用的工作表可以省略；有端口或访问点时必须提供 Components 映射。只接受本模板规定的页名和列名（不区分大小写），其他页名/列名报错；README 仅供阅读。第 1 行是表头，禁止增加标题行、空白分隔列或给列名加星号。")
-    paragraph("颜色与位置", "深蓝表头=必填，棕色=条件必填，灰蓝=可选；具体条件见批注。P/R 前六列位置一致，后面为 ComSpec 和 CS 服务端配置。点击各页 A1 返回本页说明。")
+    paragraph("颜色与位置", "深蓝表头=必填，棕色=条件必填，灰蓝=可选；具体条件见批注。P/R 前六列位置一致，后面为 ComSpec 列；P-Ports 最后三列为 CS 服务端配置。点击各页 A1 返回本页说明。")
     paragraph("路径与名称", "Path 是对象完整 AUTOSAR 路径（组件路径指已有对象）；Ref 是引用路径；Name 是 SHORT-NAME。SW-C 是工作簿标识。AUTOSAR 路径以 / 开头。")
     paragraph("名称校验", "新建 Name 和路径各段必须以 ASCII 字母开头，只含字母、数字、下划线，最长 128 字符。名称区分大小写；仅大小写不同只 WARNING，按不同对象生成，由 EB 校验。枚举 Label 可用中文，但非 C 标识符会 WARNING（RTE 可能需要 SYMBOL）；Runnable Symbol 使用 C 标识符。自动长名称截断并追加哈希。")
     paragraph("目标文件", "Target ARXML 相对 projectRoot，目标文件和所在包必须已存在；它不是导出路径。最终输出由 outputDir / inPlace / dryRun 控制。")
@@ -230,8 +236,8 @@ def make_readme(workbook: Workbook, sample: bool) -> dict[str, int]:
     paragraph("数据表操作", "每页使用 Excel 表格：从表格最后一个单元格按 Tab 追加行，筛选会自动扩展。若在表外粘贴，使用“调整表格大小”纳入新行；解析器仍读取整页。")
     paragraph("排序与合并", "批量数据优先逐行重复公共字段；合并单元格虽可读取，但不利于 Excel 表格排序/筛选，不建议在数据表中合并。")
     paragraph("列移动与下拉", "工具按列名读取；移动整列后应检查 Excel 数据验证范围。下拉、数值验证和批注用于辅助，复制粘贴仍须经工具校验。")
-    paragraph("SR P / SR R", "Artifact=Y 时必须指定已有 Runnable Name，缺少的访问点容器自动创建。P：Send（默认）/ Write；R：ReceiveByArgument（默认）/ ReceiveByValue / Read；队列元素用 ReceiveByValue / Read、Enable Update=Y 时用 Read 只 WARNING，由 EB 校验。")
-    paragraph("CS P / CS R", "CS P：每个 operation 新建 runnable/event；名称留空自动命名，多 operation 给手填名追加后缀。CS R：已有调用方 Runnable Name 必填，每个 operation 创建同步调用点（超时 0.0）。")
+    paragraph("SR P / SR R", "Artifact=Y 时必须指定已有或本次新建的 Runnable Name，缺少的访问点容器自动创建。P：Send（默认）/ Write；R：ReceiveByArgument（默认）/ ReceiveByValue / Read；队列元素用 ReceiveByValue / Read、Enable Update=Y 时用 Read 只 WARNING，由 EB 校验。")
+    paragraph("CS P / CS R", "CS P：每个 operation 新建 runnable/event；名称留空自动命名，多 operation 给手填名追加后缀。CS R：调用方 Runnable Name 必填（已有或本次新建），每个 operation 创建同步调用点（超时 0.0）。")
     paragraph("ComSpec 触发", "P：超时非空（含 0）或 E2E=Y，按元素 SW-IMPL-POLICY 生成 QUEUED / NONQUEUED 发送 ComSpec。R：Enable Update=Y 作用于非队列元素，Queue Length>0 作用于队列元素，不适用于任何元素时 WARNING 并忽略该列。仅填 N 或 Queue Length=0 不触发。")
     paragraph("已知限制", "组件、内部行为和 PORTS 容器须预先存在，访问点容器自动创建；不支持 PR-Port；CS 不生成应用错误；SR 接口以外不自动生成数据访问点。不接受公式和含换行/制表符的单元格。无参数 operation 的参数三列全空，不能混用同名有参数声明。")
     paragraph("精确类型", "枚举底层列引用 IMPLEMENTATION-DATA-TYPE，不是 SW-BASE-TYPE。所有时间间隔/超时单位为秒。")

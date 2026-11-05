@@ -97,6 +97,24 @@ def test_workbook_layout_and_validation(path):
         workbook.close()
 
 
+@pytest.mark.parametrize("path", [SAMPLE, TEMPLATE], ids=["sample", "blank"])
+def test_port_sheet_hints_only_describe_their_direction(path):
+    other_direction = {
+        "P-Ports": ("R-Port", "R 端口", "CS R", "P/R", "r_", "Receive", "Read", "接收", "同步调用点"),
+        "R-Ports": ("P-Port", "P 端口", "CS P", "P/R", "p_", "Send", "Write", "发送", "OPERATION-INVOKED-EVENT"),
+    }
+    workbook = load_workbook(path)
+    try:
+        for name, words in other_direction.items():
+            sheet = workbook[name]
+            hints = [cell.comment.text for cell in sheet[1]]
+            hints += [validation.prompt for validation in sheet.data_validations.dataValidation]
+            for hint in hints:
+                assert not [word for word in words if word in hint], (name, hint)
+    finally:
+        workbook.close()
+
+
 def test_workbooks_are_reproducible(tmp_path):
     result = run_python(
         f"import runpy, sys; sys.argv = ['generate_swc_workbooks', '--output-dir', {str(tmp_path)!r}]; "
