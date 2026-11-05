@@ -3,6 +3,39 @@
 from __future__ import annotations
 
 from copy import copy, deepcopy
+import logging
+from typing import Mapping
+
+from openpyxl.formula.tokenizer import Tokenizer, TokenizerError
+from openpyxl.utils.cell import quote_sheetname
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _rewrite_sheet_references(formula: str, sheet_names: Mapping[str, str], context: str) -> str:
+    names = {name.casefold(): target for name, target in sheet_names.items()}
+    try:
+        tokens = Tokenizer(formula)
+    except TokenizerError as error:
+        raise ValueError(f"Cannot rewrite formula in {context}: {error}") from error
+    for token in tokens.items:
+        if token.type != "OPERAND" or token.subtype != "RANGE" or "!" not in token.value:
+            continue
+        sheet, _, reference = token.value.rpartition("!")
+        if sheet.startswith("'") and sheet.endswith("'"):
+            sheet = sheet[1:-1].replace("''", "'")
+        if "[" in sheet:
+            continue  # External workbook references are not renamed.
+        parts = sheet.split(":")
+        if all(part.casefold() in names for part in parts):
+            target = ":".join(names[part.casefold()] for part in parts)
+            token.value = f"{quote_sheetname(target)}!{reference}"
+        else:
+            LOGGER.warning(
+                "Formula in %s references a worksheet not copied into the merged workbook: %s; "
+                "reference kept unchanged, verify it in Excel", context, sheet,
+            )
+    return tokens.render()
 
 
 def loaded_cells(sheet) -> dict:
@@ -11,7 +44,7 @@ def loaded_cells(sheet) -> dict:
     return sheet._cells
 
 
-def copy_worksheet(target_sheet, source_sheet) -> None:
+def copy_worksheet(target_sheet, source_sheet, *, sheet_names: Mapping[str, str] | None = None) -> None:
     """跨工作簿复制单个页签的内容、单元格样式和工作表格式。
 
     openpyxl 的 ``Workbook.copy_worksheet`` 只支持同一工作簿内复制，因此这里直接遍历
@@ -20,7 +53,17 @@ def copy_worksheet(target_sheet, source_sheet) -> None:
 
     for (row_index, column_index), source_cell in source_sheet._cells.items():
         target_cell = target_sheet.cell(row=row_index, column=column_index)
-        target_cell._value = source_cell._value
+        value = source_cell._value
+        if sheet_names is not None and source_cell.data_type == "f":
+            context = f"{source_sheet.title}!{source_cell.coordinate}"
+            if isinstance(value, str):
+                value = _rewrite_sheet_references(value, sheet_names, context)
+            elif hasattr(value, "text") and isinstance(value.text, str):
+                value = copy(value)
+                value.text = _rewrite_sheet_references(value.text, sheet_names, context)
+            else:
+                raise ValueError(f"Cannot rewrite unsupported formula in {context}")
+        target_cell._value = value
         target_cell.data_type = source_cell.data_type
         target_cell.font = copy(source_cell.font)
         target_cell.fill = copy(source_cell.fill)

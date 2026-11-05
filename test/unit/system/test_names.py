@@ -82,6 +82,36 @@ def test_merge_green_workbooks_with_colliding_names(tmp_path):
         result.close()
 
 
+@pytest.mark.parametrize("sheet_pair", [("R-Port", "P-Port"), ("INPUT", "OUTPUT")])
+def test_merge_formulas_use_final_sheet_names_even_after_collisions(tmp_path, sheet_pair):
+    source = tmp_path / "green.xlsx"
+    book = Workbook()
+    receive, send = sheet_pair
+    book.active.title = receive
+    book.create_sheet(send)["D2"] = 7
+    formula = f"='{send.lower()}'!$D$2+SUM('{receive}:{send}'!A1)+\"{send}!D2\"+'[Other.xlsx]{send}'!D2"
+    book[receive]["D2"] = formula
+    book.save(source)
+    book.close()
+    apps = ["A" * 40, "A" * 39 + "B"]
+    merged = merge_green_workbooks([(app, source) for app in apps], tmp_path / "merged.xlsx")
+    result = load_workbook(merged)
+    try:
+        for index in (0, 2):
+            new_receive, new_send = result.sheetnames[index:index + 2]
+            assert result[new_receive]["D2"].value == (
+                f"='{new_send}'!$D$2+SUM('{new_receive}:{new_send}'!A1)"
+                f"+\"{send}!D2\"+'[Other.xlsx]{send}'!D2")
+            assert result[new_send]["D2"].value == 7
+    finally:
+        result.close()
+    original = load_workbook(source)
+    try:
+        assert original[receive]["D2"].value == formula
+    finally:
+        original.close()
+
+
 def test_sample_green_tables_merge(tmp_path):
     tables = sorted((ROOT / "test/samples/system/GreenTable/Bcm").glob("*.xlsx"))
     merged = merge_green_workbooks([(path.stem, path) for path in tables], tmp_path / "merged.xlsx")

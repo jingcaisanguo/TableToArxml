@@ -47,7 +47,7 @@ table-to-swc-arxml --help
   若需要更换解释器，先自行备份并处理旧环境。
 - 不安装时可设置 `PYTHONPATH=src`，再用 `python -m table_to_arxml.system`、`python -m table_to_arxml.swc` 运行，参数与命令完全相同。
 - 运行依赖只在根目录 [requirements.txt](../../requirements.txt) 中声明，开发依赖在 [pyproject.toml](../../pyproject.toml) 的 `dev` extra 中声明。armodel 的版本范围在代码中只有一处
-  （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。`tomli` 只在 Python 3.11 以下需要（3.11 起用标准库 `tomllib`），由环境标记控制。
+  （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`）；openpyxl 的最低要求为 `OPENPYXL_REQUIREMENT`。启动检查两者版本，测试保证约束与 requirements.txt 一致。`tomli` 只在 Python 3.11 以下需要（3.11 起用标准库 `tomllib`），由环境标记控制。
 - 版本号由 `setuptools-scm` 从 Git tag 自动推导；源码运行需要开发依赖 `setuptools-scm`，安装后的 wheel 使用构建时生成的版本文件，不需要 Git 或 `setuptools-scm`。不要手改版本常量。
 - 源码版本检测同时检查 `src/table_to_arxml` 布局和 Git 标记；安装包即使位于某个 Git 工作区内，也不会误用该工作区的版本。
   检测依次回退：setuptools-scm（源码工作区）→ 构建生成的 `_version.py` → 安装元数据 → `0+unknown`，
@@ -105,7 +105,7 @@ table-to-swc-arxml --help
   连线只按端点 IREF、信号映射只按数据元素 IREF 与信号引用识别；base 中额外的 TYPE-MAPPING、VARIATION-POINT、ADMIN-DATA 等不影响匹配，也不校验其中的引用。
   输出保留 base 的 XML 声明、根元素前后注释、编码、换行风格和未改动部分的空白，只为新插入的子树按兄弟元素缩进。
 - 不要对用户提供的路径调用 `Path.resolve()`：Python 3.9 在 Windows 上会对不存在的路径返回相对路径，或对含通配符的路径抛 `WinError 123`；统一使用 `common/paths.py` 的 `absolute_path`、`path_key`。
-- 产物先写到临时目录，没有工具自身 ERROR 或运行异常时才发布到输出目录；armodel 解析器诊断不单独决定失败。
+- 产物先写到临时目录，没有工具自身 ERROR 或运行异常时才发布到输出目录；发布前检查全部产物与输入配置、表格、清单、ARXML 和 EB 配置的文件身份重合。armodel 解析器诊断不单独决定失败。
 - 组合实例链只在 `ArxmlModel.composition_chains` 中实现，嵌套上限为 `MAX_COMPOSITION_DEPTH`；总线类型统一由 `bus_module` 判断。
 - 输出是对已有元素的拆分片段：`_Resolver.check_composition_names` 检查目标 Composition 命名空间（同名报错、仅大小写不同只警告），`resolve_system`
   按 AUTOSAR 元模型的多重性和 `atpSplitable` 决定 FIBEX-ELEMENTS、SystemMapping 等是否写出（依据 4.3.1 XSD 的 `pureMM`
@@ -130,9 +130,10 @@ table-to-swc-arxml --help
 | [arxml_model.py](../../src/table_to_arxml/swc/arxml_model.py) | armodel 的加载、查询和片段生成 |
 
 - 新元素只以 XML 片段插入原文件字节，其余字节不变，避免 armodel 整文件重新序列化带来的格式差异。
+- 工作簿值按非空行保存，保留原始 Excel 行号及每行实际列宽，不按整页最大行列构造矩阵；合并区域仍展开。
 - 类型和接口按目标文件批量插入：每个步骤先收集片段，步骤结束时每个文件只插入一次、重新解析一次；包是否存在直接在原始字节上判断，避免每个对象都让 armodel 重新解析整个文件。
 - armodel 的 `AUTOSAR` 是全局单例，每次加载都会清空；文档对象带加载代次，过期使用会报错。`SourceStore` 按文件版本缓存解析结果，并用 `path_key` 识别文件，清单条目与 `Target ARXML` 写法不同也视为同一文件；写出前重新读取源文件，若运行期间被外部修改则报错且不写出。
-- 定义查询按清单顺序采用第一个完整路径，缓存键包含查询范围和顺序。SHORT-NAME 预索引由 XML 解析构建，不依赖标签排版；XML 损坏仍阻止输出，包括后续重复候选文件损坏的情况。
+- 定义查询按清单顺序采用第一个完整路径，缓存键包含查询范围和顺序。SHORT-NAME 预索引和字节定位均按 XML 语义读取名称，支持字符引用、CDATA 和标签空白；XML 损坏仍阻止输出，包括后续重复候选文件损坏的情况。
 - `StepResult.planned`、`FileChange.planned_ports/planned_accesses` 及汇总只描述内存中准备的新增对象；dry-run 不表示已写盘。实际写出成功后另行记录文件数量，端口和访问点的失败数量分别统计。
 - 需要新建的父容器（`ELEMENTS`、`EVENTS`、`RUNNABLES`、`SERVER-CALL-POINTS`）按 [xml_patch.py](../../src/table_to_arxml/swc/xml_patch.py)
   中 `CHILD_ORDER` 的顺序插入。新增可创建的容器时须同时补充该表，否则会明确报错而不是插到错误位置。
@@ -156,9 +157,12 @@ CI 对 armodel 1.8.7、1.9.2、1.9.8 运行这些测试；依赖上限为 `1.9.8
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
-| [tests.yml](../../.github/workflows/tests.yml) | 源码、文档、测试、工具脚本、模板或依赖变更、PR、手动及发布调用 | Ubuntu/Windows × Python 3.9/3.13 × armodel 1.8.7/1.9.2/1.9.8：ruff、全部测试和环境脚本语法检查 |
-| [wheel.yml](../../.github/workflows/wheel.yml) | 源码、打包、交付文档或样例变更、PR、手动 | 构建安装 wheel，在仓库外检查命令、依赖、配置错误退出码及 BCM/MC/SWC 基线，打包用户说明并上传 artifact |
+| [tests.yml](../../.github/workflows/tests.yml) | 相关路径的 main 推送、PR、手动及发布调用 | Ubuntu/Windows × Python 3.9/3.13 × armodel 1.8.7/1.9.2/1.9.8；另加两个平台 Python 3.9、armodel 1.9.8、openpyxl 3.1.5 的最低版本组合：ruff、全部测试和环境脚本语法检查 |
+| [wheel.yml](../../.github/workflows/wheel.yml) | 相关路径的 main 推送、PR、手动 | 构建安装 wheel，在仓库外检查命令、依赖、配置错误退出码及 BCM/MC/SWC 基线，打包用户说明并上传 artifact |
 | [release.yml](../../.github/workflows/release.yml) | 推送 `x.y.z` 标签、公开发布 Release 或手动补齐附件 | 构建、校验版本、创建 Release 或补齐缺失附件，保留已有发布信息，见 [release.md](release.md) |
+
+任务分支通过 PR 触发检查，不再同时运行分支 push 和 PR 的重复任务；未开 PR 时可手动触发。
+同一 PR 或 main 分支的新推送取消过时的检查。发布标签检查及手动运行不自动取消。
 
 ## 内部工程集成
 

@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - '**'
+      - main
     paths:
       - 'src/**'
       - 'test/**'
@@ -39,6 +39,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
+
 jobs:
   test:
     strategy:
@@ -48,6 +52,16 @@ jobs:
         # 最低支持版本、1.9.4 大改前的最后版本、当前最新验证版本。
         armodel: ['1.8.7', '1.9.2', '1.9.8']
         python: ['3.9', '3.13']
+        openpyxl: ['>=3.1.5']
+        include:
+          - os: ubuntu-latest
+            armodel: '1.9.8'
+            python: '3.9'
+            openpyxl: '==3.1.5'
+          - os: windows-latest
+            armodel: '1.9.8'
+            python: '3.9'
+            openpyxl: '==3.1.5'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +73,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install dependencies
         run: >-
-          python -m pip install "armodel==${{ matrix.armodel }}"
+          python -m pip install "armodel==${{ matrix.armodel }}" "openpyxl${{ matrix.openpyxl }}"
           -r requirements.txt
           pytest ruff build wheel "setuptools>=68" "setuptools-scm>=8,<9"
       # ruff 与 pytest 的选项都在 pyproject.toml 中配置。

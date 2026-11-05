@@ -209,6 +209,6 @@ def test_eb_list_preserves_base_candidate_only_in_merge_mode(tmp_path, monkeypat
         list_file.write_text("model.arxml\nTSystem.arxml\n", encoding="utf-8")
 
     monkeypatch.setattr("table_to_arxml.system.cli.generate_file_list", generate)
-    paths = _collect_arxml_paths(job, [base.name], tmp_path / "generated.lst", False, {}, options)
+    paths = _collect_arxml_paths(job, [base.name], tmp_path / "generated.lst", False, {}, options, [])
     assert (base in paths) == (mode == "merge")
     assert tmp_path / "model.arxml" in paths

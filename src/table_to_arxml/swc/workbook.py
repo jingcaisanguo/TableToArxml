@@ -9,9 +9,10 @@ from __future__ import annotations
 import logging
 import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Sequence, cast
+from typing import Callable, Iterable, Sequence, Union, cast
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
@@ -49,7 +50,7 @@ from .schema import (
 
 LOGGER = logging.getLogger(__name__)
 
-Sheets = dict[str, list[tuple[object, ...]]]
+Sheets = dict[str, Union[Mapping[int, tuple[object, ...]], Sequence[tuple[object, ...]]]]
 
 # ``Enumerations`` 表留空时，计算方法和数据约束放在数据类型包的同级包里。
 ENUM_COMPU_METHOD_PACKAGE = "CompuMethods"
@@ -233,30 +234,30 @@ def normalized_cell(value: object, context: str) -> str:
     return value.strip()
 
 
-def sheet_values(sheet) -> list[tuple[object, ...]]:
+def sheet_values(sheet) -> dict[int, tuple[object, ...]]:
     """按行读取工作表，并把合并区域的值展开到区域内每个单元格。
 
     openpyxl 只在合并区域左上角保存值，其余单元格为 ``None``；展开后各行都能
-    独立解析，工作簿是否合并单元格不影响结果。只读取到最后一个有值的行和列：
-    其他工具常给整列或末行设置格式，按工作表尺寸遍历会创建上百万个空单元格。
+    独立解析，工作簿是否合并单元格不影响结果。只保存有值的行及该行实际列宽，
+    以原始 Excel 行号为键，避免远处的单元格把整页扩展成巨大的矩阵。
     """
     cells = {key: cell for key, cell in loaded_cells(sheet).items() if cell.value is not None}
     merged_ranges = [
         merged for merged in sheet.merged_cells.ranges if (merged.min_row, merged.min_col) in cells
     ]
-    row_count = max([row for row, _ in cells] + [merged.max_row for merged in merged_ranges], default=0)
-    column_count = max(
-        [column for _, column in cells] + [merged.max_col for merged in merged_ranges], default=0
-    )
-    values: list[list[object]] = [[None] * column_count for _ in range(row_count)]
+    values: dict[int, dict[int, object]] = {}
     for (row, column), cell in cells.items():
-        values[row - 1][column - 1] = FormulaCell(cell.value) if cell.data_type == "f" else cell.value
+        values.setdefault(row, {})[column] = FormulaCell(cell.value) if cell.data_type == "f" else cell.value
     for merged in merged_ranges:
-        anchor = values[merged.min_row - 1][merged.min_col - 1]
-        for row_index in range(merged.min_row - 1, merged.max_row):
-            for column_index in range(merged.min_col - 1, merged.max_col):
-                values[row_index][column_index] = anchor
-    return [tuple(row) for row in values]
+        anchor = values[merged.min_row][merged.min_col]
+        for row_index in range(merged.min_row, merged.max_row + 1):
+            row = values.setdefault(row_index, {})
+            for column_index in range(merged.min_col, merged.max_col + 1):
+                row[column_index] = anchor
+    return {
+        number: tuple(row.get(column) for column in range(1, max(row) + 1))
+        for number, row in sorted(values.items())
+    }
 
 
 def load_workbook_sheets(workbook_path: Path) -> Sheets:
@@ -341,10 +342,12 @@ def read_sheet_rows(
     if len(matches) > 1:
         LOGGER.error("Multiple worksheets match %s: %s", sheet_name, ", ".join(matches))
         return []
-    rows = sheets[matches[0]]
+    sheet_rows = sheets[matches[0]]
+    rows = sheet_rows if isinstance(sheet_rows, Mapping) else dict(enumerate(sheet_rows, start=1))
+    header_row = rows.get(1, ())
 
-    if not rows or not any(value is not None for value in rows[0]):
-        if any(any(value is not None for value in row) for row in rows[1:]):
+    if not any(value is not None for value in header_row):
+        if any(any(value is not None for value in row) for number, row in rows.items() if number > 1):
             LOGGER.error("Skipped worksheet %s: missing header row", sheet_name)
         return []
 
@@ -352,7 +355,7 @@ def read_sheet_rows(
     required = list(required_headers)
     optional = list(optional_headers)
     try:
-        header_values = list(rows[0])
+        header_values = list(header_row)
         while header_values and header_values[-1] is None:
             header_values.pop()
         raw_headers = [
@@ -383,7 +386,9 @@ def read_sheet_rows(
         return []
 
     records: list[dict[str, str]] = []
-    for row_number, values in enumerate(rows[1:], start=2):
+    for row_number, values in sorted(rows.items()):
+        if row_number == 1:
+            continue
         if any(value is not None and str(value).strip() for value in values[len(headers):]):
             LOGGER.error(
                 "Skipped %s row %d: data under a blank header", sheet_name, row_number

@@ -56,6 +56,55 @@ def test_rerun_on_output_reports_no_affected_files(tmp_path):
     assert "Successfully wrote 0 ARXML file(s)" in second.stdout
 
 
+@pytest.mark.parametrize("name", [
+    "<SHORT-NAME >B</SHORT-NAME >",
+    "<SHORT-NAME><![CDATA[B]]></SHORT-NAME>",
+    "<SHORT-NAME>&#66;</SHORT-NAME>",
+])
+def test_equivalent_component_names_allow_insertion_and_rerun(tmp_path, name):
+    write_twins(tmp_path, {
+        "Components": [B],
+        "P-Ports": [{**SR_PORT, "Create_RTE_Artifact": "Y", "Runnable_Name": "Run"}],
+    }, minimal=True)
+    patch_twins(tmp_path, "<SHORT-NAME>B</SHORT-NAME>", name)
+    original = (tmp_path / "twins.arxml").read_bytes()
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 0, result.stderr
+    output = (tmp_path / "out" / "twins.arxml").read_bytes()
+    assert name.encode() in output
+    root = ET.fromstring(output)
+    assert root.find(".//ar:P-PORT-PROTOTYPE/ar:SHORT-NAME", NS).text == "p_Out"
+    assert root.find(".//ar:DATA-SEND-POINTS/ar:VARIABLE-ACCESS", NS) is not None
+    assert (tmp_path / "twins.arxml").read_bytes() == original
+    (tmp_path / "twins.arxml").write_bytes(output)
+    second = run_prepared_twins(tmp_path)
+    assert second.returncode == 0, second.stderr
+    assert "0 ARXML file(s) affected" in second.stdout
+
+
+@pytest.mark.parametrize("name", [
+    "<SHORT-NAME >AppT</SHORT-NAME >",
+    "<SHORT-NAME><![CDATA[AppT]]></SHORT-NAME>",
+    "<SHORT-NAME>App&#84;</SHORT-NAME>",
+])
+def test_equivalent_type_names_preserve_reference_dest(tmp_path, name):
+    write_twins(tmp_path, {
+        "SR-Interfaces": [{"Interface_Path": "/Pkg/NewIf", "Data_Element_Name": "Value",
+                           "Data_Type_Ref": "/Pkg/AppT", "Target_ARXML": "twins.arxml"}],
+    }, minimal=True)
+    patch_twins(tmp_path, "<ELEMENTS>", "<ELEMENTS><APPLICATION-PRIMITIVE-DATA-TYPE>"
+                f"{name}<CATEGORY>VALUE</CATEGORY></APPLICATION-PRIMITIVE-DATA-TYPE>")
+    result = run_prepared_twins(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "/Pkg/AppT not found" not in result.stderr
+    root = ET.parse(tmp_path / "out" / "twins.arxml").getroot()
+    interface = next(item for item in root.findall(".//ar:SENDER-RECEIVER-INTERFACE", NS)
+                     if item.findtext("ar:SHORT-NAME", namespaces=NS) == "NewIf")
+    reference = interface.find(".//ar:TYPE-TREF", NS)
+    assert reference.text == "/Pkg/AppT"
+    assert reference.get("DEST") == "APPLICATION-PRIMITIVE-DATA-TYPE"
+
+
 def test_colliding_generated_cs_runnable_names_are_errors(tmp_path):
     result = run_twins(tmp_path, {
         "Components": [B],

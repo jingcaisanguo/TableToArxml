@@ -56,9 +56,10 @@ def test_repeated_setup_replaces_own_handlers(tmp_path, restore_logging):
     assert logging.getLogger(PACKAGE_LOGGER).level == logging.DEBUG
 
 
-def test_armodel_requirement_matches_requirements_txt():
+def test_checked_requirements_match_requirements_txt():
     lines = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
     assert f"armodel{dependencies.ARMODEL_REQUIREMENT}" in lines
+    assert f"openpyxl{dependencies.OPENPYXL_REQUIREMENT}" in lines
 
 
 def test_tomli_is_required_only_before_python_3_11():
@@ -70,7 +71,8 @@ def test_tomli_is_required_only_before_python_3_11():
 @pytest.mark.parametrize("installed", ["1.8.6", "1.9.1", "1.9.9", "1.10.0", "2.0.0"])
 def test_dependency_check(monkeypatch, installed):
     dependencies.check_dependencies()
-    monkeypatch.setattr(dependencies, "version", lambda name: installed)
+    original_version = dependencies.version
+    monkeypatch.setattr(dependencies, "version", lambda name: installed if name == "armodel" else original_version(name))
     message = f"armodel{dependencies.ARMODEL_REQUIREMENT} is required; installed: {installed}"
     with pytest.raises(RuntimeError, match=re.escape(message)):
         dependencies.check_dependencies()
@@ -78,5 +80,23 @@ def test_dependency_check(monkeypatch, installed):
 
 @pytest.mark.parametrize("installed", ["1.8.7", "1.9.2", "1.9.4", "1.9.7", "1.9.8"])
 def test_dependency_check_accepts_compatible_versions(monkeypatch, installed):
-    monkeypatch.setattr(dependencies, "version", lambda name: installed)
+    original_version = dependencies.version
+    monkeypatch.setattr(dependencies, "version", lambda name: installed if name == "armodel" else original_version(name))
     dependencies.check_dependencies()
+
+
+@pytest.mark.parametrize("installed", ["3.1.2", "3.1.4"])
+def test_older_openpyxl_is_rejected(monkeypatch, installed):
+    original_version = dependencies.version
+    monkeypatch.setattr(dependencies, "version", lambda name: installed if name == "openpyxl" else original_version(name))
+    with pytest.raises(RuntimeError, match=re.escape(f"openpyxl>=3.1.5 is required; installed: {installed}")):
+        dependencies.check_dependencies()
+
+
+def test_minimum_openpyxl_preserves_allow_blank_when_loading():
+    from xml.etree.ElementTree import fromstring
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    for value in ("0", "1"):
+        validation = DataValidation.from_tree(fromstring(f'<dataValidation allowBlank="{value}" sqref="A1"/>'))
+        assert validation.allow_blank is (value == "1")

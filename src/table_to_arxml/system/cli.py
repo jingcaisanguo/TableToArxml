@@ -89,6 +89,7 @@ def _collect_arxml_paths(
     reuse_existing_list: bool,
     generated_lists: dict[tuple, Path],
     options: RunOptions,
+    protected_inputs: list[Path],
 ) -> list[Path]:
     """用 EB 导入器生成清单（或复用已有清单），再读出本次需要加载的 ARXML。
 
@@ -115,6 +116,7 @@ def _collect_arxml_paths(
     if not job.preference_entries:
         raise ValueError("Missing config.tresosPreferenceFiles")
     preference_files = resolve_preference_files(job.preference_entries, job.variant, job.config_dir)
+    protected_inputs.extend(preference_files)
 
     generate_key = (tuple(preference_files), tresos_output_path)
     if generate_key in generated_lists:
@@ -192,6 +194,11 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
 
     LOGGER.info("Output directory: %s", resolved_output_dir)
     _read_input_tables(jobs)
+    protected_inputs = [
+        path for job in jobs
+        for path in (job.config_path, *([job.white_table] if job.white_table is not None else []),
+                     *(path for _, path in job.green_tables))
+    ]
 
     generated_names = [f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}" for job in jobs]
     with _staging_directory() as staging:
@@ -203,8 +210,11 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
         for index, job in enumerate(jobs):
             list_name = f"{job.variant}.lst" if index == 0 else f"{job.variant}_{index}.lst"
             list_file, reuse_existing_list = _resolve_file_list(job, staging / list_name, options.arxml_file_list)
+            if reuse_existing_list:
+                protected_inputs.append(list_file)
             paths = _collect_arxml_paths(
-                job, generated_names, list_file, reuse_existing_list, generated_lists, options)
+                job, generated_names, list_file, reuse_existing_list, generated_lists, options, protected_inputs)
+            protected_inputs.extend(paths)
             if job.output_mode == "merge":
                 name = f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}"
                 candidates = [path for path in paths if path.name.casefold() == name.casefold()]
@@ -276,6 +286,8 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
         if errors.count:
             raise RuntimeError("; ".join(errors.messages))
         artifacts = sorted(path for path in staging.iterdir() if path.is_file())
+        validate_output_paths(
+            (resolved_output_dir / path.name for path in artifacts), protected=protected_inputs)
         write_files_atomically([(resolved_output_dir / path.name, path.read_bytes()) for path in artifacts])
     return results
 

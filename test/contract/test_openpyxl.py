@@ -61,3 +61,15 @@ def test_copy_worksheet_across_workbooks(tmp_path):
     assert copied.freeze_panes == "A2"
     assert copied.column_dimensions["A"].width == 30
     assert [str(item.sqref) for item in copied.data_validations.dataValidation] == ["D2:D10"]
+
+
+def test_copy_formulas_escape_sheet_names_and_warn_for_uncopied_sheets(caplog):
+    source = Workbook()
+    target = Workbook()
+    source.active.title = "O'Brien"
+    source.active["A1"] = "='O''Brien'!B1+Other!B1"
+    copy_worksheet(target.active, source.active, sheet_names={"O'Brien": "New'Brien"})
+    assert target.active["A1"].value == "='New''Brien'!B1+Other!B1"
+    assert "worksheet not copied into the merged workbook: Other" in caplog.text
+    source.close()
+    target.close()

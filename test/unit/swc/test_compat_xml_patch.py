@@ -46,6 +46,24 @@ def test_namespace_prefixed_root_cannot_be_modified():
     assert xml_patch.modification_problem(TWINS.encode()) is None
 
 
+@pytest.mark.parametrize("name", [
+    "<SHORT-NAME >B</SHORT-NAME >",
+    "<SHORT-NAME\n>B</SHORT-NAME\n>",
+    "<SHORT-NAME><![CDATA[B]]></SHORT-NAME>",
+    "<SHORT-NAME>&#66;</SHORT-NAME>",
+    "<SHORT-NAME><!-- ignored -->B</SHORT-NAME>",
+])
+@pytest.mark.parametrize("prefix", [False, True])
+def test_short_name_syntax_does_not_change_byte_locations(name, prefix):
+    text = TWINS.replace("<SHORT-NAME>B</SHORT-NAME>", name)
+    source = (prefixed(text) if prefix else text).encode()
+    assert xml_patch.element_tag(source, "/Pkg/B") == "APPLICATION-SW-COMPONENT-TYPE"
+    span = xml_patch.element_span(source, "/Pkg/B/IB/Run")
+    assert b"<SYMBOL>B_Run</SYMBOL>" in source[span.start:span.end] if not prefix else (
+        b"<ar:SYMBOL>B_Run</ar:SYMBOL>" in source[span.start:span.end])
+    assert xml_patch.container_problem(source, "/Pkg/B", "PORTS") is None
+
+
 BEHAVIOR = """<AUTOSAR>
   <AR-PACKAGES>
     <AR-PACKAGE>
