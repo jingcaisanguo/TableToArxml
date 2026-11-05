@@ -10,13 +10,14 @@ Autosar Builder 工程保持同源。清单条目的解析规则见 :mod:`table_
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterable
 
 from ..common.arxml_list import ArxmlExclusions, read_arxml_list
-from ..common.paths import filesystem_path
+from ..common.paths import absolute_path, filesystem_path, is_file
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,9 +41,9 @@ def resolve_preference_files(
         path = filesystem_path(rendered)
         if not path.is_absolute():
             path = base_dir / path
-        if not path.is_file():
+        if not is_file(path):
             raise FileNotFoundError(f"tresos preference file does not exist: {path}")
-        resolved.append(path.resolve())
+        resolved.append(absolute_path(path))
     return resolved
 
 
@@ -79,14 +80,26 @@ def generate_file_list(
     return output_file
 
 
-def normalize_generated_entry(entry: str, build_dir_name: str) -> str:
-    """EB 返回的生成目录条目缺少 ``tresos`` 这一层，这里补齐。"""
+def normalize_generated_entry(entry: str, tresos_output_base_dir: Path) -> str:
+    """EB 返回的生成目录条目缺少 ``tresos`` 这一层，这里补齐。
+
+    优先按完整的 ``TRESOS_OUTPUT_BASE_DIR`` 前缀匹配；不匹配时（如相对条目）取最后一个同名目录，
+    避免上级目录恰好与构建目录同名时插错位置。
+    """
 
     parts = entry.replace("\\", "/").split("/")
-    if build_dir_name and build_dir_name in parts:
-        insert_at = parts.index(build_dir_name) + 1
-        if insert_at < len(parts) and parts[insert_at].casefold() != TRESOS_PROJECT_SUBDIR:
-            parts.insert(insert_at, TRESOS_PROJECT_SUBDIR)
+    base_parts = str(tresos_output_base_dir).replace("\\", "/").rstrip("/").split("/")
+    if [os.path.normcase(part) for part in parts[:len(base_parts)]] == [
+            os.path.normcase(part) for part in base_parts]:
+        insert_at = len(base_parts)
+    else:
+        build_dir_name = tresos_output_base_dir.name
+        matches = [index for index, part in enumerate(parts) if build_dir_name and part == build_dir_name]
+        if not matches:
+            return "/".join(parts)
+        insert_at = matches[-1] + 1
+    if insert_at < len(parts) and parts[insert_at].casefold() != TRESOS_PROJECT_SUBDIR:
+        parts.insert(insert_at, TRESOS_PROJECT_SUBDIR)
     return "/".join(parts)
 
 
@@ -94,7 +107,7 @@ def read_generated_list(
     list_file: Path,
     project_root: Path,
     tresos_project: Path,
-    build_dir_name: str,
+    tresos_output_base_dir: Path,
     exclusions: ArxmlExclusions,
     strict: bool,
 ) -> list[Path]:
@@ -104,7 +117,7 @@ def read_generated_list(
         list_file,
         project_root,
         search_dirs=(tresos_project,),
-        normalize_entry=lambda entry: normalize_generated_entry(entry, build_dir_name),
+        normalize_entry=lambda entry: normalize_generated_entry(entry, tresos_output_base_dir),
         exclusions=exclusions,
         strict=strict,
     )

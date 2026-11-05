@@ -70,7 +70,7 @@ excludeArxmlPatterns = [
 
 本次涉及的 ARXML 只加载一次。模型用于解析 General、组件、prototype 和通道；随后读取白表，在同一个模型上解析组件、端口、信号等引用。所有引用解析完成后才创建独立的输出文档并写出 ARXML，不重新加载输入文件。因此不会将输入的全部包和元素原样导出，也不会从绿表生成缺失的 SWC 类型。
 
-生成时支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、SensorActuator、NvBlock、ServiceProxy、Parameter 及 Composition 类型（Parameter 类型需要 armodel 提供对应类）；PR-Port 及其他类型报错并说明是工具不支持。引用组件不新增实例，必须在目标 Composition 中存在且类型一致；`Add` 的实例已存在时不重复写出，只生成 System 映射。新增 Atomic 组件缺少内部行为或 SWC-IMPLEMENTATION 时记录 WARNING 并跳过 SwcToImplMapping（AUTOSAR 中该映射为 0..*）；多个实现引用同一内部行为时也只警告。嵌套 Composition 不生成实现映射，作为 `Add` 写入 SwcToEcuMapping 时记录 WARNING。不提供 Rhapsody XML 等其他格式导出。
+生成时支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、SensorActuator、NvBlock、ServiceProxy、Parameter 及 Composition 类型（Parameter 类型需要 armodel 提供对应类）；PR-Port 及其他类型报错并说明是工具不支持。引用组件不新增实例，必须在目标 Composition 中存在且类型一致；`Add` 的实例已存在时不重复写出，只生成 System 映射。新增 Atomic 组件缺少内部行为或 SWC-IMPLEMENTATION 时记录 WARNING 并跳过 SwcToImplMapping（AUTOSAR 中该映射为 0..*）；多个实现引用同一内部行为时按完整路径排序取第一个并记录 WARNING，结果不随 lst 顺序变化。嵌套 Composition 不生成实现映射，作为 `Add` 写入 SwcToEcuMapping 时记录 WARNING。组合直接或间接实例化自身时，查找组合实例链会忽略该循环分支并记录 WARNING。不提供 Rhapsody XML 等其他格式导出。
 
 ### AUTOSAR 输出规则
 
@@ -78,17 +78,18 @@ excludeArxmlPatterns = [
 
 | 规则 | 行为 |
 | --- | --- |
-| 目标 Composition 中 COMPONENTS、PORTS、CONNECTORS 共用命名空间 | 新对象与已有或本次其他对象同名时报错；仅大小写不同时记录 WARNING，按不同对象生成；已有同名同端点的连接器直接复用不再写出，连接同一对端口但名称不同的已有连接器记录 WARNING 后复用 |
+| 目标 Composition 中 COMPONENTS、PORTS、CONNECTORS 共用命名空间 | 新对象与已有或本次其他对象同名时报错；仅大小写不同时记录 WARNING，按不同对象生成；已有同名同端点的连接器直接复用不再写出，连接同一对端口但名称不同的已有连接器记录 WARNING 后复用；复用的连接器没有引用本行所需的接口映射时记录 WARNING，不写出该映射。armodel 1.9.2 及更早版本不解析 PASS-THROUGH-SW-CONNECTOR，`replace` 模式无法检查与其重名（`merge` 模式按 base XML 检查） |
 | `System` 必须是已加载的 System（短名或完整路径） | 不存在或同名歧义时报错；根原型必须是该 System 的子元素，ECU-INSTANCE 必须存在且类型正确（与是否有信号映射无关） |
-| `System.fibexElement` 不可拆分 | 已有 System 没有 FIBEX-ELEMENTS 时写入 ECU；已引用该 ECU 时不重复写；引用了其他元素但不含该 ECU 时记录 WARNING，需手工补齐 |
+| `System.fibexElement` 不可拆分 | 已有 System（`merge` 模式包括 base 中的 System）没有 FIBEX-ELEMENTS 时写入 ECU；已引用该 ECU 时不重复写；引用了其他元素但不含该 ECU 时记录 WARNING，需手工补齐 |
 | `SYSTEM-VERSION` 为 1..1 | 沿用输入值；输入缺失时记录 WARNING，不臆造版本 |
 | `SystemMapping` 的子聚合不可拆分 | 同名 SystemMapping 已存在时报错，需改用其他 `general.systemMapping` |
 | `SwcToEcuMapping.component` 为 1..* | 没有 `Add` 组件时不生成空映射；既无新增组件也无信号映射时不生成 SystemMapping |
 | `PortInterfaceMappingSet.portInterfaceMapping` 不可拆分 | 需要新建映射而 `<Composition>_InterfaceMappings` 已存在于输入时报错 |
-| `SenderReceiverToSignalGroupMapping.typeMapping` 为 1..1 | 工具不推导记录类型映射，每行记录 WARNING |
+| `SenderReceiverToSignalGroupMapping.typeMapping` 为 1..1 | 工具不推导记录类型映射，每行记录 WARNING；`merge` 模式下 base 映射已补齐的 `TYPE-MAPPING` 保留，不影响去重 |
+| 信号与信号组引用 | `SenderReceiverToSignal` 须引用 SYSTEM-SIGNAL，`SenderReceiverToSignalGroup` 须引用 SYSTEM-SIGNAL-GROUP；其他类型（如 I-SIGNAL-GROUP）按行报错 |
 | 接口引用的 DEST | 按被引用对象的实际类型写出；输入端口声明的 DEST 不一致时记录 WARNING |
 | 重复的信号映射行 | 只生成一条并记录 WARNING |
-| 输出 release | 由 `arRelease` 决定，只影响输出声明的 schema；不与输入 ARXML 的版本比对 |
+| 输出 release | 由 `arRelease` 决定，只影响输出声明的 schema；不与输入 ARXML 的版本比对。`merge` 模式沿用 base 的声明 |
 
 底层 armodel 模型是进程内全局单例，不支持在同一进程中并行运行多个转换。不同配置/变体应串行运行或使用独立进程，并避免写入相同产物路径。
 
@@ -114,6 +115,7 @@ excludeArxmlPatterns = [
 | `PrefSystemImporter was not found in PATH` | 进入有 EB 工具的构建环境，或用已有 lst；不能以普通终端的 PATH 推断构建环境 |
 | `tresos preference file does not exist` | 仅 EB 模式会检查；确认路径相对配置目录。已指定 lst 时不应出现此项检查 |
 | `No usable ARXML files found` | 检查 lst 内容、`projectRoot`、构建基目录补齐规则和排除正则 |
+| `Cannot parse ARXML <路径>` | 该文件 XML 不完整或损坏，或声明了解析器不支持的多字节编码（如 GB2312）；修复文件或转存为 UTF-8 |
 | `No green tables were selected` | 检查 glob、变体及相对配置目录的文件位置 |
 | `Green table file names must be AUTOSAR SHORT-NAMEs` | 列出的绿表文件名含 `-`、空格、中文、`[` 等字符或以数字开头；按 [绿表规则](green-table-rules.md#文件模块与页签) 改名，必要时配置 `componentAliases` |
 | `Cannot find the SW component type of green table(s)` | 绿表文件名未能匹配组件查询表；补齐输入类型/引用或修正文件名，任务退出 |
@@ -128,6 +130,11 @@ excludeArxmlPatterns = [
 | `ECU instance is not defined` | General 引用的 ECU 不存在或不是 ECU-INSTANCE；不要求提供完整通信拓扑或实际方向 |
 | `must be R-PORT-PROTOTYPE` / `must be P-PORT-PROTOTYPE` | 普通装配要求 P 到 R；总线映射中 R-Port 页（IN）须为 R-port，P-Port 页（OUT）须为 P-port |
 | `cannot be mapped as an individual signal` | 信号组对象不能当作普通信号；组成员单独映射只记录 WARNING，不阻断生成 |
+| `is a SYSTEM-SIGNAL, not a SYSTEM-SIGNAL-GROUP` 等 | 信号或信号组列引用了其他类型的对象；改为对应的 SYSTEM-SIGNAL / SYSTEM-SIGNAL-GROUP 路径 |
+| `instantiates itself`（WARNING） | 组合直接或间接实例化自身，循环分支被忽略；检查组合的 SW-COMPONENT-PROTOTYPE 类型引用 |
+| `Conflicting base connector` / `Conflicting base signal mapping` | `merge` 时 base 中同名连线连接了其他端口，或同一数据元素到同一信号的映射方向不同；按消息中列出的引用修正 base 或表格 |
+| `is reused but references interface mapping`（WARNING） | 已有连线连接了同一对端口，但没有引用本行需要的接口映射；工具不修改已有连线，也不写出该映射，需要时手工补齐 |
+| `Cannot resolve relative reference`（WARNING） | `merge` 时 base 的相对引用找不到对应的 REFERENCE-BASE，未参与检查和去重识别 |
 | `column I or J is empty` / `column B is empty` | 必要字段不完整，按提示位置修正绿表 |
 | `<sheet> row <n>: ...` | 无效端口、信号或 DataElement 等引用导致整次失败 |
 | `SwcToImplMapping is not generated`（WARNING） | 新增组件缺少内部行为或 SWC-IMPLEMENTATION；集成前补齐 |

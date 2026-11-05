@@ -79,4 +79,5 @@ GitHub Actions 的恢复流程需在合入后由维护者执行，本地测试�
 ## 第三方安装脚本
 
 [third_party/init_app_env](../../third_party/init_app_env) 不归本工程维护，发布流程不会更新它。
-使用该脚本的工程如需新版本，自行替换其 `whl/` 中的 wheel，并修改 `init_app_env.py` 中 `PIP_PACKAGES` 的版本和文件名。
+使用该脚本的工程如需新版本，自行替换其 `whl/` 中的 wheel，并修改 `init_app_env.py` 中 `PIP_PACKAGES` 的文件名；
+包名和版本会从 wheel 内的 `METADATA` 自动读取，无需另行维护。

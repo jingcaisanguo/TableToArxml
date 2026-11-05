@@ -21,7 +21,8 @@
 - P/R 页前六列统一为 `SW-C`、`Port Name`、`Port Interface Ref`、`Create RTE Artifact`、`Runnable Name`、`Access Kind`；
   后面为 ComSpec，P 页最后三列为 CS 服务端配置。冻结第一行和左侧两列。
 - 每页使用 Excel 表格。通过表格末尾 `Tab` 追加行可自动扩展筛选；在表外粘贴后应“调整表格大小”。
-  工具读取整页，并非只读筛选范围，隐藏/筛选掉的行也会处理。
+  工具读取整页，并非只读筛选范围，隐藏/筛选掉的行也会处理。读取范围到最后一个有值的行和列为止，
+  只设置了格式而没有值的单元格（WPS、LibreOffice 常给整列或末行设置格式）不扩大读取范围。
 - 下拉框包含支持的布尔值，数值列提供整数/非负数提示；端口与访问点的 `SW-C` 可从 Components 选择。
   数据验证允许留空，条件必填和引用一致性仍由工具校验。粘贴可能绕过 Excel 验证。
 - 列顺序可以改变，但移动后应检查 Excel 数据验证是否仍对应正确列；不要插入空表头的分隔列。
@@ -61,7 +62,7 @@
 ### 单元格
 
 - 单元格可以是文本、数字或 Excel 布尔值；首尾空白会去掉。数字按原值转为文本，整数形式的浮点数（如 `8.0`）按整数处理。
-- 不接受公式单元格（工具读到的是公式文本而非计算结果），请“粘贴为值”；也不接受含换行、制表符等控制字符的单元格。两者都报告工作表、列名和行号并记录 `ERROR`。
+- 不接受公式单元格（工具读到的是公式文本而非计算结果），请“粘贴为值”；也不接受含换行、制表符等控制字符（含 `\x7f`–`\x9f`）或 Unicode 行/段分隔符（U+2028、U+2029）的单元格，这类字符常随复制粘贴混入且不易看出。两者都报告工作表、列名和行号并记录 `ERROR`。
 - 合并单元格会展开为逐行值；模板使用 Excel 表格，建议逐行重复公共字段，避免合并妨碍排序和筛选。
 - 所有单元格都为空的行被忽略。必填单元格为空时，该行记录 `ERROR` 并跳过。
 - 布尔列接受 `TRUE`/`YES`/`Y`/`1` 和 `FALSE`/`NO`/`N`/`0`（不区分大小写），留空视为否；其他值记录 `ERROR` 并跳过该行。
@@ -78,7 +79,9 @@
 - `... Path`、`... Ref` 必须以 `/` 开头；`Type Path`、`Interface Path` 还必须至少包含“包/名称”两级。
 - 每个路径段和 `... Name` 都必须是合法 SHORT-NAME：ASCII 字母开头，只含字母、数字和下划线，最长 128 字符；不允许空段、末尾 `/` 或中文名称。`SW-C` 是工作簿标识，不套用此规则。
 - SHORT-NAME 和路径区分大小写匹配：仅大小写不同（如 `p_Status` 与 `P_STATUS`）视为不同对象，记录 `WARNING` 后照常生成；AUTOSAR 要求同一命名空间内不区分大小写唯一，由 EB 校验。工具不检查 AUTOSAR 版本。
-- `Target ARXML` 必须是相对路径且文件已存在；写绝对路径或文件不存在都记录 `ERROR`。
+- `Target ARXML` 必须是相对路径且文件已存在；写绝对路径或文件不存在都记录 `ERROR`。路径按填写的写法使用、不解析链接，
+  位于符号链接或 junction 目录中的文件在 `outputDir` 模式下仍写到输出目录中的同一相对位置；与清单条目以不同写法
+  （链接、`..`、大小写）指向同一文件时视为同一文件。
 - 工作簿不填写 `DEST`。端口接口引用按查到的接口类型推导；类型引用列在清单或目标文件中找到对象时，`DEST` 取其实际元类，
   元类不适用（如把 `SW-BASE-TYPE` 填到实现数据类型列）记录 `ERROR`，找不到时记录 `WARNING` 并按 `IMPLEMENTATION-DATA-TYPE` 写出。
   这只检查引用目标的元类，不做类型兼容等语义校验。
@@ -267,7 +270,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | 列 | 说明 |
 | --- | --- |
 | `Runnable Name` | SR 接口：已有 runnable 的简称，`Create RTE Artifact=Y` 时必填；CS 接口：新建 runnable 的名称，可留空 |
-| `Runnable Symbol` | CS 接口新建 runnable 的 `SYMBOL`，留空时与 runnable 名相同 |
+| `Runnable Symbol` | CS 接口新建 runnable 的 `SYMBOL`，留空时与 runnable 名相同；须为 C 标识符，是 C 关键字（如 `int`）时记录 `WARNING` |
 | `Minimum Start Interval` | CS 新建 runnable 的最小启动间隔，单位秒，非负数，默认 `0.0` |
 | `Can Be Invoked Concurrently` | CS 新建 runnable 是否可并发，布尔，默认 `N` |
 | `Transmission Acknowledge Timeout` | 发送确认超时（秒），非负数，留空不生成 |
@@ -342,8 +345,14 @@ CS 生成对象的名称：
 | --- | --- |
 | 服务器调用点 | `scp_<端口名>_<operation>` |
 | operation 事件 | `oie_<端口名>_<operation>` |
-| runnable | 留空时 `RE_<端口名>_<operation>`；填写 `Runnable Name` 时用该名，接口有多个 operation 时追加 `_<operation>`；多个 CS P-Port 得到同一名称且定义相同时共用一个 runnable |
-| runnable `SYMBOL` | 留空时与 runnable 名相同；填写且有多个 operation 时追加 `_<operation>`；与同组件其他 runnable 的 `SYMBOL` 重复时 `WARNING` |
+| runnable | 留空时 `RE_<端口名>_<operation>`；填写 `Runnable Name` 时用该名，接口有多个 operation 时追加 `_<operation>`；多个 CS P-Port 填写同一名称且定义相同时共用一个 runnable |
+| runnable `SYMBOL` | 留空时与 runnable 名相同；填写且有多个 operation 时追加 `_<operation>`；与同组件其他 runnable 的 `SYMBOL` 重复或为 C 关键字时 `WARNING` |
+
+自动生成的名称只属于对应的端口和 operation。端口名或 operation 名含下划线时不同请求可能得到相同名称
+（端口 `p_A` 的 operation `B_C` 与端口 `p_A_B` 的 operation `C` 都得到 `RE_p_A_B_C`、`oie_p_A_B_C`，
+同一 runnable 中的调用点同理），此时记录 `ERROR` 并列出两个请求，需填写 `Runnable Name` 或修改端口、operation 名称。
+复用已有 runnable 时，其未写的 `SYMBOL`、`MINIMUM-START-INTERVAL`、`CAN-BE-INVOKED-CONCURRENTLY` 按 AUTOSAR 缺省值
+（runnable 名称、`0`、`false`）与工作簿比较。
 
 ## Data Accesses
 

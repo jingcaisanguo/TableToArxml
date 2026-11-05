@@ -19,7 +19,8 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 from ..common.messages import clean_message
 from ..common.names import autosar_path, c_identifier, generated_name, short_name
-from ..common.paths import filesystem_path
+from ..common.openpyxl_compat import loaded_cells
+from ..common.paths import absolute_path, filesystem_path, is_file
 from .constants import (
     ACCESS_DIRECTIONS,
     DIRECTION_PROVIDED,
@@ -203,14 +204,15 @@ class FormulaCell:
         return str(self.formula)
 
 
-_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f]")
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 def normalized_cell(value: object, context: str) -> str:
     """把单元格转为去除首尾空白的文本；非文本内容视为配置错误。
 
-    数字按整数或原样格式化，方便枚举取值这类列直接填数值。换行、制表符等控制字符会被
-    ARXML 缩进改写（如 VT 文本），公式单元格只能读到公式文本，两者都报错。
+    数字按整数或原样格式化，方便枚举取值这类列直接填数值。换行、制表符等控制字符
+    （含 C1 控制字符和 Unicode 行/段分隔符 U+2028、U+2029）会被 ARXML 缩进改写（如 VT 文本），
+    公式单元格只能读到公式文本，两者都报错。
     """
     if value is None:
         return ""
@@ -235,13 +237,21 @@ def sheet_values(sheet) -> list[tuple[object, ...]]:
     """按行读取工作表，并把合并区域的值展开到区域内每个单元格。
 
     openpyxl 只在合并区域左上角保存值，其余单元格为 ``None``；展开后各行都能
-    独立解析，工作簿是否合并单元格不影响结果。
+    独立解析，工作簿是否合并单元格不影响结果。只读取到最后一个有值的行和列：
+    其他工具常给整列或末行设置格式，按工作表尺寸遍历会创建上百万个空单元格。
     """
-    values = [
-        [FormulaCell(cell.value) if cell.data_type == "f" else cell.value for cell in row]
-        for row in sheet.iter_rows()
+    cells = {key: cell for key, cell in loaded_cells(sheet).items() if cell.value is not None}
+    merged_ranges = [
+        merged for merged in sheet.merged_cells.ranges if (merged.min_row, merged.min_col) in cells
     ]
-    for merged in sheet.merged_cells.ranges:
+    row_count = max([row for row, _ in cells] + [merged.max_row for merged in merged_ranges], default=0)
+    column_count = max(
+        [column for _, column in cells] + [merged.max_col for merged in merged_ranges], default=0
+    )
+    values: list[list[object]] = [[None] * column_count for _ in range(row_count)]
+    for (row, column), cell in cells.items():
+        values[row - 1][column - 1] = FormulaCell(cell.value) if cell.data_type == "f" else cell.value
+    for merged in merged_ranges:
         anchor = values[merged.min_row - 1][merged.min_col - 1]
         for row_index in range(merged.min_row - 1, merged.max_row):
             for column_index in range(merged.min_col - 1, merged.max_col):
@@ -439,8 +449,9 @@ def resolve_target_file(listed_path: str, project_root: Path, context: str) -> P
             "Skipped %s: Target ARXML must be relative to projectRoot: %s", context, listed_path
         )
         return None
-    target = (project_root / listed).resolve()
-    if not target.is_file():
+    # 不解析链接：位于链接或 junction 目录中的目标文件仍按 projectRoot 内的布局映射到输出目录。
+    target = absolute_path(project_root / listed, resolve_links=False)
+    if not is_file(target):
         LOGGER.error("Skipped %s: Target ARXML not found: %s", context, listed_path)
         return None
     return target

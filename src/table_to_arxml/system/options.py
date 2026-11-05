@@ -13,7 +13,7 @@ from ..common.errors import ConfigError
 from ..common.logs import LOG_LEVELS
 from ..common.messages import clean_message
 from ..common.names import autosar_path, c_identifier, short_name
-from ..common.paths import filesystem_path, validate_output_paths
+from ..common.paths import absolute_path, filesystem_path, strip_long_path_prefix
 from .values import DEFAULT_AR_RELEASE, DEFAULT_E2E_WRAPPER, DEFAULT_PROTOTYPE_PREFIX, DEFAULT_SIGNAL_PATH_TEMPLATE, norm
 
 if TYPE_CHECKING:
@@ -37,6 +37,10 @@ CONFIG_KEYS = frozenset({
 })
 GENERAL_CONFIG_KEYS = frozenset({"Composition", "System", "EcuInstance", "RootSwCompositionPrototype", "systemMapping"})
 INTERFACE_MAPPING_KEYS = {"providerInterface", "requesterInterface", "dataElements"}
+# Windows 保留设备名，带扩展名（如 NUL.lst）同样指向设备而不是文件。
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{index}" for index in range(1, 10)),
+     *(f"LPT{index}" for index in range(1, 10))})
 
 
 @dataclass(frozen=True)
@@ -114,34 +118,38 @@ def _boolean_option(config: dict, key: str, default: bool) -> bool:
     return value
 
 
-def _filename_part(value: str, label: str) -> str:
-    if value in (".", "..") or re.search(r'[<>:"/\\|?*\x00-\x1f]', value) or value.endswith((".", " ")):
+def _is_reserved_name(name: str) -> bool:
+    return name.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES
+
+
+def _filename_part(value: str, label: str, *, check_reserved: bool = True) -> str:
+    if (value in (".", "..") or re.search(r'[<>:"/\\|?*\x00-\x1f]', value) or value.endswith((".", " "))
+            or (check_reserved and _is_reserved_name(value))):
         raise ConfigError(f"{label} must be a portable filename component without a directory: {value}")
     return value
 
 
-def _resolve_config_path(value: str, config_dir: Path) -> Path:
+def _resolve_config_path(value: str, config_dir: Path, *, resolve_links: bool = True) -> Path:
     """config 中的相对路径一律以配置文件所在目录为基准。"""
 
-    path = filesystem_path(value)
-    return path if path.is_absolute() else config_dir / path
+    return absolute_path(filesystem_path(value), config_dir, resolve_links=resolve_links)
 
 
 def _optional_directory(config: dict, key: str, config_dir: Path) -> Path | None:
     if key not in config:
         return None
-    return _resolve_config_path(_string_option(config, key, ""), config_dir).resolve()
+    return _resolve_config_path(_string_option(config, key, ""), config_dir)
 
 
 def _resolve_project_root(config: dict, project_root: str | None, config_path: Path) -> Path:
     """工程根目录，用于解析清单里的相对路径；命令行优先，二者必须提供其一。"""
 
     if project_root:
-        return filesystem_path(project_root).resolve()
+        return absolute_path(filesystem_path(project_root))
     configured = _string_option(config, "projectRoot", "", allow_empty=True)
     if not configured:
         raise ConfigError(f"{config_path}: project root is required via --project-root or config field 'projectRoot'")
-    return _resolve_config_path(configured, config_path.parent).resolve()
+    return _resolve_config_path(configured, config_path.parent)
 
 
 def _exclude_patterns(config: dict) -> list[str]:
@@ -232,7 +240,7 @@ def _prepare_job(
 ) -> Job:
     """读取并校验单个配置；不依赖 armodel，可在加载 ARXML 前完成。"""
 
-    config_path = config_path.resolve()
+    config_path = absolute_path(config_path)
     config = _load_config(config_path)
     config_dir = config_path.parent
     overrides = {
@@ -253,9 +261,10 @@ def _prepare_job(
         if key in {"projectRoot", "outputDir", "logDir", "arxmlFileList", "whiteTable"}:
             if not isinstance(value, str) or not value.strip():
                 raise ConfigError(f"Command-line {key} must be a nonempty path")
-            if any(token in value for token in ("*", "?", "${")):
+            if any(token in strip_long_path_prefix(value) for token in ("*", "?", "${")):
                 raise ConfigError(f"Command-line {key} must be a literal path")
-            value = str(filesystem_path(value).resolve())
+            # 命令行相对路径以当前工作目录为基准，转成绝对路径后不再按配置目录解析。
+            value = str(absolute_path(filesystem_path(value)))
         config[key] = value
     if options.white_table is not None:
         config.pop("greenTables", None)
@@ -266,7 +275,16 @@ def _prepare_job(
     _filename_part(resolved_variant, "variant")
 
     # 产物命名全部由 config.outputPrefix 推导，例如 Bcm -> BcmWhiteTable.xlsx / BcmGreenTables.xlsx / BcmSystem.arxml。
-    output_prefix = _filename_part(_required(config, "outputPrefix", "outputPrefix"), "outputPrefix")
+    output_prefix = _filename_part(
+        _required(config, "outputPrefix", "outputPrefix"), "outputPrefix", check_reserved=False)
+    reserved_outputs = [
+        name for name in (f"{output_prefix}{suffix}" for suffix in (
+            WHITE_TABLE_SUFFIX, MERGED_GREEN_TABLE_SUFFIX, SYSTEM_ARXML_SUFFIX))
+        if _is_reserved_name(name)
+    ]
+    if reserved_outputs:
+        raise ConfigError(
+            f"outputPrefix {output_prefix!r} produces Windows device file names: {', '.join(reserved_outputs)}")
     general = _section(config, "general")
     unknown_general = sorted(set(general) - GENERAL_CONFIG_KEYS)
     if unknown_general:
@@ -281,7 +299,7 @@ def _prepare_job(
     elif "whiteTable" in config:
         input_white_table = _resolve_config_path(
             _required(config, "whiteTable", "whiteTable").replace("${variant}", resolved_variant),
-            config_dir).resolve()
+            config_dir)
     prototype_prefix = _string_option(config, "prototypePrefix", DEFAULT_PROTOTYPE_PREFIX, allow_empty=True)
     if prototype_prefix:
         short_name(prototype_prefix, "config.prototypePrefix")
@@ -313,7 +331,7 @@ def _prepare_job(
     arxml_file_list = None
     if "arxmlFileList" in config:
         configured = _string_option(config, "arxmlFileList", "").replace("${variant}", resolved_variant)
-        arxml_file_list = _resolve_config_path(configured, config_dir).resolve()
+        arxml_file_list = _resolve_config_path(configured, config_dir)
     reuse_list = arxml_file_list is not None
     build_type = DEFAULT_BUILD_TYPE if reuse_list else (
         _string_option(config, "buildType", DEFAULT_BUILD_TYPE, allow_empty=True) or DEFAULT_BUILD_TYPE
@@ -321,9 +339,10 @@ def _prepare_job(
     configured_output = "" if reuse_list else _string_option(
         config, "tresosOutputBaseDir", "", allow_empty=True
     )
+    # 原样（不解析链接）传给 EB 导入器作为 TRESOS_OUTPUT_BASE_DIR。
     tresos_output_dir = _resolve_config_path(
         configured_output.replace("${variant}", resolved_variant).replace("${buildType}", build_type),
-        config_dir) if configured_output else None
+        config_dir, resolve_links=False) if configured_output else None
 
     return Job(
         config_path=config_path,
@@ -363,8 +382,10 @@ def resolve_run_directory(
     if cli_value is not None:
         if not isinstance(cli_value, str) or not cli_value.strip():
             raise ConfigError(f"{cli_option} must specify a nonempty directory")
-        path = filesystem_path(cli_value.strip())
-        return (path if path.is_absolute() else Path.cwd() / path).resolve()
+        try:
+            return absolute_path(filesystem_path(cli_value.strip()))
+        except ValueError as error:
+            raise ConfigError(f"{cli_option}: {clean_message(error)}") from error
 
     directories: list[Path] = []
     for job in jobs:
@@ -409,7 +430,7 @@ def prepare_jobs(options: RunOptions) -> list[Job]:
     for config_path in options.config_paths:
         try:
             job = _prepare_job(config_path, options)
-        except (ConfigError, ValueError) as error:
+        except (ConfigError, OSError, ValueError) as error:
             raise ConfigError(f"{config_path}: {clean_message(error)}") from error
         if (options.arxml_file_list is None and job.arxml_file_list is None
                 and not job.preference_entries):
@@ -417,13 +438,16 @@ def prepare_jobs(options: RunOptions) -> list[Job]:
                 f"{job.config_path}: an ARXML list is required via --arxml-file-list, "
                 "config.arxmlFileList or config.tresosPreferenceFiles")
         jobs.append(job)
-    try:
-        validate_output_paths(
-            Path(f"{job.output_prefix}{suffix}") for job in jobs
-            for suffix in (SYSTEM_ARXML_SUFFIX, WHITE_TABLE_SUFFIX, MERGED_GREEN_TABLE_SUFFIX)
-        )
-    except ValueError as error:
-        raise ConfigError(f"config.outputPrefix must be unique across configs: {error}") from error
+    # 产物名在所有平台上都按不区分大小写比较，保证可以复制到 Windows 使用。
+    output_names: set[str] = set()
+    for job in jobs:
+        for suffix in (SYSTEM_ARXML_SUFFIX, WHITE_TABLE_SUFFIX, MERGED_GREEN_TABLE_SUFFIX):
+            name = f"{job.output_prefix}{suffix}"
+            if name.casefold() in output_names:
+                raise ConfigError(
+                    f"config.outputPrefix must be unique across configs (case-insensitive): "
+                    f"Conflicting output path: {name}")
+            output_names.add(name.casefold())
     return jobs
 
 
