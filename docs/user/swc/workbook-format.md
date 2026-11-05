@@ -262,14 +262,14 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 | `Port Name` | 是 | 端口 `SHORT-NAME` |
 | `Port Interface Ref` | 是 | 端口接口的完整路径，可以是本次新建的接口 |
 | `Create RTE Artifact` | 否 | 布尔，默认 `N`；`Y` 时为接口全部元素或 operation 生成 RTE 访问对象，见下文 |
-| `Runnable Name` | 条件必填 | 只填 SHORT-NAME，不填路径；SR P/R 和 CS R 指已有 runnable，CS P 指新建名称，具体规则见下文 |
+| `Runnable Name` | 条件必填 | 只填 SHORT-NAME，不填路径；SR P/R 和 CS R 指已有或本次 CS P-Port 新建的 runnable，CS P 指新建名称，具体规则见下文 |
 | `Access Kind` | 否 | 仅 SR 接口：访问点类别，取值同 [Data Accesses](#data-accesses)，须与端口方向匹配；留空时 P-Port 取 `Send`、R-Port 取 `ReceiveByArgument` |
 
 `P-Ports` 专有列：
 
 | 列 | 说明 |
 | --- | --- |
-| `Runnable Name` | SR 接口：已有 runnable 的简称，`Create RTE Artifact=Y` 时必填；CS 接口：新建 runnable 的名称，可留空 |
+| `Runnable Name` | SR 接口：已有或本次新建 runnable 的简称，`Create RTE Artifact=Y` 时必填；CS 接口：新建 runnable 的名称，可留空 |
 | `Runnable Symbol` | CS 接口新建 runnable 的 `SYMBOL`，留空时与 runnable 名相同；须为 C 标识符，是 C 关键字（如 `int`）时记录 `WARNING` |
 | `Minimum Start Interval` | CS 新建 runnable 的最小启动间隔，单位秒，非负数，默认 `0.0` |
 | `Can Be Invoked Concurrently` | CS 新建 runnable 是否可并发，布尔，默认 `N` |
@@ -280,7 +280,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 
 | 列 | 说明 |
 | --- | --- |
-| `Runnable Name` | 已有 runnable 的简称，`Create RTE Artifact=Y` 时必填 |
+| `Runnable Name` | 已有或本次新建 runnable 的简称，`Create RTE Artifact=Y` 时必填 |
 | `Enable Update` | 布尔，默认 `N`；只作用于非队列数据元素 |
 | `Queue Length` | 非负整数，留空或 `0` 表示不生成；只作用于队列数据元素（`SW-IMPL-POLICY=QUEUED`） |
 
