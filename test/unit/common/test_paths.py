@@ -41,6 +41,22 @@ def test_green_table_lock_files_are_ignored_before_name_check(tmp_path):
     assert collect_green_workbooks(["*.xlsx"], "T", tmp_path) == [("Lamp", tmp_path / "Lamp.xlsx")]
 
 
+def test_unmatched_green_pattern_warns_but_keeps_other_inputs(tmp_path, caplog):
+    (tmp_path / "Lamp.xlsx").touch()
+    assert collect_green_workbooks(["Missing*.xlsx", "Lamp.xlsx"], "T", tmp_path) == [
+        ("Lamp", tmp_path / "Lamp.xlsx"),
+    ]
+    assert "No green tables match pattern:" in caplog.text
+    assert str(tmp_path / "Missing*.xlsx") in caplog.text
+    assert [record.levelname for record in caplog.records] == ["WARNING"]
+
+
+def test_all_green_patterns_unmatched_still_fail(tmp_path, caplog):
+    with pytest.raises(ValueError, match="No green tables were selected"):
+        collect_green_workbooks(["Missing*.xlsx"], "T", tmp_path)
+    assert "No green tables match pattern:" in caplog.text
+
+
 def test_bracket_directory_is_not_part_of_glob_expression(tmp_path):
     project = tmp_path / "Project[1]"
     project.mkdir()

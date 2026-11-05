@@ -61,6 +61,7 @@ table-to-swc-arxml --config ./config/swc.toml
 ## 支持与兼容
 
 Python 3.9 是最低要求；新环境建议使用仍受维护的 Python 3.13。最低版本不表示所有 Python、armodel 和工程组合均已验证。CI 当前覆盖 Windows/Ubuntu、Python 3.9/3.13，以及 armodel 1.8.7、1.9.2 和 1.9.8。
+openpyxl 最低支持 3.1.5；CI 除常规依赖组合外，还在两个平台的 Python 3.9、armodel 1.9.8 环境下固定该最低版本运行测试。
 
 armodel 依赖范围为 `>=1.8.7,<=1.9.8,!=1.9.1`。上限只会在新版本完成兼容测试后更新。安装 wheel 时 pip 会自动安装兼容依赖。
 

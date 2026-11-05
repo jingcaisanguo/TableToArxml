@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - '**'
+      - main
     paths:
       - 'src/**'
       - 'pyproject.toml'
@@ -29,6 +29,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: wheel-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   build:

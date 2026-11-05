@@ -20,7 +20,7 @@
 table-to-swc-arxml --config ./config/swc.toml
 ```
 
-- 依赖为 `armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另需 `tomli>=1.1.0`（读取 TOML 配置），安装 wheel 时自动安装。armodel 上限固定在已验证的 `1.9.8`，新版本通过兼容测试后才更新上限；安装了范围外的版本时工具启动即报版本错误。
+- 依赖为 `armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.5`、`packaging>=21.3`，Python 3.11 以下另需 `tomli>=1.1.0`（读取 TOML 配置），安装 wheel 时自动安装。armodel 上限固定在已验证的 `1.9.8`，新版本通过兼容测试后才更新上限；安装了范围外的 armodel 或 openpyxl 时工具启动即报版本错误。
 - 配置、工作簿、清单和日志由使用工具的项目提供。
 
 参数和路径规则见 [configuration.md](configuration.md)。
@@ -275,6 +275,7 @@ runnable 是其全部子对象（各类访问点、服务器调用点等）的�
 插入原文件字节，其余字节保持不变：
 
 - 插入位置按完整 AUTOSAR 路径（各级 `SHORT-NAME`）定位，同一文件中不同组件下同名的 runnable、内部行为互不影响。
+  SHORT-NAME 中的字符引用、CDATA、注释和标签中的合法空白按 XML 语义读取，查询、引用 DEST 推导及插入使用相同名称，原始字节不改写。
   标签按本地名称识别，带命名空间前缀的文件（如 `<ar:SHORT-NAME>`）也能用于查询；但插入的片段不带前缀，
   因此根元素带前缀（`<ar:AUTOSAR>`）的文件不修改，需要写入时报 `ERROR`。
 - 片段插入到目标容器结束标签之前，缩进取该行缩进再加两个空格。

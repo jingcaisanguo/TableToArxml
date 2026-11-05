@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import codecs
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Sequence
@@ -175,6 +176,7 @@ def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
 
     index: dict[str, list[ElementSpan]] = {}
     stack: list[_OpenElement] = []
+    encoding = source_encoding(source)
     for match in _TOKEN.finditer(source):
         tag_bytes = match.group(2)
         if tag_bytes is None:
@@ -185,6 +187,14 @@ def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
                 expected = stack[-1].tag if stack else "nothing"
                 raise ValueError(f"Malformed ARXML: found </{tag}> while expecting </{expected}>")
             element = stack.pop()
+            if _local_name(tag) == "SHORT-NAME" and stack and stack[-1].path is None:
+                text = source[element.content_start:match.start()].decode(encoding)
+                try:
+                    name = "".join(ET.fromstring(f"<name>{text}</name>").itertext()).strip()
+                except ET.ParseError as error:
+                    raise ValueError(f"Malformed SHORT-NAME: {error}") from error
+                owner = stack[-1]
+                owner.path = f"{owner.parent_path}/{name}"
             if element.path is not None:
                 index.setdefault(element.path, []).append(ElementSpan(
                     _local_name(tag), element.start, element.content_start, match.start(), match.end(),
@@ -197,12 +207,6 @@ def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
             parent = stack[-1]
             parent_path = parent.path if parent.path is not None else parent.parent_path
         stack.append(_OpenElement(tag, match.start(), match.end(), parent_path))
-        if _local_name(tag) == "SHORT-NAME" and len(stack) > 1:
-            closing = source.find(b"</" + tag_bytes + b">", match.end())
-            owner = stack[-2]
-            if closing >= 0 and owner.path is None:
-                name = source[match.end():closing].strip().decode(source_encoding(source), "replace")
-                owner.path = f"{owner.parent_path}/{name}"
     if stack:
         raise ValueError(f"Malformed ARXML: <{stack[-1].tag}> is not closed")
     return index

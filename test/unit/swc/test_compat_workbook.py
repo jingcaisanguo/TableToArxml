@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import tracemalloc
 
 import pytest
 from openpyxl import Workbook
@@ -30,14 +31,13 @@ def test_formatted_empty_cells_do_not_extend_the_sheet(tmp_path):
     started = time.perf_counter()
     rows = workbook.load_workbook_sheets(path)["Components"]
     assert time.perf_counter() - started < 10
-    assert rows == [
-        ("SW-C", "Component Path", None, None),
-        ("A", "/Pkg/A", None, None),
-        ("B", "/Pkg/B", None, None),
-        (None, None, None, None),
-        (None, None, "merged", "merged"),
-        (None, None, "merged", "merged"),
-    ]
+    assert rows == {
+        1: ("SW-C", "Component Path"),
+        2: ("A", "/Pkg/A"),
+        3: ("B", "/Pkg/B"),
+        5: (None, None, "merged", "merged"),
+        6: (None, None, "merged", "merged"),
+    }
 
 
 def test_formula_cells_are_still_detected_without_scanning_the_dimension(tmp_path):
@@ -49,7 +49,51 @@ def test_formula_cells_are_still_detected_without_scanning_the_dimension(tmp_pat
     path = tmp_path / "formula.xlsx"
     book.save(path)
     rows = workbook.load_workbook_sheets(path)["Components"]
-    assert isinstance(rows[1][1], workbook.FormulaCell)
+    assert isinstance(rows[2][1], workbook.FormulaCell)
+
+
+def test_far_nonempty_cell_is_sparse_and_reports_original_row(caplog):
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["SW-C", "Component Path"])
+    sheet.append(["A", "/Pkg/A"])
+    sheet.cell(1_048_576, 16_384, "accidental value")
+    tracemalloc.start()
+    try:
+        rows = workbook.sheet_values(sheet)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+        book.close()
+    assert set(rows) == {1, 2, 1_048_576}
+    assert len(rows[1]) == len(rows[2]) == 2
+    assert peak < 4 * 1024 * 1024
+    assert workbook.read_sheet_rows({"Components": rows}, "Components") == [
+        {"SW-C": "A", "Component Path": "/Pkg/A"},
+    ]
+    assert "Skipped Components row 1048576: data under a blank header" in caplog.text
+
+
+def test_sparse_rows_keep_merges_and_formula_error_locations(caplog):
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["SW-C", "Component Path"])
+    sheet["A20"], sheet["B20"] = "A", "/Pkg/A"
+    sheet.merge_cells("A20:A21")
+    sheet["B21"] = '="/Pkg/B"'
+    rows = workbook.sheet_values(sheet)
+    book.close()
+    assert set(rows) == {1, 20, 21}
+    assert rows[21][0] == "A"
+    assert workbook.read_sheet_rows({"Components": rows}, "Components") == [
+        {"SW-C": "A", "Component Path": "/Pkg/A"},
+    ]
+    assert "Components!Component Path21: formula cells are not supported" in caplog.text
+
+
+def test_sparse_data_does_not_replace_missing_first_row(caplog):
+    assert workbook.read_sheet_rows({"Components": {50: ("A", "/Pkg/A")}}, "Components") == []
+    assert "missing header row" in caplog.text
 
 
 @pytest.mark.parametrize("value", ["A\u2028B", "A\u2029B", "A\x85B", "A\x7fB", "A\x9fB"])

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from tempfile import TemporaryDirectory
 
 import pytest
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from helpers import SYSTEM, run_tool
 from system_fixtures import write_config, write_model, write_white_table
@@ -16,6 +17,53 @@ from table_to_arxml.common.logs import PACKAGE_LOGGER
 from table_to_arxml.system import cli
 
 OLE_SIGNATURE = bytes.fromhex("D0CF11E0A1B11AE1")  # encrypted/IRM-protected Office files are CFB containers
+
+
+def test_system_output_cannot_overwrite_selected_green_workbook(tmp_path):
+    write_model(tmp_path)
+    book = Workbook()
+    book.remove(book.active)
+    for name in ("R-Port", "P-Port"):
+        book.create_sheet(name).append(
+            ["ID", "Port", "Module", "", "", "", "", "", "Component", "Port", "Remark"])
+    book.create_sheet("Notes").append(["Keep original business notes"])
+    source = tmp_path / "TGreenTables.xlsx"
+    book.save(source)
+    book.close()
+    original = source.read_bytes()
+    config = write_config(tmp_path, greenTables=[source.name], outputDir=".",
+                          componentAliases={"TGreenTables": "/Pkg/Top/A"},
+                          general={"Composition": "/Pkg/Top", "System": "/Pkg/Sys",
+                                   "EcuInstance": "/Pkg/Ecu", "RootSwCompositionPrototype": "/Pkg/Sys/RootProto"})
+    settings = json.loads(config.read_text(encoding="utf-8"))
+    del settings["whiteTable"]
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    result = run_tool(SYSTEM, "--config", config)
+    assert result.returncode == 1, result.stderr
+    assert "Output path overlaps an input file" in result.stderr
+    assert source.read_bytes() == original
+    assert not (tmp_path / "TWhiteTable.xlsx").exists()
+    assert not (tmp_path / "TSystem.arxml").exists()
+
+
+@pytest.mark.parametrize("source_name", ["model.arxml", "model.lst", "white.xlsx", "config.json"])
+def test_system_outputs_protect_all_input_file_aliases(tmp_path, source_name):
+    write_model(tmp_path)
+    write_white_table(tmp_path, {"Components": [["A", "A", "/Pkg/A", "Reference"]]})
+    config = write_config(tmp_path)
+    source = tmp_path / source_name
+    original = source.read_bytes()
+    output = tmp_path / "out"
+    output.mkdir()
+    destination = output / "TSystem.arxml"
+    try:
+        os.link(source, destination)
+    except OSError as error:
+        pytest.skip(f"Hard links unavailable: {error}")
+    result = run_tool(SYSTEM, "--config", config)
+    assert result.returncode == 1, result.stderr
+    assert "Output path overlaps an input file" in result.stderr
+    assert source.read_bytes() == destination.read_bytes() == original
 
 
 @pytest.fixture

@@ -35,7 +35,7 @@ table-to-swc-arxml --help
 table-to-arxml @ <Release 中 table_to_arxml-<版本>-py3-none-any.whl 的下载链接>
 ```
 
-- 安装时自动安装依赖：`armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另装 `tomli>=1.1.0`（读取 TOML 配置）。armodel 上限固定在已验证的 `1.9.8`，排除包入口不完整的 `1.9.1`；新版本须补充兼容测试、通过后提交更新版本上限。新环境从索引安装时 pip 默认选择约束范围内可用的最新版；上面的 `--upgrade --upgrade-strategy eager` 也会升级已有环境中满足约束但较旧的依赖（不限于 armodel）。范围外的 armodel 在工具启动时报错。
+- 安装时自动安装依赖：`armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.5`、`packaging>=21.3`，Python 3.11 以下另装 `tomli>=1.1.0`（读取 TOML 配置）。armodel 上限固定在已验证的 `1.9.8`，排除包入口不完整的 `1.9.1`；新版本须补充兼容测试、通过后提交更新版本上限。新环境从索引安装时 pip 默认选择约束范围内可用的最新版；上面的 `--upgrade --upgrade-strategy eager` 也会升级已有环境中满足约束但较旧的依赖（不限于 armodel）。范围外的 armodel 或 openpyxl 在工具启动时报错。
 - wheel 本身跨平台，但依赖需要适合目标平台的发行包；离线环境需提前下载依赖。
 - 私有仓库先通过已认证的 GitHub 客户端或 CI 下载 wheel，再用本地路径安装；不要把令牌写进 URL、配置或版本库。
 

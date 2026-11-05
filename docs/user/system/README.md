@@ -16,7 +16,7 @@
 
 ## 环境与输入
 
-- 安装方式见 [../README.md](../README.md)。安装 wheel 会自动安装 Python 依赖：`armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.2`、`packaging>=21.3`，Python 3.11 以下另装 `tomli>=1.1.0`。armodel 上限固定在已验证的 `1.9.8`，新版本通过兼容测试后才更新上限；1.9.1 的包入口不完整，不能使用。
+- 安装方式见 [../README.md](../README.md)。安装 wheel 会自动安装 Python 依赖：`armodel>=1.8.7,<=1.9.8,!=1.9.1`、`openpyxl>=3.1.5`、`packaging>=21.3`，Python 3.11 以下另装 `tomli>=1.1.0`。armodel 上限固定在已验证的 `1.9.8`，新版本通过兼容测试后才更新上限；1.9.1 的包入口不完整，不能使用。低于最低要求的 openpyxl 在启动时被拒绝。
 - 使用 EB 模式时，`PrefSystemImporter` 必须能从当前进程的 `PATH` 找到；使用已有 lst 时不需要启动该命令。
 - 输入应包含绿表引用的组件类型、端口、接口、实现、信号，以及 General 引用的系统和拓扑定义。lst 只是路径清单，不能代替缺失的定义。
 - 工具不负责生成 BSW/SWC 的前置 ARXML；先用工程已有流程准备这些输入。
@@ -155,6 +155,9 @@ table-to-system-arxml --config ./config/system.toml --output-mode merge
 | `table_to_system_arxml_<时间含微秒>_<进程号>.log` | 在显式指定的 `--log-dir` 或 `logDir` 下记录本次运行日志 |
 
 只有整次转换成功才覆盖同名产物，不会自动清理其他旧文件。工具自身的 ERROR 或运行异常阻止本次发布；armodel 解析器诊断不单独影响退出码，但仍需检查是否影响工程所需内容。失败时清理临时文件，发布失败尝试回滚，日志保留。不同变体使用相同 `outputPrefix` 时仍需分次运行并用 `--output-dir` 分目录；不要并发发布到同一个产物目录。
+
+发布前检查全部产物与本次使用的配置、绿表、白表、ARXML 清单、ARXML 和 EB 导入器配置是否指向同一文件
+（包括符号链接、junction 和硬链接）。重合时记录 `ERROR`、不发布任何产物；请改用独立输出目录。
 
 工具本身不把产物复制回工程；需要分发时由调用方的构建流程复制，并仅在退出码为 0 时复制。
 

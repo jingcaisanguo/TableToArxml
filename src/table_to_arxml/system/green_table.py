@@ -160,6 +160,8 @@ def collect_green_workbooks(
             continue
         pattern = filesystem_path(rendered)
         matches = expand_path(pattern, base_dir, literal_name=False)
+        if not matches:
+            LOGGER.warning("No green tables match pattern: %s; skipped", base_dir / pattern)
 
         for match in sorted(matches, key=lambda path: str(path).casefold()):
             path = absolute_path(match, resolve_links=False)
@@ -226,16 +228,20 @@ def merge_green_workbooks(
             source_workbook.sheetnames, green_workbook_path,
         )
         receive_name = _merged_sheet_name(app_name, R_PORT_SHEET, used_names)
+        send_name = _merged_sheet_name(app_name, P_PORT_SHEET, used_names)
+        sheet_names = {receive_sheet_name: receive_name, send_sheet_name: send_name}
         if index == 0:
             receive_sheet = placeholder_sheet
             receive_sheet.title = receive_name
         else:
             receive_sheet = merged_workbook.create_sheet(receive_name)
 
-        send_sheet = merged_workbook.create_sheet(_merged_sheet_name(app_name, P_PORT_SHEET, used_names))
-        copy_worksheet(receive_sheet, source_workbook[receive_sheet_name])
-        copy_worksheet(send_sheet, source_workbook[send_sheet_name])
-        source_workbook.close()
+        send_sheet = merged_workbook.create_sheet(send_name)
+        try:
+            copy_worksheet(receive_sheet, source_workbook[receive_sheet_name], sheet_names=sheet_names)
+            copy_worksheet(send_sheet, source_workbook[send_sheet_name], sheet_names=sheet_names)
+        finally:
+            source_workbook.close()
 
     merged_workbook.save(output_file)
     merged_workbook.close()
