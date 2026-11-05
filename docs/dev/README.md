@@ -50,6 +50,8 @@ table-to-swc-arxml --help
   （[dependencies.py](../../src/table_to_arxml/common/dependencies.py) 的 `ARMODEL_REQUIREMENT`），测试保证它与 requirements.txt 一致。`tomli` 只在 Python 3.11 以下需要（3.11 起用标准库 `tomllib`），由环境标记控制。
 - 版本号由 `setuptools-scm` 从 Git tag 自动推导；源码运行需要开发依赖 `setuptools-scm`，安装后的 wheel 使用构建时生成的版本文件，不需要 Git 或 `setuptools-scm`。不要手改版本常量。
 - 源码版本检测同时检查 `src/table_to_arxml` 布局和 Git 标记；安装包即使位于某个 Git 工作区内，也不会误用该工作区的版本。
+  检测依次回退：setuptools-scm（源码工作区）→ 构建生成的 `_version.py` → 安装元数据 → `0+unknown`，
+  因此没有 `git`、未安装 setuptools-scm 或使用 GitHub 源码 zip 时仍可导入和运行 `--help`。
 
 ## 源码模块
 
@@ -63,11 +65,11 @@ table-to-swc-arxml --help
 | [dependencies.py](../../src/table_to_arxml/common/dependencies.py) | 依赖可导入性与 armodel 版本检查 |
 | [logs.py](../../src/table_to_arxml/common/logs.py) | 日志文件与控制台输出、ERROR 收集 |
 | [arxml_list.py](../../src/table_to_arxml/common/arxml_list.py) | ARXML 清单读取和 `excludeArxml`/正则排除，两个工具同一套规则 |
-| [output.py](../../src/table_to_arxml/common/output.py) | 单文件原子替换；批量失败时尽力回滚并汇总恢复失败路径 |
-| [paths.py](../../src/table_to_arxml/common/paths.py) | 字面路径优先的 glob 展开、文件身份与输出冲突检查 |
+| [output.py](../../src/table_to_arxml/common/output.py) | 单文件原子替换（短临时名、保留原文件权限位及 Windows 隐藏/系统属性，不保留 ACL/属主）；盘符或共享根不存在时立即报错；批量失败时尽力回滚并汇总恢复失败路径 |
+| [paths.py](../../src/table_to_arxml/common/paths.py) | 字面路径优先的 glob 展开、文件身份与输出冲突检查；`absolute_path`/`path_key` 取代对用户路径的 `Path.resolve()`，`path_exists`/`is_file`/`is_dir` 不因权限错误抛异常 |
 | [names.py](../../src/table_to_arxml/common/names.py) | SHORT-NAME、AUTOSAR 路径、C 标识符校验及稳定长名称 |
 | [armodel_compat.py](../../src/table_to_arxml/common/armodel_compat.py) | armodel 的用法约定与缺陷绕行：全局文档复位、解析器日志接管、片段序列化、writer 修补 |
-| [openpyxl_compat.py](../../src/table_to_arxml/common/openpyxl_compat.py) | 跨工作簿复制页签（依赖 openpyxl 私有属性） |
+| [openpyxl_compat.py](../../src/table_to_arxml/common/openpyxl_compat.py) | 跨工作簿复制页签、只遍历已加载单元格（依赖 openpyxl 私有属性 `_cells`） |
 
 两个工具的入口行为一致：
 
@@ -93,13 +95,16 @@ table-to-swc-arxml --help
 | [green_to_white.py](../../src/table_to_arxml/system/green_to_white.py) | 绿表转白表 |
 | [white_table.py](../../src/table_to_arxml/system/white_table.py) | 白表布局、创建、格式化和读取 |
 | [arxml_generator.py](../../src/table_to_arxml/system/arxml_generator.py) | 解析白表引用并用 armodel 生成输出；连接器命名见 `connector_name` |
-| [base_merge.py](../../src/table_to_arxml/system/base_merge.py) | 可选 `merge` 输出模式：保留完整 base XML，按 AUTOSAR 路径增量追加表格对象，去重并检查冲突与引用 |
+| [base_merge.py](../../src/table_to_arxml/system/base_merge.py) | 可选 `merge` 输出模式：保留完整 base XML，按 AUTOSAR 路径增量追加表格对象，按身份引用去重并检查冲突与引用；新建容器按 `CHILD_ORDER` 的 XSD 顺序插入 |
 
 - 多个配置共用一次 `ArxmlModel.load`；生成的 ARXML 写到独立文档，加载的模型保留给后续配置复用。
 - `outputMode` 默认 `replace`，保留原有生成结果；`merge` 以本配置唯一同名 base 的原始 XML 为基础，仅追加缺失的表格对象及必要依赖。
   base 的定义通过临时解析片段加入模型，片段不含 CONNECTORS 和 System MAPPINGS，避免旧连线被提前跳过或 base 映射被误判为外部不可拆分映射。
   合并时保留 base 的属性、其他对象、注释和元数据；已有实例不重新生成 ECU/实现映射。最终合并结果在后续配置执行前加入模型。
   输出与 base 重合时报错；所有合并检查成功后才原子发布，解析片段不发布。
+  连线只按端点 IREF、信号映射只按数据元素 IREF 与信号引用识别；base 中额外的 TYPE-MAPPING、VARIATION-POINT、ADMIN-DATA 等不影响匹配，也不校验其中的引用。
+  输出保留 base 的 XML 声明、根元素前后注释、编码、换行风格和未改动部分的空白，只为新插入的子树按兄弟元素缩进。
+- 不要对用户提供的路径调用 `Path.resolve()`：Python 3.9 在 Windows 上会对不存在的路径返回相对路径，或对含通配符的路径抛 `WinError 123`；统一使用 `common/paths.py` 的 `absolute_path`、`path_key`。
 - 产物先写到临时目录，没有工具自身 ERROR 或运行异常时才发布到输出目录；armodel 解析器诊断不单独决定失败。
 - 组合实例链只在 `ArxmlModel.composition_chains` 中实现，嵌套上限为 `MAX_COMPOSITION_DEPTH`；总线类型统一由 `bus_module` 判断。
 - 输出是对已有元素的拆分片段：`_Resolver.check_composition_names` 检查目标 Composition 命名空间（同名报错、仅大小写不同只警告），`resolve_system`
@@ -125,7 +130,8 @@ table-to-swc-arxml --help
 | [arxml_model.py](../../src/table_to_arxml/swc/arxml_model.py) | armodel 的加载、查询和片段生成 |
 
 - 新元素只以 XML 片段插入原文件字节，其余字节不变，避免 armodel 整文件重新序列化带来的格式差异。
-- armodel 的 `AUTOSAR` 是全局单例，每次加载都会清空；文档对象带加载代次，过期使用会报错。`SourceStore` 按文件版本缓存解析结果。
+- 类型和接口按目标文件批量插入：每个步骤先收集片段，步骤结束时每个文件只插入一次、重新解析一次；包是否存在直接在原始字节上判断，避免每个对象都让 armodel 重新解析整个文件。
+- armodel 的 `AUTOSAR` 是全局单例，每次加载都会清空；文档对象带加载代次，过期使用会报错。`SourceStore` 按文件版本缓存解析结果，并用 `path_key` 识别文件，清单条目与 `Target ARXML` 写法不同也视为同一文件；写出前重新读取源文件，若运行期间被外部修改则报错且不写出。
 - 定义查询按清单顺序采用第一个完整路径，缓存键包含查询范围和顺序。SHORT-NAME 预索引由 XML 解析构建，不依赖标签排版；XML 损坏仍阻止输出，包括后续重复候选文件损坏的情况。
 - `StepResult.planned`、`FileChange.planned_ports/planned_accesses` 及汇总只描述内存中准备的新增对象；dry-run 不表示已写盘。实际写出成功后另行记录文件数量，端口和访问点的失败数量分别统计。
 - 需要新建的父容器（`ELEMENTS`、`EVENTS`、`RUNNABLES`、`SERVER-CALL-POINTS`）按 [xml_patch.py](../../src/table_to_arxml/swc/xml_patch.py)

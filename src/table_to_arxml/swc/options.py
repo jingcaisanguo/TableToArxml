@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +17,10 @@ from ..common.config_file import read_config_file
 from ..common.errors import ConfigError
 from ..common.logs import LOG_LEVELS
 from ..common.messages import clean_message
-from ..common.paths import expand_path, filesystem_path, literal_path_exists
+from ..common.paths import (
+    absolute_path, expand_path, filesystem_path, has_wildcard, is_dir, is_file, literal_path_exists,
+    strip_long_path_prefix,
+)
 
 CONFIG_KEYS = (
     "defaultVariant",
@@ -82,12 +84,13 @@ def resolve_config_path(value: object, key: str, variant: str | None, config_dir
     except ValueError as error:
         raise ConfigError(f"Config option {key}: {error}") from error
     path = entry if entry.is_absolute() else config_dir / entry
-    if glob.has_magic(str(entry)) and not literal_path_exists(path):
-        directory = key in DIRECTORY_KEYS
+    if has_wildcard(str(entry)) and not literal_path_exists(path):
+        check = is_dir if key in DIRECTORY_KEYS else is_file
+        # Excel 打开工作簿时在同目录生成隐藏的 ``~$`` 锁文件，它不是可选的输入。
         matches = sorted({
-            candidate.resolve()
+            absolute_path(candidate)
             for candidate in expand_path(entry, config_dir)
-            if (candidate.is_dir() if directory else candidate.is_file())
+            if check(candidate) and not candidate.name.startswith("~$")
         })
         if not matches:
             raise ConfigError(f"Config option {key}: no paths match {path}")
@@ -97,13 +100,13 @@ def resolve_config_path(value: object, key: str, variant: str | None, config_dir
                 + ", ".join(str(match) for match in matches)
             )
         return matches[0]
-    return path.resolve()
+    return absolute_path(path)
 
 
 def resolve_cli_path(value: str, option: str) -> Path:
     """命令行路径只接受绝对路径或相对当前工作目录的普通路径。"""
 
-    if any(token in value for token in ("*", "?", "${")):
+    if any(token in strip_long_path_prefix(value) for token in ("*", "?", "${")):
         raise ConfigError(f"{option} must be a literal path; templates and wildcards are only supported in config files")
     if not value.strip():
         raise ConfigError(f"{option} must be a non-empty path")
@@ -111,7 +114,7 @@ def resolve_cli_path(value: str, option: str) -> Path:
         path = filesystem_path(value)
     except ValueError as error:
         raise ConfigError(f"{option}: {error}") from error
-    return (Path.cwd() / path).resolve()
+    return absolute_path(path)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -237,6 +240,6 @@ def parse_args(argv: Sequence[str] | None = None) -> Options:
     args = parser.parse_args(argv)
     try:
         return _options(_merge(args))
-    except ConfigError as error:
+    except (ConfigError, OSError, ValueError) as error:
         source = f"{args.config}: " if args.config else ""
         parser.error(source + clean_message(error))

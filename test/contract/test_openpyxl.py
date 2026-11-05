@@ -8,7 +8,7 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from table_to_arxml.common.openpyxl_compat import copy_worksheet
+from table_to_arxml.common.openpyxl_compat import copy_worksheet, loaded_cells
 
 
 def test_private_attributes_used_for_copy_exist():
@@ -18,6 +18,18 @@ def test_private_attributes_used_for_copy_exist():
     assert isinstance(sheet._cells[(1, 1)], Cell)
     assert sheet["A1"]._value == "value"
     assert hasattr(sheet["A1"], "_hyperlink")
+
+
+def test_loaded_cells_skip_formatted_empty_rows_far_below(tmp_path):
+    sheet = Workbook().active
+    sheet["A1"] = "value"
+    sheet.cell(row=1_048_576, column=1).font = Font(bold=True)
+    path = tmp_path / "far.xlsx"
+    sheet.parent.save(path)
+    loaded = load_workbook(path).active
+    cells = loaded_cells(loaded)
+    assert cells[(1, 1)].value == "value"
+    assert len(cells) <= 2
 
 
 def test_copy_worksheet_across_workbooks(tmp_path):

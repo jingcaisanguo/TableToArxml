@@ -13,6 +13,63 @@
 找不到唯一 base、引用缺失或合并冲突时阻止写出。TOML 和兼容的 JSON 配置使用相同规则。
 完整边界见 [System 输出模式](system/README.md#输出模式)。
 
+## 兼容性与稳健性修复
+
+全盘审查后修复了一批与运行环境、Python/armodel 版本和输入格式相关的问题。正常输入的生成结果不变；以下为可见的行为变化。
+
+路径与清单（两个工具）：
+
+- 输出目录所在盘符或网络共享不存在、映射盘断开时立即报错退出，不再在发布阶段卡死。
+- Python 3.9 + Windows 下，命令行中尚不存在的相对路径（如新的 `--output-dir`）现在按当前工作目录解析；以前会被静默解析到配置文件目录。
+  不展开通配符的选项含 `*`、`?` 时给出明确报错，不再出现 `WinError 123`。
+- 命令行接受 `\\?\` 长路径前缀；Linux 上 `//opt/x`、`a:b/x` 按普通路径处理，只拒绝 `D:\`、`D:/`、`\\` 开头的 Windows 路径。
+- ARXML 清单：另一平台的绝对路径、无权限访问的条目按普通无效条目警告跳过（`strictList` 时失败），不再中止整次运行；
+  非 UTF-8（如 GBK）清单按系统 ANSI 编码读取，带 BOM 的 UTF-16 清单也可读取，日志记录所用编码。
+- `excludeArxml` 中以 `./` 开头的值按相对 `projectRoot` 的路径匹配，不再当作文件名排除所有同名文件。
+- 清单条目经过符号链接或目录联接时，`--output-dir` 按清单中的路径布局写出，不再报 `outside projectRoot`。
+- 写出时保留原文件的权限位以及 Windows 隐藏/系统属性；不保留 ACL 和属主。仅大小写不同的输出路径只在 Windows 上视为冲突。
+- 变体名不能是 `NUL`、`CON`、`COM1` 等 Windows 设备名（会生成 `NUL.lst` 这类设备文件名）；`outputPrefix` 只有在生成的产物文件名本身是设备名时（如 `Aux.v1` 得到 `Aux.v1System.arxml`）才报错，`Aux`、`Con` 等前缀仍可使用。
+
+退出码与报错：
+
+- System 的 `--config` 值无效、两个工具在解析路径参数时出错，退出码均为 `2`（以前 System 为 `1`）。
+- 加密/IRM 保护或 `.xls` 格式的表格、损坏的 ARXML 报出文件名并以退出码 `1` 结束，不再打印程序堆栈；绿表预检会汇总全部表格的问题。
+- 产物发布后清理临时目录失败只记 `WARNING`，不再误报失败。
+- 控制台无法编码的字符改为转义输出，不再出现 `--- Logging error ---`；日志文件仍为 UTF-8。Git Bash/MINGW64 中显示中文乱码时可设置 `PYTHONUTF8=1`。
+- 源码运行时无法取得版本（无 `git`、无 setuptools-scm、GitHub 源码 zip）不再导致导入失败，版本显示为 `0+unknown`。
+
+System 工具：
+
+- 非 Excel 工具生成、`<dimension>` 声明不全的表格不再静默丢行。
+- 绿表文件为符号链接时，模块名取链接文件名。
+- `SenderReceiverToSignalGroup` 页只接受 SYSTEM-SIGNAL-GROUP，`SenderReceiverToSignal` 页只接受 SYSTEM-SIGNAL，类型不符时报错。
+- 多个 SWC-IMPLEMENTATION 引用同一内部行为时，按路径排序取第一个（仍记录 `WARNING`），结果不再依赖清单顺序。
+- 复用已有连接器但它没有引用所需接口映射时，记录 `WARNING` 且不再写出无人引用的接口映射；replace 与 merge 行为一致。
+- 自我实例化的组合只警告一次并跳过，不再导致搜索耗时剧增。
+- merge：
+  - base 中缺少 `COMMUNICATION-DIRECTION` 的信号映射、带 `TYPE-MAPPING`/`VARIATION-POINT`/`ADMIN-DATA` 的映射或连线现在被识别为同一对象并复用，不再报冲突或重复追加。
+  - 引用 PR 端口的 `PR-PORT-PROTOTYPE` 不再被误判为 DEST 错误；变体引用不再因 armodel 版本不同而失败；带 `BASE` 属性的相对引用可以解析。
+  - base 的 System 没有 FIBEX-ELEMENTS 时，与 replace 一样写入目标 ECU。
+  - 新建容器按 AUTOSAR schema 顺序插入；同名但带不同 VARIATION-POINT 的元素不再报路径重复。
+  - 输出保留 base 的 XML 声明、文件头注释、编码、换行风格和未改动部分的空白；沿用 base 的 schema 声明，`arRelease` 不生效。
+  - `generateSystem = false` 时不再要求 System 存在，也不检查 base 中的 System 映射。
+  - 大量连线和映射的去重性能显著提升。
+
+SWC 工具：
+
+- 类型和接口改为按目标文件批量插入并只重新解析一次，大文件中新建大量对象的耗时大幅下降；生成结果不变。日志中 `Prepared …` 改在每个步骤结束时输出，只对实际改动的文件记录 `Re-parsing`。
+- 工作表只读取到最后一个有值的行和列，远处带格式的空单元格（WPS、LibreOffice 常见）不再导致长时间加载和大量内存占用。
+- 单元格含 U+2028、U+2029 或 C1 控制字符（`\x7f`–`\x9f`）时记录 `ERROR`；以前会被静默改写为换行，重跑时报定义不一致。
+- `N ARXML file(s) affected` 只统计内容实际变化的文件。
+- 两个不同端口/operation 的 CS 请求生成相同的 runnable、事件或调用点名称时记录 `ERROR` 并列出两者；以前会静默共用并给出误导性的 `already exists`。手写的同名 `Runnable Name` 仍可共用。
+- 根元素带命名空间前缀（如 `<ar:AUTOSAR>`）的 ARXML 需要修改时记录 `ERROR`；只引用其中类型时可正常定位并使用正确的 DEST。
+- 其他工具生成、缺少 `SYMBOL`、`MINIMUM-START-INTERVAL` 或 `CAN-BE-INVOKED-CONCURRENTLY` 的已有 runnable 按默认值比较，可以复用。
+- `Runnable Symbol`（或由名称得到的 SYMBOL）为 C 关键字时记录 `WARNING`。
+- 写出前若源 ARXML 已被其他程序修改，报错退出码 `1`，不写任何文件。
+- `outputDir` 位于 `projectRoot` 内时，不再把上次产物当作清单输入。
+- `Target ARXML` 位于符号链接或目录联接下时，`--output-dir` 保持其路径布局；与清单条目写法不同但实为同一文件时按同一文件处理。
+- 配置 `workbook = "*.xlsx"` 时忽略 Excel 打开工作簿时生成的 `~$` 锁文件。
+
 ## 配置路径通配符修复
 
 修复部分 Windows 驱动器把 `greenTable/${variant}/*.xlsx` 这类通配符路径误报为已存在，导致工具按字面路径处理并报 `WinError 123` 的问题。

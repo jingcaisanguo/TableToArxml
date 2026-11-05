@@ -5,6 +5,12 @@ from __future__ import annotations
 from copy import copy, deepcopy
 
 
+def loaded_cells(sheet) -> dict:
+    """返回已加载单元格的 ``{(行, 列): Cell}``；按尺寸遍历会为远处带格式的空行创建大量单元格。"""
+
+    return sheet._cells
+
+
 def copy_worksheet(target_sheet, source_sheet) -> None:
     """跨工作簿复制单个页签的内容、单元格样式和工作表格式。
 

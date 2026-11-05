@@ -15,10 +15,11 @@ import mimetypes
 import os
 import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
-from typing import Sequence
+from typing import Iterator, Sequence
 
 from ..common.arxml_list import DEFAULT_EXCLUDE_PATTERNS, ArxmlExclusions, read_arxml_list
 from ..common.dependencies import check_dependencies
@@ -26,7 +27,7 @@ from ..common.errors import ConfigError
 from ..common.logs import setup_logging
 from ..common.messages import clean_message
 from ..common.output import write_files_atomically
-from ..common.paths import filesystem_path, validate_output_paths
+from ..common.paths import absolute_path, filesystem_path, path_key, validate_output_paths
 from .tresos_list import (
     generate_file_list,
     read_generated_list,
@@ -46,6 +47,21 @@ if os.name == "nt" and hasattr(mimetypes, "_winreg"):
 
 LOGGER = logging.getLogger(__name__)
 TOOL_NAME = "table_to_system_arxml"
+MERGE_BASE_OVERLAP_HINT = "write the outputs to a directory that does not contain the merge base ARXML"
+
+
+@contextmanager
+def _staging_directory() -> Iterator[Path]:
+    """临时目录；清理失败（如杀毒软件或索引服务占用文件）只记录 WARNING，不影响已发布的产物。"""
+
+    temporary = TemporaryDirectory(prefix="table-to-system-")
+    try:
+        yield Path(temporary.name)
+    finally:
+        try:
+            temporary.cleanup()
+        except OSError as error:
+            LOGGER.warning("Could not remove temporary directory %s: %s", temporary.name, clean_message(error))
 
 
 def _resolve_file_list(job: Job, default_list_file: Path, cli_file_list: str | None) -> tuple[Path, bool]:
@@ -56,7 +72,7 @@ def _resolve_file_list(job: Job, default_list_file: Path, cli_file_list: str | N
     """
 
     if cli_file_list:
-        selected = filesystem_path(cli_file_list).resolve()
+        selected = absolute_path(filesystem_path(cli_file_list))
     elif job.arxml_file_list is not None:
         selected = job.arxml_file_list
     else:
@@ -108,7 +124,7 @@ def _collect_arxml_paths(
         generated_lists[generate_key] = list_file
 
     return read_generated_list(
-        list_file, job.project_root, tresos_project_dir(preference_files), tresos_output_path.name,
+        list_file, job.project_root, tresos_project_dir(preference_files), tresos_output_path,
         exclusions, strict,
     )
 
@@ -178,8 +194,7 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
     _read_input_tables(jobs)
 
     generated_names = [f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}" for job in jobs]
-    with TemporaryDirectory(prefix="table-to-system-") as directory:
-        staging = Path(directory)
+    with _staging_directory() as staging:
         generated_lists: dict[tuple, Path] = {}
         arxml_paths: list[Path] = []
         bases: dict[int, Path] = {}
@@ -202,12 +217,13 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
             for path in paths:
                 if path.name.casefold() in generated_keys:
                     continue
-                key = os.path.normcase(str(path))
+                key = path_key(path)
                 if key not in seen:
                     seen.add(key)
                     arxml_paths.append(path)
         validate_output_paths(
-            (resolved_output_dir / name for name in generated_names), protected=bases.values())
+            (resolved_output_dir / name for name in generated_names), protected=bases.values(),
+            overlap_hint=MERGE_BASE_OVERLAP_HINT)
         started = perf_counter()
         model = ArxmlModel.load(arxml_paths)
         LOGGER.info("Loaded %s ARXML files in %.1fs", len(model.paths), perf_counter() - started)
@@ -240,12 +256,16 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 generate_system=job.generate_system, additive=index in bases,
                 mergeable_interface_mapping_sets=mergeable_interface_mapping_sets)
             if index in bases:
-                system = model.find_system(composition_input.general["System"])
-                if system is None:
-                    raise ValueError(f"System '{composition_input.general['System']}' was not found")
+                # 不生成 System 时不查找它；空路径表示合并时没有 System 需要处理。
+                system_path = ""
+                if job.generate_system:
+                    system = model.find_system(composition_input.general["System"])
+                    if system is None:
+                        raise ValueError(f"System '{composition_input.general['System']}' was not found")
+                    system_path = system.getFullName()
                 merge_base_arxml(
                     composition_arxml, bases[index], model.document,
-                    composition_input.general["Composition"], system.getFullName(),
+                    composition_input.general["Composition"], system_path,
                 )
             if index < len(jobs) - 1:
                 # 同名旧文件已被排除，后续配置需要看到本次新生成的内容。
@@ -260,6 +280,13 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
     return results
 
 
+def _config_paths(values: Sequence[str]) -> tuple[Path, ...]:
+    try:
+        return tuple(absolute_path(filesystem_path(value)) for value in values)
+    except ValueError as error:
+        raise ConfigError(f"--config: {clean_message(error)}") from error
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """命令入口；配置错误以退出码 2 结束，运行失败记录错误并返回 1。"""
 
@@ -268,7 +295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     started = perf_counter()
     try:
         options = RunOptions(
-            config_paths=tuple(filesystem_path(path).resolve() for path in args.config),
+            config_paths=_config_paths(args.config),
             project_root=args.project_root,
             variant=args.variant,
             output_dir=args.output_dir,

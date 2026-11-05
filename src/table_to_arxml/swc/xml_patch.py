@@ -115,6 +115,12 @@ def encoding_problem(source: bytes) -> str | None:
     )
 
 
+def modification_problem(source: bytes) -> str | None:
+    """检查文件能否按字节插入片段：编码（:func:`encoding_problem`）和命名空间前缀（:func:`namespace_problem`）。"""
+
+    return encoding_problem(source) or namespace_problem(source)
+
+
 @dataclass(frozen=True)
 class ElementSpan:
     """元素在字节中的位置；自闭合元素的 ``content_start`` 与 ``end_tag_start`` 都等于 ``end``。"""
@@ -136,9 +142,36 @@ class _OpenElement:
     path: str | None = None
 
 
+def _local_name(tag: str) -> str:
+    return tag.rpartition(":")[2]
+
+
+def namespace_problem(source: bytes) -> str | None:
+    """根元素带命名空间前缀（如 ``<ar:AUTOSAR>``）时返回问题描述。
+
+    插入的片段不带前缀，只有 AUTOSAR 命名空间是默认命名空间时才属于该命名空间，因此这类文件只用于查询、不修改。
+    """
+
+    for match in _TOKEN.finditer(source):
+        tag_bytes = match.group(2)
+        if tag_bytes is None:
+            continue
+        tag = tag_bytes.decode("ascii")
+        if ":" in tag:
+            return (
+                f"namespace-prefixed ARXML is not supported (root element <{tag}>); "
+                "rewrite it with the AUTOSAR namespace as the default namespace"
+            )
+        return None
+    return None
+
+
 @lru_cache(maxsize=8)
 def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
-    """返回 ``AUTOSAR 路径 -> 元素位置列表``；只扫描一次并按内容缓存。"""
+    """返回 ``AUTOSAR 路径 -> 元素位置列表``；只扫描一次并按内容缓存。
+
+    标签按本地名称识别（``ar:SHORT-NAME`` 与 ``SHORT-NAME`` 相同），``ElementSpan.tag`` 也是本地名称。
+    """
 
     index: dict[str, list[ElementSpan]] = {}
     stack: list[_OpenElement] = []
@@ -153,9 +186,9 @@ def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
                 raise ValueError(f"Malformed ARXML: found </{tag}> while expecting </{expected}>")
             element = stack.pop()
             if element.path is not None:
-                index.setdefault(element.path, []).append(
-                    ElementSpan(tag, element.start, element.content_start, match.start(), match.end())
-                )
+                index.setdefault(element.path, []).append(ElementSpan(
+                    _local_name(tag), element.start, element.content_start, match.start(), match.end(),
+                ))
             continue
         if match.group(4):
             continue
@@ -164,8 +197,8 @@ def _path_index(source: bytes) -> dict[str, list[ElementSpan]]:
             parent = stack[-1]
             parent_path = parent.path if parent.path is not None else parent.parent_path
         stack.append(_OpenElement(tag, match.start(), match.end(), parent_path))
-        if tag == "SHORT-NAME" and len(stack) > 1:
-            closing = source.find(b"</SHORT-NAME>", match.end())
+        if _local_name(tag) == "SHORT-NAME" and len(stack) > 1:
+            closing = source.find(b"</" + tag_bytes + b">", match.end())
             owner = stack[-2]
             if closing >= 0 and owner.path is None:
                 name = source[match.end():closing].strip().decode(source_encoding(source), "replace")
@@ -221,7 +254,7 @@ def child_names(source: bytes, path: str) -> tuple[str, ...]:
 
 
 def child_spans(source: bytes, parent: ElementSpan) -> list[ElementSpan]:
-    """按出现顺序返回元素的直接子元素。"""
+    """按出现顺序返回元素的直接子元素；``tag`` 为本地名称。"""
 
     children: list[ElementSpan] = []
     depth = 0
@@ -230,7 +263,7 @@ def child_spans(source: bytes, parent: ElementSpan) -> list[ElementSpan]:
         tag_bytes = match.group(2)
         if tag_bytes is None:
             continue
-        tag = tag_bytes.decode("ascii")
+        tag = _local_name(tag_bytes.decode("ascii"))
         if match.group(1):
             depth -= 1
             if depth == 0 and opened is not None:
@@ -290,12 +323,20 @@ def insert_at_offset(
     encoding = source_encoding(source)
     encoded_fragments = [
         newline.join(
-            indentation + line.encode(encoding, "xmlcharrefreplace") for line in fragment.splitlines()
+            indentation + line.encode(encoding, "xmlcharrefreplace") for line in _fragment_lines(fragment)
         )
         for fragment in fragments
     ]
     insertion = newline.join(encoded_fragments) + newline
     return source[:insert_offset] + before + insertion + after + source[insert_offset:]
+
+
+def _fragment_lines(fragment: str) -> list[str]:
+    # str.splitlines 还会在 U+2028、U+0085 等字符处断行，从而改写文本内容；片段只按 ``\n`` 拆行。
+    lines = fragment.replace("\r\n", "\n").split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return lines
 
 
 def container_problem(source: bytes, element_path: str, container_tag: str) -> str | None:
@@ -309,20 +350,64 @@ def container_problem(source: bytes, element_path: str, container_tag: str) -> s
     return None
 
 
-def container_end(source: bytes, element_path: str, container_tag: str) -> int:
-    """返回元素直接子容器结束标签的偏移；容器不存在时报错。"""
+@dataclass(frozen=True)
+class Insertion:
+    """一处待插入的片段；``offset`` 和 ``child_indent`` 的含义同 :func:`insert_at_offset`。
 
-    container = child_container(source, element_span(source, element_path), container_tag)
-    if container is None:
-        raise ValueError(f"{container_tag} container not found in {element_path}")
-    return container.end_tag_start
+    ``rank`` 为新建容器在 schema 子元素顺序中的位置，同一偏移处的多个插入按它排序。
+    """
+
+    offset: int
+    fragments: tuple[str, ...]
+    child_indent: bool = True
+    rank: int = -1
 
 
-def insert_many(source: bytes, insertions: Sequence[tuple[int, Sequence[str]]]) -> bytes:
-    """一次应用多处插入；偏移取自同一份原始字节，从后往前插入可保持前面的偏移有效。"""
+def container_insertion(
+    source: bytes,
+    element_path: str,
+    container_tag: str,
+    fragments: Sequence[str],
+) -> Insertion:
+    """计算向元素直接子容器追加片段的插入位置；容器缺失时按 AUTOSAR schema 的子元素顺序新建容器。"""
 
-    for offset, fragments in sorted(insertions, key=lambda item: item[0], reverse=True):
-        source = insert_at_offset(source, offset, fragments)
+    element = element_span(source, element_path)
+    container = child_container(source, element, container_tag)
+    if container is not None:
+        return Insertion(container.end_tag_start, tuple(fragments))
+
+    order = CHILD_ORDER.get(element.tag)
+    if order is None or container_tag not in order:
+        raise ValueError(f"Cannot create <{container_tag}> in <{element.tag}> at {element_path}: unknown schema order")
+    rank = order.index(container_tag)
+    wrapped = "\n".join(
+        [f"<{container_tag}>"]
+        + [f"  {line}" for fragment in fragments for line in _fragment_lines(fragment)]
+        + [f"</{container_tag}>"]
+    )
+    following = next(
+        (child for child in child_spans(source, element) if child.tag in order and order.index(child.tag) > rank),
+        None,
+    )
+    if following is not None:
+        return Insertion(following.start, (wrapped,), child_indent=False, rank=rank)
+    return Insertion(element.end_tag_start, (wrapped,), rank=rank)
+
+
+def apply_insertions(source: bytes, insertions: Sequence[Insertion]) -> bytes:
+    """一次应用多处插入，结果与逐个插入并重新定位相同。
+
+    偏移都取自同一份 ``source``，从后往前插入可保持前面的偏移有效；同一偏移处的插入
+    （如同一元素中新建的多个容器）按 ``rank`` 合并为一次插入。
+    """
+
+    grouped: dict[tuple[int, bool], list[Insertion]] = {}
+    for insertion in insertions:
+        if insertion.fragments:
+            grouped.setdefault((insertion.offset, insertion.child_indent), []).append(insertion)
+    for (offset, child_indent), items in sorted(grouped.items(), key=lambda item: item[0][0], reverse=True):
+        fragments = [fragment for item in sorted(items, key=lambda item: item.rank) for fragment in item.fragments]
+        source = insert_at_offset(source, offset, fragments, child_indent)
     return source
 
 
@@ -336,24 +421,4 @@ def insert_or_create_child_container(
 
     if not fragments:
         return source
-    element = element_span(source, element_path)
-    container = child_container(source, element, container_tag)
-    if container is not None:
-        return insert_at_offset(source, container.end_tag_start, fragments)
-
-    order = CHILD_ORDER.get(element.tag)
-    if order is None or container_tag not in order:
-        raise ValueError(f"Cannot create <{container_tag}> in <{element.tag}> at {element_path}: unknown schema order")
-    rank = order.index(container_tag)
-    wrapped = "\n".join(
-        [f"<{container_tag}>"]
-        + [f"  {line}" for fragment in fragments for line in fragment.splitlines()]
-        + [f"</{container_tag}>"]
-    )
-    following = next(
-        (child for child in child_spans(source, element) if child.tag in order and order.index(child.tag) > rank),
-        None,
-    )
-    if following is not None:
-        return insert_at_offset(source, following.start, [wrapped], child_indent=False)
-    return insert_at_offset(source, element.end_tag_start, [wrapped])
+    return apply_insertions(source, [container_insertion(source, element_path, container_tag, fragments)])

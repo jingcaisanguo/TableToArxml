@@ -50,6 +50,24 @@ def _remove_owned_handlers(logger: logging.Logger) -> None:
             handler.close()
 
 
+class _ConsoleHandler(logging.StreamHandler):
+    """控制台编码（如管道下的 cp1252/cp936）无法表示的字符转义输出，不丢失整条记录。"""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record) + self.terminator
+            try:
+                self.stream.write(message)
+            except UnicodeEncodeError:
+                encoding = getattr(self.stream, "encoding", None) or "ascii"
+                self.stream.write(message.encode(encoding, "backslashreplace").decode(encoding))
+            self.flush()
+        except RecursionError:
+            raise
+        except Exception:
+            self.handleError(record)
+
+
 def setup_logging(tool_name: str, log_dir: Path, level_name: str) -> tuple[Path, ErrorCollector]:
     """创建带时间戳的日志文件并配置输出，返回日志文件路径和 ERROR 收集器。"""
 
@@ -59,9 +77,9 @@ def setup_logging(tool_name: str, log_dir: Path, level_name: str) -> tuple[Path,
     formatter = logging.Formatter(LOG_FORMAT)
 
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
-    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler = _ConsoleHandler(sys.stdout)
     stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
-    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler = _ConsoleHandler(sys.stderr)
     stderr_handler.setLevel(logging.WARNING)
     output_handlers = [file_handler, stdout_handler, stderr_handler]
     for handler in output_handlers:

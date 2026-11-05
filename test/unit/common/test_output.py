@@ -87,7 +87,11 @@ def test_failed_restore_does_not_stop_other_restores(tmp_path, monkeypatch):
     assert not list(tmp_path.glob(".*.tmp"))
 
 
-@pytest.mark.parametrize("names", [("same.txt", "same.txt"), ("Pair.txt", "pair.txt")])
+@pytest.mark.parametrize("names", [
+    ("same.txt", "same.txt"),
+    pytest.param(("Pair.txt", "pair.txt"), marks=pytest.mark.skipif(
+        os.name != "nt", reason="only Windows file names ignore case")),
+])
 def test_duplicate_output_paths_are_rejected_before_writing(tmp_path, names):
     with pytest.raises(ValueError, match="Conflicting output path"):
         write_files_atomically([(tmp_path / name, b"new") for name in names])

@@ -44,3 +44,12 @@ ACCESS_DIRECTIONS = {
 
 # ``Access Kind`` 留空时按端口方向取的默认类别。
 DEFAULT_ACCESS_KINDS = {DIRECTION_PROVIDED: ACCESS_SEND, DIRECTION_REQUIRED: ACCESS_RECEIVE_BY_ARGUMENT}
+
+# C99/C11 关键字：runnable 的 ``SYMBOL`` 是 RTE 生成的 C 函数名，使用关键字只记录 WARNING（浅校验，由 EB 校验）。
+C_KEYWORDS = frozenset((
+    "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum",
+    "extern", "float", "for", "goto", "if", "inline", "int", "long", "register", "restrict", "return",
+    "short", "signed", "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void",
+    "volatile", "while", "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex", "_Generic",
+    "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local",
+))

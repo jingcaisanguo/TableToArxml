@@ -241,6 +241,12 @@ class ArxmlDocument:
         self.dirty = False
 
     @property
+    def generation(self) -> int:
+        """加载代次；与 :func:`load_generation` 不同时文档已失效。"""
+
+        return self._generation
+
+    @property
     def _document(self) -> AUTOSAR:
         if self._generation != _load_generation:
             raise RuntimeError(
@@ -532,18 +538,23 @@ class ArxmlDocument:
                 return runnable.getFullName()
         return None
 
-    def runnable_definition(
-        self, runnable_path: str
-    ) -> tuple[str, float | None, bool | None] | None:
+    def runnable_definition(self, runnable_path: str) -> tuple[str, float, bool] | None:
+        """返回 runnable 的 ``SYMBOL``、最小启动间隔和并发标志。
+
+        未写的属性按 AUTOSAR 缺省值返回：``SYMBOL`` 取名称（与 :meth:`runnable_symbols` 一致），
+        最小启动间隔为 ``0``，并发标志为 ``false``，使其他工具省略这些元素时仍可复用。
+        """
+
         runnable = self._document.find(runnable_path)
         if not isinstance(runnable, RunnableEntity):
             return None
         interval = runnable.getMinimumStartInterval()
         concurrent = runnable.getCanBeInvokedConcurrently()
+        interval_value = None if interval is None else interval.getValue()
         return (
-            self._value_text(runnable.getSymbol()),
-            None if interval is None else float(interval.getValue()),
-            None if concurrent is None else self._value_text(concurrent).lower() == "true",
+            self._value_text(runnable.getSymbol()) or runnable.getShortName(),
+            0.0 if interval_value is None else float(interval_value),
+            concurrent is not None and self._value_text(concurrent).lower() == "true",
         )
 
     def read_access(

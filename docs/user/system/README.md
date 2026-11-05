@@ -105,16 +105,27 @@ table-to-system-arxml --config ./config/system.toml --output-mode merge
   复用 lst 与 EB 生成 lst 均支持。路径展开、去重和用户排除规则照常生效；
   必须恰好找到一个文件，否则报错，不会从 output 目录自行寻找，也不会退回 `replace`。
 - 以完整 base XML 为输出起点，保留其已有 SWC 实例、端口、连线、各类映射、系统属性、其他对象及元数据。
-  XML 缩进、命名空间前缀和编码可能重新序列化，不保证输出与原文件逐字节一致。
+  同时保留 XML 声明、根元素前后的注释、编码、换行风格（CRLF/LF）以及未改动部分的缩进和文本空白；
+  新增内容按插入位置的同级缩进排版，新建的容器按 AUTOSAR schema 的子元素顺序插入。
+  属性引号、空元素写法、字符转义和命名空间前缀仍会重新序列化，不保证输出与原文件逐字节一致。
   合并结果仍写到 output，禁止输出路径与 base 为同一个文件。
+- 输出沿用 base 的 AUTOSAR 版本声明（`xsi:schemaLocation`），不使用配置的 `arRelease`，也不与输入版本比对。
 - base 中的定义参与表格引用解析，因此白表可以 `Reference` 或 `Add` 一个仅在 base 中定义的已有实例。
   `Add` 的同路径实例类型一致时复用，不重复创建，也不重新生成其 ECU/实现映射；类型不一致报错。
 - 按完整 AUTOSAR 路径向目标 Composition/System 追加表格请求的缺失 SWC 实例、连线、
   `SENDER-RECEIVER-TO-SIGNAL-MAPPING` / `SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING`，
-  以及新实例所需的 ECU/实现映射、连线所需的外部端口和接口映射。不删除或覆盖 base 对象，也不把其他输入文件整体复制进输出。
-- `generateSystem = false` 只关闭本次 System 映射生成，不删除 base 中已有的 System 或信号映射。
-- 相同连线或映射不重复添加，保留 base 的原名称和元数据；同名连线端点不同、相同引用的映射配置不同等冲突报错，不静默覆盖。
-  新增内容及目标 base 连线/信号映射的引用须能在输入模型或合并输出中找到，元类型须匹配。
+  以及新实例所需的 ECU/实现映射、连线所需的外部端口和接口映射。base System 没有 FIBEX-ELEMENTS 时与 `replace` 相同写入 ECU。
+  不删除或覆盖 base 对象，也不把其他输入文件整体复制进输出。
+- `generateSystem = false` 只关闭本次 System 映射生成，不删除、也不检查 base 中已有的 System 或信号映射。
+- 相同连线或映射不重复添加，保留 base 的原名称和元数据。连线按两端端口及其上下文实例识别，信号映射按数据元素实例引用和
+  信号（组）识别；base 中额外的 DESC、ADMIN-DATA、VARIATION-POINT、信号组 `TYPE-MAPPING` 等不影响识别。
+  base 映射缺少可选的 `COMMUNICATION-DIRECTION`（R23-11 起已删除）视为一致。
+  同名连线端点不同、相同引用的映射方向不同等冲突报错，并列出冲突的引用，不静默覆盖。
+  连接同一对端口的 base 连线缺少表格所需的接口映射引用时记录 WARNING 并复用，不写出该接口映射，需要时手工补到连线上。
+- 同一路径下多个带 VARIATION-POINT 的变体元素（如同名连线）允许共存。
+- 新增内容的引用，以及目标 base 连线/信号映射中用于识别的端口、实例、数据元素和信号引用，须能在输入模型或合并输出中找到，
+  元类型须匹配；VARIATION-POINT、ADMIN-DATA、`TYPE-MAPPING` 等内部的引用不检查。带 `BASE` 的相对引用按所在包的
+  REFERENCE-BASE 解析，无法解析时记录 WARNING 并跳过检查。
   不比较文件 AUTOSAR 版本，不做总线拓扑或类型兼容深校验。
 - 任一合并失败，本次所有配置均不发布产物；base 不会被修改。
 
