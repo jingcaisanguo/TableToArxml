@@ -7,9 +7,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Sequence
 
 from ..common.arxml_list import ArxmlExclusions, read_arxml_list
+from ..common.paths import path_key
 from .apply import (
     IMPLEMENTATION_DATA_TYPE,
     StepResult,
@@ -80,6 +84,34 @@ class RunSummary:
         LOGGER.info("%d ARXML file(s) affected", self.affected_files)
 
 
+def _is_within(path: Path, directory: Path) -> bool:
+    resolved, root = path_key(path), path_key(directory)
+    try:
+        return os.path.commonpath([resolved, root]) == root
+    except ValueError:
+        return False  # Windows 上位于不同驱动器
+
+
+def exclude_output_files(arxml_files: Sequence[Path], output_dir: Path, project_root: Path) -> list[Path]:
+    """去掉位于输出目录中的清单文件。
+
+    输出目录在 projectRoot 内、清单用 ``**`` 等通配符时，上次运行的输出会被当作输入。输出目录包含整个
+    projectRoot 时不排除，由写出前的路径重合检查报错。
+    """
+
+    if _is_within(project_root, output_dir):
+        return list(arxml_files)
+    kept: list[Path] = []
+    for path in arxml_files:
+        if _is_within(path, output_dir):
+            LOGGER.info("Exclude ARXML file under outputDir: %s", path)
+        else:
+            kept.append(path)
+    if not kept:
+        raise ValueError(f"No usable ARXML files found outside outputDir {output_dir}")
+    return kept
+
+
 def execute(options: Options) -> tuple[RunSummary, SourceStore]:
     """执行全部处理步骤，返回统计和保存修改结果的缓存；错误只记入日志，不中断后续步骤。"""
 
@@ -100,6 +132,8 @@ def execute(options: Options) -> tuple[RunSummary, SourceStore]:
         options.arxml_file_list, project_root,
         exclusions=ArxmlExclusions(project_root, options.exclude_arxml), strict=options.strict_list,
     )
+    if options.output_dir is not None:
+        arxml_files = exclude_output_files(arxml_files, options.output_dir, project_root)
 
     store = SourceStore([
         *arxml_files,

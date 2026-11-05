@@ -48,13 +48,13 @@
 | `Type` | 组件类型完整路径，如 `/LampCtrl/LampCtrl`；支持 Application、ComplexDeviceDriver、EcuAbstraction、Service、SensorActuator、NvBlock、ServiceProxy、Parameter、Composition 类型 |
 | `Action` | `Add` 或 `Reference`（不区分大小写） |
 
-- `Add`：在 `Composition` 中新建该实例，并生成 SwcToEcuMapping；原子组件能唯一找到其 SWC-IMPLEMENTATION 时生成 SwcToImplMapping，找不到时只警告。实例已存在时要求类型一致，不重复写出实例，只生成 System 映射。
+- `Add`：在 `Composition` 中新建该实例，并生成 SwcToEcuMapping；原子组件能找到其 SWC-IMPLEMENTATION 时生成 SwcToImplMapping，找不到时只警告，多个实现引用同一内部行为时按完整路径排序取第一个并警告。实例已存在时要求类型一致，不重复写出实例，只生成 System 映射。
 - `Reference`：引用 `Composition` 中已有的实例，只用于连线，不重复创建；实例不存在或类型不一致时报错。
 - 同名 `Prototype` 不能对应不同定义；新实例与目标 Composition 中的实例、端口、连接器不能重名，比较不区分大小写。连接页中的组件可用 `SW-C`、`Prototype`、实例完整路径，或在不歧义时用类型路径/类型短名引用。
 
 ## AssemblySwConnection
 
-组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`，连接名为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`；超过 AUTOSAR SHORT-NAME 上限 128 字符时截断并以 8 位哈希结尾。不同连接因拼接得到同名时追加结构化哈希并警告；与目标 Composition 中已有对象重名时报错，已有同名同端点的连接器直接复用，已有连接器连接同一对端口但名称不同时警告并不重复生成。
+组件之间的装配连接，生成 `ASSEMBLY-SW-CONNECTOR`，连接名为 `ac_<提供方实例>_<PPort>_<请求方实例>_<RPort>`；超过 AUTOSAR SHORT-NAME 上限 128 字符时截断并以 8 位哈希结尾。不同连接因拼接得到同名时追加结构化哈希并警告；与目标 Composition 中已有对象重名时报错，已有同名同端点的连接器直接复用，已有连接器连接同一对端口但名称不同时警告并不重复生成。复用的已有连接器没有引用所需的接口映射时只警告，不写出该映射。
 
 | 列 | 说明 |
 | --- | --- |
@@ -95,12 +95,12 @@
 
 | 列 | 说明 |
 | --- | --- |
-| `SignalGroup` | SystemSignalGroup 完整路径 |
+| `SignalGroup` | SystemSignalGroup 完整路径；引用 SYSTEM-SIGNAL、I-SIGNAL-GROUP 等其他类型时该行报错 |
 | `SW-C` | 组件 |
 | `Port` | 端口短名，接口须为 SenderReceiverInterface |
 | `DataElement` | 接口中已存在的数据元素短名，不检查数据类型 |
 
-不自动展开字段级类型映射，也不生成 AUTOSAR 要求的 `TYPE-MAPPING`（1..1）；每行记录 WARNING，需在集成时补齐。
+不自动展开字段级类型映射，也不生成 AUTOSAR 要求的 `TYPE-MAPPING`（1..1）；每行记录 WARNING，需在集成时补齐。`merge` 模式下 base 映射中已补齐的 `TYPE-MAPPING` 会保留，同一行不会再追加映射。
 
 ## 示例
 

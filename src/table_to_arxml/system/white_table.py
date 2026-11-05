@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import zipfile
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
@@ -14,7 +15,9 @@ from unicodedata import east_asian_width
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.exceptions import InvalidFileException
 
+from ..common.messages import clean_message
 from .values import norm
 
 GENERAL_SHEET = "General"
@@ -52,8 +55,32 @@ class CompositionInput:
     tables: dict[str, list[TableRow]]
 
 
+def open_input_workbook(path: Path):
+    """以只读方式打开输入表；无法作为 xlsx 打开的文件报告为 ``ValueError``，便于汇总全部输入表问题。
+
+    加密或受 IRM 保护的工作簿是 OLE 容器而不是 zip，旧 ``.xls`` 也不受 openpyxl 支持。
+    """
+
+    try:
+        return load_workbook(path, read_only=True, data_only=True)
+    except (zipfile.BadZipFile, InvalidFileException, KeyError, EOFError) as error:
+        raise ValueError(
+            f"Cannot open {path} as an .xlsx workbook; encrypted, rights-protected, legacy .xls "
+            f"and damaged files are not supported: {clean_message(error)}") from error
+
+
+def data_rows(worksheet, min_row: int = 1, max_row: int | None = None):
+    """按单元格实际内容遍历只读工作表的行值。
+
+    非 Excel 工具写出的 ``<dimension>`` 可能小于实际数据范围，只读模式会据此截断行列，因此先清除。
+    """
+
+    worksheet.reset_dimensions()
+    return worksheet.iter_rows(min_row=min_row, max_row=max_row, values_only=True)
+
+
 def read_composition_input(path: Path) -> CompositionInput:
-    workbook = load_workbook(path, read_only=True, data_only=True)
+    workbook = open_input_workbook(path)
     try:
         tables: dict[str, list[TableRow]] = {}
         for sheet_name, required_headers in WHITE_TABLE_LAYOUT.items():
@@ -62,7 +89,7 @@ def read_composition_input(path: Path) -> CompositionInput:
                 if sheet_name in REQUIRED_SHEETS:
                     raise ValueError(f"Missing sheet '{sheet_name}' in {path}")
                 continue
-            rows = workbook[sheet_name].iter_rows(values_only=True)
+            rows = data_rows(workbook[sheet_name])
             headers = [norm(value) for value in next(rows, ())]
             for header in required_headers:
                 if headers.count(header) != 1:

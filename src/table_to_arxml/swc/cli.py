@@ -27,8 +27,8 @@ LOGGER = logging.getLogger(__name__)
 def main(argv: Sequence[str] | None = None) -> int:
     """命令入口；参数错误由 argparse 以退出码 2 结束，运行失败记录错误并返回 1。"""
 
-    options = parse_args(argv)
     try:
+        options = parse_args(argv)
         return run(options)
     except (OSError, UnicodeError, ValueError, RuntimeError) as error:
         LOGGER.error("%s failed; no ARXML files were written: %s", TOOL_NAME, clean_message(error))

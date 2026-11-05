@@ -16,8 +16,9 @@ from openpyxl.utils import get_column_letter
 
 from ..common.names import short_name
 from ..common.openpyxl_compat import copy_worksheet
-from ..common.paths import expand_path, filesystem_path
+from ..common.paths import absolute_path, expand_path, filesystem_path, is_file, path_key
 from .values import norm
+from .white_table import data_rows, open_input_workbook
 
 LOGGER = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ def _is_reserved_remark(remark: str) -> bool:
 
 
 def _check_green_header(ws, green_path: Path, sheet: str) -> None:
-    header = [norm(value) for value in next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())]
+    header = [norm(value) for value in next(data_rows(ws, min_row=1, max_row=1), ())]
     header += [""] * (GREEN_COLUMN_COUNT - len(header))
     bad = [
         f"{get_column_letter(index + 1)}='{header[index]}'"
@@ -97,7 +98,7 @@ def _check_green_header(ws, green_path: Path, sheet: str) -> None:
 
 def _read_green_rows(ws, location: str, errors: list[str]) -> list[GreenRow]:
     rows: list[GreenRow] = []
-    for excel_row, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+    for excel_row, row in enumerate(data_rows(ws, min_row=2), start=2):
         app_port, module, data_element, peer, peer_port, remark = (
             norm(row[index]) if index < len(row) else "" for index in (1, 2, 7, 8, 9, 10))
         if not any([app_port, module, peer, peer_port]):
@@ -122,7 +123,7 @@ def parse_green_workbook(green_path: Path, app_name: str) -> GreenWorkbookInfo:
     按固定列号取值而不依赖表头文案，避免换行、空格、全角字符差异导致匹配失败。
     """
 
-    workbook = load_workbook(green_path, read_only=True, data_only=True)
+    workbook = open_input_workbook(green_path)
     try:
         receive_sheet, send_sheet = _green_sheet_names(workbook.sheetnames, green_path)
         errors: list[str] = []
@@ -147,10 +148,11 @@ def collect_green_workbooks(
     """展开绿表路径和 glob，以文件名 stem 作为 app 名并去重。
 
     文件名即组件名，必须符合 AUTOSAR SHORT-NAME 规则，因此文件名部分的 ``*``、``?``、``[`` 总按通配符展开。
+    符号链接取链接本身的文件名，只按指向的实际文件去重。
     """
 
     result: list[tuple[str, Path]] = []
-    seen_paths: set[Path] = set()
+    seen_paths: set[str] = set()
     invalid_names: list[str] = []
     for entry in entries:
         rendered = norm(entry).replace("${variant}", variant)
@@ -160,18 +162,19 @@ def collect_green_workbooks(
         matches = expand_path(pattern, base_dir, literal_name=False)
 
         for match in sorted(matches, key=lambda path: str(path).casefold()):
-            path = match.resolve()
+            path = absolute_path(match, resolve_links=False)
             if path.name.startswith("~$"):
                 continue
-            if path.suffix.casefold() != ".xlsx" or not path.is_file():
+            if path.suffix.casefold() != ".xlsx" or not is_file(path):
                 raise FileNotFoundError(f"Green table does not exist: {path}")
             try:
                 short_name(path.stem)
             except ValueError:
                 invalid_names.append(str(path))
                 continue
-            if path not in seen_paths:
-                seen_paths.add(path)
+            key = path_key(path)
+            if key not in seen_paths:
+                seen_paths.add(key)
                 result.append((path.stem, path))
 
     if invalid_names:

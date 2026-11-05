@@ -13,7 +13,7 @@ from . import xml_patch
 from ..common.messages import clean_message
 from ..common.names import generated_name
 from .arxml_model import AccessInfo, ArxmlDocument, ImplementationTypeInfo, PortInfo
-from .constants import CLIENT_SERVER_INTERFACE, DIRECTION_REQUIRED, SENDER_RECEIVER_INTERFACE
+from .constants import C_KEYWORDS, CLIENT_SERVER_INTERFACE, DIRECTION_REQUIRED, SENDER_RECEIVER_INTERFACE
 from .resolve import ResolvedAccess, ResolvedPort, interface_summary
 from .store import SourceStore, load_bytes
 from .workbook import (
@@ -109,10 +109,15 @@ def _normalized_limits(definition: object) -> object:
     return tuple((number_text(lower), number_text(upper)) for lower, upper in definition)
 
 
-def warn_case_variants(store: SourceStore, element_path: str, context: str) -> None:
-    """新对象与已有对象的路径仅大小写不同时只记录 WARNING，按不同对象继续生成（AUTOSAR 规则，由 EB 校验）。"""
+def warn_case_variants(
+    store: SourceStore, element_path: str, context: str, batch: _PackageElementBatch | None = None,
+) -> None:
+    """新对象与已有对象的路径仅大小写不同时只记录 WARNING，按不同对象继续生成（AUTOSAR 规则，由 EB 校验）。
 
-    variants = store.case_variants(element_path)
+    ``batch`` 中本步骤已计划、尚未写回字节的对象也参与比较。
+    """
+
+    variants = [*store.case_variants(element_path), *(batch.case_variants(element_path) if batch else ())]
     if variants:
         LOGGER.warning(
             "%s: %s differs only in case from existing %s; created as a distinct object, "
@@ -262,35 +267,111 @@ def check_access(existing: AccessInfo | None, access: ResolvedAccess) -> None:
         )
 
 
-def insert_package_element(
-    store: SourceStore,
-    target_file: Path,
-    package_path: str,
-    fragment: str,
-    context: str,
-) -> bool:
-    """把元素插入包的 ``ELEMENTS`` 容器；包内还没有该容器时在子包之前一并创建。"""
+@dataclass(frozen=True)
+class _PendingElement:
+    target_file: Path
+    package_path: str
+    create: Callable[[ArxmlDocument], str]
+    owner: str
+    context: str
 
-    problem = store.encoding_problem(target_file)
-    if problem is not None:
-        LOGGER.error("Skipped %s: %s", context, problem)
-        return False
-    source = store.read(target_file)
-    try:
-        updated = xml_patch.insert_or_create_child_container(
-            source, package_path, "ELEMENTS", [fragment]
+
+class _PackageElementBatch:
+    """收集一个步骤中要插入包 ``ELEMENTS`` 的对象；步骤结束时每个目标文件只解析一次、插入并写回一次。
+
+    逐个写回会使下一个对象重新解析整个目标文件。对象写回前不在源字节中，同一步骤内的同路径检查
+    和大小写提示另查 ``planned``；同一步骤内不会重复创建同一路径，因此片段可由同一个文档连续生成。
+    """
+
+    def __init__(self, store: SourceStore) -> None:
+        self.store = store
+        self.elements: list[_PendingElement] = []
+        # 本步骤计划新建的对象：完整路径 -> (目标文件, 元类, 期望定义)。
+        self.planned: dict[str, tuple[Path, str, object]] = {}
+
+    def package_ready(self, target_file: Path, package_path: str, context: str) -> bool:
+        """确认目标文件可修改且包已存在；按原始字节定位，不需要 armodel 解析。"""
+
+        problem = self.store.modification_problem(target_file)
+        if problem is not None:
+            LOGGER.error("Skipped %s: %s", context, problem)
+            return False
+        try:
+            tag = xml_patch.element_tag(self.store.read(target_file), package_path)
+        except ValueError as error:
+            LOGGER.error(
+                "Skipped %s: unable to locate package %s in %s: %s",
+                context, package_path, target_file, clean_message(error),
+            )
+            return False
+        if tag != "AR-PACKAGE":
+            LOGGER.error("Skipped %s: package %s not found in %s", context, package_path, target_file)
+            return False
+        return True
+
+    def add(
+        self,
+        target_file: Path,
+        element_path: str,
+        label: str,
+        expected: object,
+        create: Callable[[ArxmlDocument], str],
+        owner: str,
+        context: str,
+    ) -> None:
+        """登记一个新对象；``create`` 在 :meth:`flush` 时由目标文件的文档生成片段。"""
+
+        target_file = self.store.canonical(target_file)
+        self.elements.append(
+            _PendingElement(target_file, element_path.rpartition("/")[0], create, owner, context)
         )
-    except ValueError as error:
-        LOGGER.error(
-            "Skipped %s: unable to locate package %s in %s: %s",
-            context,
-            package_path,
-            target_file,
-            clean_message(error),
-        )
-        return False
-    store.write(target_file, updated)
-    return True
+        self.planned[element_path] = (target_file, label, expected)
+
+    def case_variants(self, element_path: str) -> list[tuple[Path, str]]:
+        folded = element_path.casefold()
+        return [
+            (target_file, path) for path, (target_file, _label, _expected) in self.planned.items()
+            if path != element_path and path.casefold() == folded
+        ]
+
+    def flush(self) -> set[str]:
+        """生成全部片段、插入并写回缓存；返回有对象未能生成或插入的 ``owner``。"""
+
+        by_file: dict[Path, list[_PendingElement]] = {}
+        for element in self.elements:
+            by_file.setdefault(element.target_file, []).append(element)
+        failed: set[str] = set()
+        for target_file, elements in by_file.items():
+            document = self.store.load(target_file, reuse_modified=True)
+            packages: dict[str, list[tuple[_PendingElement, str]]] = {}
+            for element in elements:
+                if element.owner in failed:
+                    continue
+                try:
+                    fragment = element.create(document)
+                except ValueError as error:
+                    LOGGER.error("Skipped %s: %s", element.context, clean_message(error))
+                    failed.add(element.owner)
+                    continue
+                packages.setdefault(element.package_path, []).append((element, fragment))
+            source = self.store.read(target_file)
+            insertions: list[xml_patch.Insertion] = []
+            for package_path, items in packages.items():
+                try:
+                    insertions.append(xml_patch.container_insertion(
+                        source, package_path, "ELEMENTS", [fragment for _element, fragment in items]
+                    ))
+                except ValueError as error:
+                    for element, _fragment in items:
+                        LOGGER.error(
+                            "Skipped %s: unable to locate package %s in %s: %s",
+                            element.context, package_path, target_file, clean_message(error),
+                        )
+                        failed.add(element.owner)
+            if insertions:
+                self.store.write(target_file, xml_patch.apply_insertions(source, insertions))
+        self.elements.clear()
+        return failed
 
 
 def apply_enumerations(
@@ -307,6 +388,8 @@ def apply_enumerations(
     """
     planned_types = planned_types or {}
     result = StepResult()
+    batch = _PackageElementBatch(store)
+    prepared: list[EnumerationSpec] = []
     for spec in enumerations:
         lower, upper = spec.limits
         elements = (
@@ -354,39 +437,47 @@ def apply_enumerations(
                 ):
                     failed = True
                 continue
+            if element_path in batch.planned:
+                # 同一步骤中其他枚举已计划创建该对象（如共用计算方法），按已有对象比较。
+                planned_file, planned_label, planned_definition = batch.planned[element_path]
+                if not check_existing_definition(
+                    f"{label} {element_path} in {planned_file}",
+                    planned_definition if planned_label == label else None,
+                    operation.expected,
+                ):
+                    failed = True
+                continue
             context = f"enumeration {spec.path} ({label})"
-            warn_case_variants(store, element_path, context)
+            warn_case_variants(store, element_path, context, batch)
             if label == "IMPLEMENTATION-DATA-TYPE" and resolve_type_reference(
                 store, spec.base_type, IMPLEMENTATION_TYPE_DESTS, planned_types, context,
                 "Implementation Data Type Ref",
             ) is None:
                 failed = True
                 break
-            document = store.load(spec.target_file)
             package_path, _, name = element_path.rpartition("/")
-            if not document.package_exists(package_path):
-                LOGGER.error(
-                    "Skipped %s: package %s not found in %s", context, package_path, spec.target_file
-                )
+            if not batch.package_ready(spec.target_file, package_path, context):
                 failed = True
                 break
-            try:
-                fragment = operation.create(document, package_path, name)
-            except ValueError as error:
-                LOGGER.error("Skipped %s: %s", context, clean_message(error))
-                failed = True
-                break
-            if not insert_package_element(store, spec.target_file, package_path, fragment, context):
-                failed = True
-                break
+            batch.add(
+                spec.target_file, element_path, label, operation.expected,
+                lambda document, operation=operation, package_path=package_path, name=name: operation.create(
+                    document, package_path, name,
+                ),
+                spec.path, context,
+            )
             inserted += 1
 
         if failed:
             result.skipped += 1
-            continue
-        if not inserted:
-            continue
+        elif inserted:
+            prepared.append(spec)
 
+    failed_owners = batch.flush()
+    for spec in prepared:
+        if spec.path in failed_owners:
+            result.skipped += 1
+            continue
         result.planned.append(spec.path)
         LOGGER.info(
             "Prepared enumeration %s with %d value(s) in memory for %s",
@@ -410,6 +501,8 @@ def apply_composite_types(
 
     planned_types = planned_types or {}
     result = StepResult()
+    batch = _PackageElementBatch(store)
+    prepared: list[tuple[str, Union[ArraySpec, StructureSpec]]] = []
     seen_paths: set[str] = set()
     for spec in [*arrays, *structures]:
         kind = "array" if isinstance(spec, ArraySpec) else "structure"
@@ -442,7 +535,7 @@ def apply_composite_types(
                 result.skipped += 1
             continue
         context = f"{kind} {spec.path}"
-        warn_case_variants(store, spec.path, context)
+        warn_case_variants(store, spec.path, context, batch)
         references = (
             [(spec.element_type_ref, "Element Type Ref")] if isinstance(spec, ArraySpec)
             else [(type_ref, "Member Type Ref") for _, type_ref in spec.members]
@@ -450,20 +543,12 @@ def apply_composite_types(
         if _type_dests(store, references, IMPLEMENTATION_TYPE_DESTS, planned_types, context) is None:
             result.skipped += 1
             continue
-        document = store.load(spec.target_file)
-        if not document.package_exists(spec.package_path):
-            LOGGER.error(
-                "Skipped %s %s: package %s not found in %s",
-                kind,
-                spec.path,
-                spec.package_path,
-                spec.target_file,
-            )
+        if not batch.package_ready(spec.target_file, spec.package_path, context):
             result.skipped += 1
             continue
-        try:
-            if isinstance(spec, ArraySpec):
-                fragment = document.add_array_data_type(
+        if isinstance(spec, ArraySpec):
+            def create(document: ArxmlDocument, spec: ArraySpec = spec) -> str:
+                return document.add_array_data_type(
                     spec.package_path,
                     spec.name,
                     spec.element_name,
@@ -471,15 +556,15 @@ def apply_composite_types(
                     spec.array_size,
                     spec.effective_semantics,
                 )
-            else:
-                fragment = document.add_structure_data_type(spec.package_path, spec.name, spec.members)
-        except ValueError as error:
-            LOGGER.error("Skipped %s %s: %s", kind, spec.path, clean_message(error))
-            result.skipped += 1
-            continue
-        if not insert_package_element(
-            store, spec.target_file, spec.package_path, fragment, f"{kind} {spec.path}"
-        ):
+        else:
+            def create(document: ArxmlDocument, spec: StructureSpec = spec) -> str:
+                return document.add_structure_data_type(spec.package_path, spec.name, spec.members)
+        batch.add(spec.target_file, spec.path, IMPLEMENTATION_DATA_TYPE, None, create, spec.path, context)
+        prepared.append((kind, spec))
+
+    failed_owners = batch.flush()
+    for kind, spec in prepared:
+        if spec.path in failed_owners:
             result.skipped += 1
             continue
         result.planned.append(spec.path)
@@ -500,6 +585,8 @@ def apply_interfaces(
     """
     planned_types = planned_types or {}
     result = StepResult()
+    batch = _PackageElementBatch(store)
+    prepared: list[tuple[str, Union[InterfaceSpec, ClientServerInterfaceSpec], str]] = []
     for spec in interfaces:
         if isinstance(spec, InterfaceSpec):
             label, dest = "SR interface", SENDER_RECEIVER_INTERFACE
@@ -525,8 +612,15 @@ def apply_interfaces(
             ):
                 result.skipped += 1
             continue
+        if spec.path in batch.planned:
+            planned_file, _planned_label, planned_definition = batch.planned[spec.path]
+            if not check_existing_definition(
+                f"{label} {spec.path} in {planned_file}", planned_definition, (dest, expected, spec.is_service),
+            ):
+                result.skipped += 1
+            continue
         context = f"{label} {spec.path}"
-        warn_case_variants(store, spec.path, context)
+        warn_case_variants(store, spec.path, context, batch)
         references = (
             [(type_ref, "Data Type Ref") for _, type_ref, _ in spec.data_elements]
             if isinstance(spec, InterfaceSpec)
@@ -536,33 +630,29 @@ def apply_interfaces(
         if type_dests is None:
             result.skipped += 1
             continue
-        document = store.load(spec.target_file)
-        if not document.package_exists(spec.package_path):
-            LOGGER.error(
-                "Skipped %s %s: package %s not found in %s",
-                label,
-                spec.path,
-                spec.package_path,
-                spec.target_file,
-            )
+        if not batch.package_ready(spec.target_file, spec.package_path, context):
             result.skipped += 1
             continue
-        try:
-            if isinstance(spec, InterfaceSpec):
-                fragment = document.add_sr_interface(
+        if isinstance(spec, InterfaceSpec):
+            def create(document: ArxmlDocument, spec: InterfaceSpec = spec, type_dests=type_dests) -> str:
+                return document.add_sr_interface(
                     spec.package_path, spec.name, spec.data_elements, spec.is_service, type_dests,
                 )
-            else:
-                fragment = document.add_cs_interface(
+        else:
+            def create(
+                document: ArxmlDocument, spec: ClientServerInterfaceSpec = spec, type_dests=type_dests,
+            ) -> str:
+                return document.add_cs_interface(
                     spec.package_path, spec.name, spec.operations, spec.is_service, type_dests,
                 )
-        except ValueError as error:
-            LOGGER.error("Skipped %s %s: %s", label, spec.path, clean_message(error))
-            result.skipped += 1
-            continue
-        if not insert_package_element(
-            store, spec.target_file, spec.package_path, fragment, f"{label} {spec.path}"
-        ):
+        batch.add(
+            spec.target_file, spec.path, dest, (dest, expected, spec.is_service), create, spec.path, context,
+        )
+        prepared.append((label, spec, created_detail))
+
+    failed_owners = batch.flush()
+    for label, spec, created_detail in prepared:
+        if spec.path in failed_owners:
             result.skipped += 1
             continue
         result.planned.append(spec.path)
@@ -598,7 +688,7 @@ def apply_client_server_artifacts(
 
     result = StepResult()
     for component_file, component_ports in by_file.items():
-        problem = store.encoding_problem(component_file)
+        problem = store.modification_problem(component_file)
         if problem is not None:
             LOGGER.error("Skipped CS artifacts in %s", problem)
             result.skipped += len(component_ports)
@@ -619,34 +709,45 @@ def apply_client_server_artifacts(
     return result
 
 
-def _insert_groups(
+def _group_insertions(
     source: bytes,
     groups: Mapping[str, Sequence[tuple[str, str]]],
     container_tag: str,
     result: StepResult,
-) -> bytes:
-    """把 ``父路径 -> [(新对象路径, 片段)]`` 插入各父元素的容器；失败的组记录 error 并撤销其计划。"""
+) -> list[xml_patch.Insertion]:
+    """计算 ``父路径 -> [(新对象路径, 片段)]`` 在各父元素容器中的插入位置；无法定位的组记录 error 并撤销其计划。"""
 
+    insertions: list[xml_patch.Insertion] = []
     for parent_path, items in groups.items():
         try:
-            source = xml_patch.insert_or_create_child_container(
+            insertions.append(xml_patch.container_insertion(
                 source, parent_path, container_tag, [fragment for _, fragment in items]
-            )
+            ))
         except ValueError as error:
             LOGGER.error("Skipped %s in %s: %s", container_tag, parent_path, clean_message(error))
             result.skipped += len(items)
             for object_path, _ in items:
                 if object_path in result.planned:
                     result.planned.remove(object_path)
-    return source
+    return insertions
 
 
 def _validate_cs_source(component_file: Path, source: bytes, store: SourceStore) -> None:
+    if source == store.read(component_file):
+        return
     LOGGER.info("Re-parsing ARXML for validation: %s", component_file)
-    _document, diagnostics = load_bytes(source)
+    document, diagnostics = load_bytes(source)
     for diagnostic in diagnostics:
         LOGGER.warning("armodel validation: %s", diagnostic)
-    store.write(component_file, source)
+    store.write(component_file, source, document)
+
+
+@dataclass(frozen=True)
+class _PlannedRunnable:
+    definition: tuple[str, float, bool]
+    # 第一个计划该 runnable 的请求：(端口路径, operation)。
+    request: tuple[str, str]
+    auto_named: bool
 
 
 def _apply_server_runnables(
@@ -662,8 +763,9 @@ def _apply_server_runnables(
     source = store.read(component_file)
     runnable_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
     event_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    # 本次计划的 runnable：完整路径（区分大小写）-> SYMBOL/最小启动间隔/并发定义。
-    planned_runnables: dict[str, tuple[str, float, bool]] = {}
+    # 本次计划的 runnable 和事件，按完整路径（区分大小写）记录。
+    planned_runnables: dict[str, _PlannedRunnable] = {}
+    planned_events: dict[str, tuple[str, str]] = {}
     symbols: dict[str, dict[str, str]] = {}
 
     for port in ports:
@@ -684,7 +786,8 @@ def _apply_server_runnables(
             try:
                 if not _plan_server_runnable(
                     document, source, port, operation, len(operations), behavior_path,
-                    planned_runnables, symbols[behavior_path], runnable_groups, event_groups, result,
+                    planned_runnables, planned_events, symbols[behavior_path], runnable_groups, event_groups,
+                    result,
                 ):
                     result.skipped += 1
             except ValueError as error:
@@ -695,9 +798,11 @@ def _apply_server_runnables(
 
     if not runnable_groups and not event_groups:
         return
-    source = _insert_groups(source, runnable_groups, "RUNNABLES", result)
-    source = _insert_groups(source, event_groups, "EVENTS", result)
-    _validate_cs_source(component_file, source, store)
+    insertions = [
+        *_group_insertions(source, runnable_groups, "RUNNABLES", result),
+        *_group_insertions(source, event_groups, "EVENTS", result),
+    ]
+    _validate_cs_source(component_file, xml_patch.apply_insertions(source, insertions), store)
 
 
 def _plan_server_runnable(
@@ -707,15 +812,23 @@ def _plan_server_runnable(
     operation: str,
     operation_count: int,
     behavior_path: str,
-    planned_runnables: dict[str, tuple[str, float, bool]],
+    planned_runnables: dict[str, _PlannedRunnable],
+    planned_events: dict[str, tuple[str, str]],
     symbols: dict[str, str],
     runnable_groups: dict[str, list[tuple[str, str]]],
     event_groups: dict[str, list[tuple[str, str]]],
     result: StepResult,
 ) -> bool:
-    """规划一个 operation 的 runnable 和事件；失败时记录 error 并返回 ``False``。"""
+    """规划一个 operation 的 runnable 和事件；失败时记录 error 并返回 ``False``。
+
+    自动生成的名称（``RE_``/``oie_`` + 端口名 + operation）可能在不同端口间重合，如端口 ``p_A`` 的
+    operation ``B_C`` 与端口 ``p_A_B`` 的 operation ``C``。本次计划的自动命名对象只供同一端口和 operation 使用，
+    重合时报错，不静默共用。
+    """
 
     operation_path = f"{port.spec.interface_path}/{operation}"
+    request = (port.port_path, operation)
+    auto_named = not port.spec.runnable_name
     runnable_name = port.spec.runnable_name or f"RE_{port.spec.name}_{operation}"
     if port.spec.runnable_name and operation_count > 1:
         runnable_name = f"{port.spec.runnable_name}_{operation}"
@@ -724,16 +837,33 @@ def _plan_server_runnable(
     if port.spec.runnable_symbol and operation_count > 1:
         runnable_symbol = f"{port.spec.runnable_symbol}_{operation}"
     runnable_path = f"{behavior_path}/{runnable_name}"
+    event_name = generated_name(f"oie_{port.spec.name}_{operation}")
+    event_path = f"{behavior_path}/{event_name}"
     definition = (runnable_symbol, port.spec.minimum_start_interval, port.spec.can_be_invoked_concurrently)
     behavior_names = xml_patch.child_names(source, behavior_path)
 
     planned = planned_runnables.get(runnable_path)
+    if planned is not None and (auto_named or planned.auto_named) and planned.request != request:
+        LOGGER.error(
+            "Runnable %s for %s operation %s collides with the runnable planned in this run for %s operation %s; "
+            "generated CS names must be unique: fill in or change Runnable Name, or rename a port or operation",
+            runnable_path, *request, *planned.request,
+        )
+        return False
+    if event_path in planned_events and planned_events[event_path] != request:
+        LOGGER.error(
+            "Operation event %s for %s operation %s collides with the event planned in this run for %s "
+            "operation %s; generated CS names must be unique: rename a port or operation",
+            event_path, *request, *planned_events[event_path],
+        )
+        return False
+
     if planned is not None:
-        if planned != definition:
+        if planned.definition != definition:
             LOGGER.error(
                 "Runnable %s is already planned in this run with a different definition: planned=%s, "
                 "requested=%s; please choose a different Runnable Name",
-                runnable_path, planned, definition,
+                runnable_path, planned.definition, definition,
             )
             return False
         LOGGER.info("Runnable %s is already planned in this run with the same definition; reused", runnable_path)
@@ -756,6 +886,12 @@ def _plan_server_runnable(
                 "Runnable %s uses SYMBOL %s, which is already used by runnable %s/%s",
                 runnable_path, runnable_symbol, behavior_path, duplicate_symbol,
             )
+        if runnable_symbol in C_KEYWORDS:
+            LOGGER.warning(
+                "Runnable %s uses SYMBOL %s, which is a C keyword; RTE code generation may fail, "
+                "left to EB validation",
+                runnable_path, runnable_symbol,
+            )
         runnable_groups[behavior_path].append((runnable_path, document.add_runnable(
             behavior_path,
             runnable_name,
@@ -763,12 +899,10 @@ def _plan_server_runnable(
             port.spec.minimum_start_interval,
             port.spec.can_be_invoked_concurrently,
         )))
-        planned_runnables[runnable_path] = definition
+        planned_runnables[runnable_path] = _PlannedRunnable(definition, request, auto_named)
         symbols[runnable_name] = runnable_symbol
         result.planned.append(runnable_path)
 
-    event_name = generated_name(f"oie_{port.spec.name}_{operation}")
-    event_path = f"{behavior_path}/{event_name}"
     expected_event = (port.port_path, operation_path, runnable_path)
     if document.element_exists(event_path):
         existing_event = document.read_operation_event(behavior_path, event_name)
@@ -784,6 +918,7 @@ def _plan_server_runnable(
     event_groups[behavior_path].append((event_path, document.add_operation_event(
         behavior_path, event_name, runnable_path, port.port_path, operation_path
     )))
+    planned_events[event_path] = request
     result.planned.append(event_path)
     return True
 
@@ -800,6 +935,8 @@ def _apply_server_calls(
     document = store.load(component_file)
     source = store.read(component_file)
     call_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    # 本次计划的调用点：完整路径 -> (端口路径, operation)；自动名称可能在不同端口间重合。
+    planned_calls: dict[str, tuple[str, str]] = {}
     for port in ports:
         for operation in operations_by_interface[port.spec.interface_path]:
             operation_path = f"{port.spec.interface_path}/{operation}"
@@ -815,6 +952,14 @@ def _apply_server_calls(
                     continue
                 name = generated_name(f"scp_{port.spec.name}_{operation}")
                 call_path = f"{runnable_path}/{name}"
+                if call_path in planned_calls:
+                    LOGGER.error(
+                        "Server call %s for %s operation %s collides with the server call planned in this run "
+                        "for %s operation %s; generated CS names must be unique: rename a port or operation",
+                        call_path, port.port_path, operation, *planned_calls[call_path],
+                    )
+                    result.skipped += 1
+                    continue
                 if document.element_exists(call_path):
                     existing = document.read_server_call(runnable_path, name)
                     definition = None if existing is None else (
@@ -834,6 +979,7 @@ def _apply_server_calls(
                 call_groups[runnable_path].append(
                     (call_path, document.add_server_call(runnable_path, name, port.port_path, operation_path))
                 )
+                planned_calls[call_path] = (port.port_path, operation)
                 result.planned.append(call_path)
             except ValueError as error:
                 LOGGER.error(
@@ -842,9 +988,9 @@ def _apply_server_calls(
                 result.skipped += 1
 
     if call_groups:
-        _validate_cs_source(
-            component_file, _insert_groups(source, call_groups, "SERVER-CALL-POINTS", result), store
-        )
+        _validate_cs_source(component_file, xml_patch.apply_insertions(
+            source, _group_insertions(source, call_groups, "SERVER-CALL-POINTS", result)
+        ), store)
 
 
 def container_ready(source: bytes, element_path: str, container_tag: str) -> bool:
@@ -861,8 +1007,8 @@ def validate_document(
     document: bytes,
     expected_ports: Sequence[ResolvedPort],
     expected_accesses: Sequence[ResolvedAccess],
-) -> None:
-    """把修改后的字节重新解析，确认后端能完整读回已处理的内容。"""
+) -> ArxmlDocument:
+    """把修改后的字节重新解析，确认后端能完整读回已处理的内容；返回解析结果供后续步骤复用。"""
 
     check_document, diagnostics = load_bytes(document)
     for diagnostic in diagnostics:
@@ -871,6 +1017,7 @@ def validate_document(
         check_port(check_document.read_port(port.component_path, port.spec.name), port)
     for access in expected_accesses:
         check_access(check_document.read_access(access.runnable_path, access.name, access.kind), access)
+    return check_document
 
 
 def build_changes(
@@ -893,7 +1040,7 @@ def build_changes(
     changes: list[FileChange] = []
     result = StepResult()
     for source_file in list(ports_by_file) + [path for path in accesses_by_file if path not in ports_by_file]:
-        problem = store.encoding_problem(source_file)
+        problem = store.modification_problem(source_file)
         if problem is not None:
             LOGGER.error("Skipped ports and data accesses in %s", problem)
             result.skipped += len(ports_by_file.get(source_file, []))
@@ -984,18 +1131,14 @@ def build_changes(
             access_fragments_by_container[(access.runnable_path, container)].append(access_fragment)
             accesses_by_container[(access.runnable_path, container)].append(access)
 
-        source = xml_patch.insert_many(
-            source,
-            [
-                (xml_patch.container_end(source, component_path, "PORTS"), fragments)
-                for component_path, fragments in fragments_by_component.items()
-            ],
-        )
+        original = source
+        insertions = [
+            xml_patch.container_insertion(source, component_path, "PORTS", fragments)
+            for component_path, fragments in fragments_by_component.items()
+        ]
         for (runnable_path, container), fragments in access_fragments_by_container.items():
             try:
-                source = xml_patch.insert_or_create_child_container(
-                    source, runnable_path, container, fragments
-                )
+                insertions.append(xml_patch.container_insertion(source, runnable_path, container, fragments))
             except ValueError as error:
                 LOGGER.error(
                     "Skipped data accesses in %s: %s",
@@ -1007,10 +1150,13 @@ def build_changes(
             group_accesses = accesses_by_container[(runnable_path, container)]
             accesses_to_validate.extend(group_accesses)
             planned_accesses.extend(access.access_path for access in group_accesses)
-        LOGGER.info("Re-parsing ARXML for validation: %s", source_file)
-        validate_document(source, ports_to_validate, accesses_to_validate)
+        source = xml_patch.apply_insertions(source, insertions)
+        # 没有插入任何内容时，已有端口和访问点已按加载的文档检查过，不再重新解析和写回。
+        if source != original:
+            LOGGER.info("Re-parsing ARXML for validation: %s", source_file)
+            check_document = validate_document(source, ports_to_validate, accesses_to_validate)
+            store.write(source_file, source, check_document)
         for access_path in planned_accesses:
             LOGGER.info("Prepared data access %s in memory for %s", access_path, source_file)
-        store.write(source_file, source)
         changes.append(FileChange(source_file, source, planned_ports, existing_ports, planned_accesses))
     return changes, result

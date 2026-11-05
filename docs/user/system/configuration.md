@@ -43,15 +43,15 @@ EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
 
 | 参数                      | 类型               | 必填与默认行为                                                                                                                                                                                                                                                                                                      |
 | ------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defaultVariant`        | 字符串             | 与`--variant` 至少提供一个非空值；命令行优先                                                                                                                                                                                                                                                                      |
+| `defaultVariant`        | 字符串             | 与`--variant` 至少提供一个非空值；命令行优先；用作清单文件名，不能含路径分隔符等文件名非法字符，也不能是 Windows 保留设备名（如 `NUL`、`CON`、`COM1`）                                                                                                                                                                                                                                                                      |
 | `buildType`             | 字符串             | EB 模式可选，缺省或空值取`Debug`；复用 lst 时忽略                                                                                                                                                                                                                                                                 |
 | `projectRoot`           | 路径字符串         | 与`--project-root` 至少提供一个，命令行优先；相对路径基于配置文件所在目录                                                                                                                                                                                                                                                             |
 | `logLevel`              | 字符串             | 可选，默认`INFO`；`--log-level` 优先；多配置运行且未传 `--log-level` 时，各配置写了的值必须一致                                                                                                                                                                                                                                                |
 | `outputDir`             | 路径字符串         | 与`--output-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录                                                                                                                                                                                                                         |
 | `logDir`                | 路径字符串         | 与`--log-dir` 至少提供一个非空目录；命令行优先，无默认值；相对路径基于配置文件所在目录；不能与产物目录相同                                                                                                                                                                                                        |
-| `outputPrefix`          | 字符串             | 必填非空值，例如`Bcm`；应仅填写名称前缀，不含目录、扩展名或 `System` 后缀                                                                                                                                                                                                                                       |
+| `outputPrefix`          | 字符串             | 必填非空值，例如`Bcm`；应仅填写名称前缀，不含目录、扩展名或 `System` 后缀；生成的产物文件名不能是 Windows 设备名（如前缀 `Aux.v1` 得到的 `Aux.v1System.arxml`）                                                                                                                                                                                                                                       |
 | `outputMode` | 字符串 | 可选，默认 `replace`：只按表格完整生成本次 ARXML；`merge`：以 lst 中唯一同名 base 文件的完整内容为输出起点，仅追加表格请求的缺失 SWC 实例、连线、信号映射及必要依赖；`--output-mode` 优先。两种模式都写入 `outputDir`，不是对 base 文件原地修改；详见 [输出模式](README.md#输出模式) |
-| `greenTables`           | 字符串或字符串数组 | 与`whiteTable` 二选一且不能同时存在；写则为绿表模式。具体`.xlsx` 文件或 glob，最终必须找到至少一个绿表；文件名须为 AUTOSAR SHORT-NAME，见 [绿表规则](green-table-rules.md#文件模块与页签)                                                                                                                                                                                                          |
+| `greenTables`           | 字符串或字符串数组 | 与`whiteTable` 二选一且不能同时存在；写则为绿表模式。具体`.xlsx` 文件或 glob，最终必须找到至少一个绿表；文件名须为 AUTOSAR SHORT-NAME，见 [绿表规则](green-table-rules.md#文件模块与页签)；符号链接以链接本身的文件名作为组件名，指向同一文件的多个条目只取第一个                                                                                                                                                                                                          |
 | `whiteTable`            | 路径字符串         | 与`greenTables` 二选一且不能同时存在；写则为白表模式，直接由该白表生成并只发布 ARXML。基于配置目录，支持 `${variant}`；`--white-table` 可强制白表模式                                                                                                                                                         |
 | `tresosPreferenceFiles` | 字符串或字符串数组 | 仅 EB 模式必填；指向具体 XDM 文件，不展开 glob；有`arxmlFileList` 时可省略，即使保留也完全忽略                                                                                                                                                                                                                    |
 | `arxmlFileList`         | 路径字符串         | 写了该字段就选择清单模式，必须是非空字符串且文件存在；空值、类型错误或文件不存在直接报错，不回退 EB；使用 XDM 时须删除该字段                                                                                                                                                                                        |
@@ -64,16 +64,16 @@ EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
 | `prototypePrefix`       | 字符串             | 可选，默认`its`；用于没有已有目标实例的组件，允许空字符串                                                                                                                                                                                                                                                         |
 | `e2eWrapperComponent`   | 字符串             | 可选，默认`E2EWrapper`；该名称按普通组件处理，空字符串禁用特殊分支                                                                                                                                                                                                                                                |
 | `signalPathTemplate`    | 字符串             | 可选，默认`/${channel}/Signal/${signal}`；必须是绝对 AUTOSAR 路径并含 `${signal}`，只支持 `${channel}`、`${signal}`                                                                                                                                                                                         |
-| `arRelease`             | 字符串             | 可选，默认`R19-11`；只决定输出文件声明的 schema，必须是当前 armodel 支持的 release，否则失败且不发布产物；工具不与输入 ARXML 的版本比对，版本一致性由后续 EB 等工具链校验                                                                                                                                                  |
+| `arRelease`             | 字符串             | 可选，默认`R19-11`；只决定输出文件声明的 schema，必须是当前 armodel 支持的 release，否则失败且不发布产物；`outputMode = "merge"` 时沿用 base 文件的声明，忽略此项；工具不与输入 ARXML 的版本比对，版本一致性由后续 EB 等工具链校验                                                                                                                                                  |
 | `interfaceMismatch`     | 字符串             | 仅支持在配置文件中设置；缺省为`error`，可选 `error`、`skip`、`map`；不提供命令行覆盖                                                                                                                                                                                                                              |
 | `interfaceMappings`     | 对象数组           | 可选，在`map` 模式下为不同名称的数据元素显式配对，格式见下文                                                                                                                                                                                                                                                      |
-| `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 必须在已加载 ARXML 中存在，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，不可拆分的 FIBEX-ELEMENTS 与已有 SystemMapping 不重复写出（见 [arxml-and-errors.md](arxml-and-errors.md#autosar-输出规则)）；实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，存在 CAN/LIN 信号映射时不允许为 `false` |
+| `generateSystem`        | 布尔               | 可选，默认`true`，输出 SYSTEM（SwcToEcu/SwcToImpl/信号映射）。`general.System` 必须在已加载 ARXML 中存在，生成到同一完整路径并沿用其 CATEGORY、SYSTEM-VERSION 和根组合，不可拆分的 FIBEX-ELEMENTS 与已有 SystemMapping 不重复写出（见 [arxml-and-errors.md](arxml-and-errors.md#autosar-输出规则)）；实例引用自动补全根组合到 `general.Composition` 的中间实例；为 `false` 时只输出 Composition，不查找 `general.System`（`merge` 模式也不要求它存在），存在 CAN/LIN 信号映射时不允许为 `false` |
 
 字符串数组参数也可写单个字符串；空字符串条目会被忽略。配置中出现上表以外的键，或 `general` 中出现下文 General 表以外的键时，直接报错退出（退出码 `2`）并列出支持的键，避免拼错的字段被静默忽略。
 
 排除示例：`excludeArxml = ["Unused.arxml", "arxml/Bcm/TUR.arxml"]`。
 命令行写法：`--exclude-arxml Unused.arxml --exclude-arxml arxml/Bcm/TUR.arxml`。
-文件名匹配所有同名文件（不区分大小写）；带目录的值精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
+值中不含 `/`、`\` 时按文件名匹配所有同名文件（不区分大小写）；含分隔符的值（包括 `./Unused.arxml`）精确匹配工程根目录下的路径，兼容 `/` 和 `\`，不支持通配符或正则。
 该规则与 `excludeArxmlPatterns`、内置排除规则叠加，日志记录 `Exclude ARXML file`，不修改 lst。
 全部排除时报错退出；被排除模型中的组件、接口等不能参与生成。多配置运行时命令行列表对所有配置生效，配置列表只对各自清单生效，最终仍合并各清单的保留文件。
 
@@ -93,10 +93,12 @@ EcuInstance = "/ARDesign/TopologyDesign/FLZCU"
 | lst**内部**的路径     | 复用 lst 时仅`projectRoot`；EB 模式另尝试 tresos 工程目录 | 不展开配置文件占位符；支持 glob              |
 | 命令行路径参数              | 启动时工作目录                                              | 不自动展开`${variant}`                   |
 
-上述文件系统路径均可使用本机绝对路径，相对路径兼容 `/` 和 `\`。推荐使用 `/`；Windows 的 `\` 在双引号字符串中需要写成 `\\`，也可改用单引号字面字符串（如 `'D:\Work'`）。POSIX 平台拒绝 Windows 盘符/UNC 路径，迁移时应使用相对路径或本机绝对路径。未展开的 `${...}` 会报错；不自动展开 `~`、`%ENV%` 或任意环境变量。`general` 中 `/ARDesign/...` 是 AUTOSAR 模型引用路径，不做文件系统分隔符替换。
+上述文件系统路径均可使用本机绝对路径，相对路径兼容 `/` 和 `\`。推荐使用 `/`；Windows 的 `\` 在双引号字符串中需要写成 `\\`，也可改用单引号字面字符串（如 `'D:\Work'`）。POSIX 平台拒绝 `D:\`、`D:/` 形式的 Windows 盘符路径和 `\\` 开头的 UNC 路径（`//opt/x`、`a:b/x` 按普通 POSIX 路径处理），迁移时应使用相对路径或本机绝对路径。命令行相对路径即使尚不存在，也按启动时工作目录解析，不会改按配置目录解析。未展开的 `${...}` 会报错；不自动展开 `~`、`%ENV%` 或任意环境变量。`general` 中 `/ARDesign/...` 是 AUTOSAR 模型引用路径，不做文件系统分隔符替换。
 
 支持 glob 的路径中含 `*`、`?`、`[...]` 时，只有所在目录中确实存在完全同名的文件或目录，才按字面路径使用；否则一律按 glob 展开。某些 Windows 驱动器会把 `*.xlsx` 这类路径误报为存在，工具不依赖该结果，仍正常展开。
 `greenTables` 的文件名部分例外：绿表文件名必须是 AUTOSAR SHORT-NAME（见 [绿表规则](green-table-rules.md#文件模块与页签)），文件名中的通配符总是展开，只有目录名可按字面含方括号等字符。
+
+lst 内部条目的读取规则（编码、无效条目、符号链接目录等）与 SWC 工具相同，见 [SWC 的 ARXML 清单说明](../swc/configuration.md#arxml-清单)。
 
 例如清单位于配置目录上一级的 `cfg/` 下时，可将 `arxmlFileList` 设置为 `../cfg/${variant}.lst`。此路径指向 lst 本身；lst 内部条目不会因此改成相对 lst 所在目录解析。
 
@@ -204,5 +206,7 @@ OutputValue = "InputValue"
 - 多配置仍共用一组产物和日志目录。未传对应命令行参数时，每份配置必须提供对应目录，且相对各自配置目录解析后必须一致；有冲突时可通过命令行统一覆盖。
 - 连接名由工具按 prototype 和端口固定生成（见 [white-table-format.md](white-table-format.md)）；输出 release 由 `arRelease` 配置，默认 `R19-11`。
 - 转换及写出先在临时目录完成，全部成功后才发布 Excel、ARXML 及 EB 生成的 lst。工具自身的 ERROR 或运行异常退出 `1`；armodel 解析器诊断不单独影响退出码，详见 [日志说明](arxml-and-errors.md#日志与退出码)。失败日志保留，发布时普通 I/O 异常尝试回滚已替换文件；断电、进程强制终止或回滚期间存储故障不属于可保证的事务范围。
+- 绿表、白表须为可直接打开的 `.xlsx`。加密、受 IRM 权限保护、旧版 `.xls` 或损坏的工作簿记为输入表错误，所有输入表检查完后统一报告并以退出码 `1` 结束，不打印异常堆栈。
+- 产物发布后临时目录清理失败（如杀毒软件或索引服务占用文件）只记录 WARNING，不影响退出码和已发布的产物。
 - `outputPrefix` 不会展开到 `greenTables` 或 `general` 中。改变产物前缀不会自动改变 AUTOSAR 包路径、System 或 ECU。
 - `buildType` 没有单独的命令行覆盖选项；EB 模式下需在配置中与实际构建目录保持一致。

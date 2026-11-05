@@ -9,6 +9,7 @@ composition 生成（:mod:`.arxml_generator`）同样直接使用其模型类，
 from __future__ import annotations
 
 import logging
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -46,6 +47,15 @@ def bus_module(cluster: object) -> str:
     return BUS_CLUSTER_TYPES.get(type(cluster).__name__, "")
 
 
+def _parse_file(parser, path: Path, document: AUTOSAR) -> None:
+    """XML 损坏或编码不受支持时给出文件名，而不是让解析异常直接冒出。"""
+
+    try:
+        parser.load(str(path), document)
+    except (ET.ParseError, UnicodeError, LookupError, ValueError) as error:
+        raise ValueError(f"Cannot parse ARXML {path}: {error}") from error
+
+
 class ArxmlModel:
     """把一组 ARXML 合并成一个模型。
 
@@ -60,6 +70,8 @@ class ArxmlModel:
         self._elements: Optional[list] = None
         self._groups: Optional[dict[str, set[str]]] = None
         self._composition_children: Optional[dict[str, list[tuple[str, str]]]] = None
+        self._interface_mappings: Optional[list[VariableAndParameterInterfaceMapping]] = None
+        self._reported_cycles: set[tuple[str, ...]] = set()
 
     @property
     def document(self) -> AUTOSAR:
@@ -78,7 +90,7 @@ class ArxmlModel:
         loaded: list[Path] = []
         for index, path in enumerate(paths, start=1):
             LOGGER.info("Parsing ARXML %d/%d: %s", index, len(paths), path)
-            parser.load(str(path), document)
+            _parse_file(parser, path, document)
             loaded.append(path)
         return cls(document, loaded, diagnostics)
 
@@ -86,7 +98,7 @@ class ArxmlModel:
         """追加加载一个 ARXML（如本次刚生成的结果），供后续配置引用。"""
 
         LOGGER.info("Parsing ARXML: %s", path)
-        new_parser(self.diagnostics, LOGGER).load(str(path), self._document)
+        _parse_file(new_parser(self.diagnostics, LOGGER), path, self._document)
         self.paths.append(path)
         self.invalidate()
 
@@ -96,6 +108,7 @@ class ArxmlModel:
         self._elements = None
         self._groups = None
         self._composition_children = None
+        self._interface_mappings = None
 
     # -- 遍历 ---------------------------------------------------------------
 
@@ -118,12 +131,16 @@ class ArxmlModel:
     # -- 组件 ---------------------------------------------------------------
 
     def interface_mappings(self) -> list[VariableAndParameterInterfaceMapping]:
-        return [
-            mapping
-            for mapping_set in self._elements_of(PortInterfaceMappingSet)
-            for mapping in mapping_set.getPortInterfaceMappings()
-            if isinstance(mapping, VariableAndParameterInterfaceMapping)
-        ]
+        """返回全部 VariableAndParameterInterfaceMapping，结果缓存复用。"""
+
+        if self._interface_mappings is None:
+            self._interface_mappings = [
+                mapping
+                for mapping_set in self._elements_of(PortInterfaceMappingSet)
+                for mapping in mapping_set.getPortInterfaceMappings()
+                if isinstance(mapping, VariableAndParameterInterfaceMapping)
+            ]
+        return self._interface_mappings
 
     def component_prototypes(self, composition_path: str | None = None) -> dict[str, str]:
         """返回指定 composition 中的 prototype 完整路径及类型路径。"""
@@ -200,23 +217,33 @@ class ArxmlModel:
         """返回从 ``root_type`` 逐层实例化到 ``target_type`` 的全部实例链。
 
         每条链是途经的组件实例完整路径，不含根组合本身；``root_type`` 等于目标时返回一条空链。
-        嵌套超过 :data:`MAX_COMPOSITION_DEPTH` 层的分支视为无效。
+        嵌套超过 :data:`MAX_COMPOSITION_DEPTH` 层的分支视为无效；组合直接或间接实例化自身的分支
+        不再展开，并记录一次 WARNING。
         """
 
         children = self._children_of_compositions()
 
-        def walk(type_path: str, chain: tuple[str, ...]) -> list[tuple[str, ...]]:
+        def walk(type_path: str, chain: tuple[str, ...], types: tuple[str, ...]) -> list[tuple[str, ...]]:
             if type_path == target_type:
                 return [chain]
             if len(chain) >= MAX_COMPOSITION_DEPTH:
                 return []
-            return [
-                found
-                for instance_path, child_type in children.get(type_path, ())
-                for found in walk(child_type, chain + (instance_path,))
-            ]
+            found: list[tuple[str, ...]] = []
+            for instance_path, child_type in children.get(type_path, ()):
+                if child_type in types:
+                    self._report_cycle(types[types.index(child_type):] + (child_type,), instance_path)
+                    continue
+                found.extend(walk(child_type, chain + (instance_path,), types + (child_type,)))
+            return found
 
-        return walk(root_type, ())
+        return walk(root_type, (), (root_type,))
+
+    def _report_cycle(self, cycle: tuple[str, ...], instance_path: str) -> None:
+        if cycle not in self._reported_cycles:
+            self._reported_cycles.add(cycle)
+            LOGGER.warning(
+                "Composition %s instantiates itself (%s via %s); the cyclic branch is ignored",
+                cycle[0], " -> ".join(cycle), instance_path)
 
     def systems_containing(self, composition_path: str) -> list:
         """返回根组合逐层实例化了 ``composition_path`` 的全部 System。"""

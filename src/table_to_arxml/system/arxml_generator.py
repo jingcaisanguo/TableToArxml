@@ -26,6 +26,9 @@ from armodel.models.M2.AUTOSARTemplates.AutosarTopLevelStructure import AUTOSARD
 from armodel.models.M2.AUTOSARTemplates.SWComponentTemplate.PortInterface import (
     DataPrototypeMapping, PortInterface, SenderReceiverInterface,
 )
+from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreCommunication import (
+    SystemSignal, SystemSignalGroup,
+)
 
 from ..common.armodel_compat import (
     SystemArxmlWriter, get_inner_port_iref, set_communication_direction, set_inner_port_iref,
@@ -143,6 +146,7 @@ class _Assembly:
 class _InterfaceMapping:
     name: str
     elements: tuple[tuple[str, str], ...]
+    path: str = ""
 
 
 @dataclass(frozen=True)
@@ -223,8 +227,8 @@ class _Resolver:
             return ""
         if len(candidates) == 1:
             return candidates[0]
-        chosen = self.lookup("getImplementation", behavior_path)
-        chosen_path = chosen.getFullName() if chosen is not None else candidates[0]
+        # 按路径排序后取第一个，结果不随 ARXML 清单顺序变化。
+        chosen_path = candidates[0]
         LOGGER.warning(
             "Multiple SWC-IMPLEMENTATIONs reference %s (%s); using %s",
             behavior_path, ", ".join(candidates), chosen_path)
@@ -421,10 +425,10 @@ class _Resolver:
             references.append((first_element.getFullName(), second_element.getFullName()))
         identity = repr(references).encode("utf-8")
         name = "im_" + sha256(identity).hexdigest()[:20]
-        mapping = _InterfaceMapping(name, tuple(references))
+        path = f"{set_path}/{name}"
+        mapping = _InterfaceMapping(name, tuple(references), path)
         if name in self.generated_interface_mappings and self.generated_interface_mappings[name] != mapping:
             raise ValueError(f"Conflicting generated interface mapping: {name}")
-        path = f"{set_path}/{name}"
         if self.lookup("find", path) is not None:
             raise ValueError(f"Generated interface mapping already exists in input: {path}")
         self.generated_interface_mappings[name] = mapping
@@ -523,6 +527,11 @@ class _Resolver:
         signal = self.lookup("findSystemSignalGroup" if group else "findSystemSignal", signal_path)
         if signal is None:
             raise ValueError(f"signal{' group' if group else ''} '{signal_path}' is not defined")
+        expected_type, expected_destination = (
+            (SystemSignalGroup, "SYSTEM-SIGNAL-GROUP") if group else (SystemSignal, "SYSTEM-SIGNAL"))
+        if not isinstance(signal, expected_type):
+            raise ValueError(
+                f"'{signal_path}' is a {class_destination(signal)}, not a {expected_destination}")
         mapping = _SignalMapping(endpoint, data_path, signal.getFullName(), direction, group)
         if mapping in self.signals:
             LOGGER.warning("%s: duplicate signal mapping %s -> %s skipped", row.location, data_path, signal_path)
@@ -604,8 +613,9 @@ class _Resolver:
 
         composition = self.lookup("find", self.composition_path)
         existing: dict[str, tuple[str, object]] = {}
-        existing_connections: dict[tuple[str, ...], str] = {}
+        existing_connections: dict[tuple[str, ...], tuple[str, object]] = {}
         if isinstance(composition, CompositionSwComponentType):
+            # armodel 1.9.2 及更早版本不解析 PASS-THROUGH-SW-CONNECTOR，无法参与这里的检查。
             pass_through = getattr(composition, "getPassThroughSwConnectors", lambda: [])()
             for kind, items in (
                 ("prototype", composition.getComponents()), ("port", composition.getPorts()),
@@ -619,7 +629,7 @@ class _Resolver:
                         existing.setdefault(name, (kind, item))
                     key = self._existing_connection(kind, item)
                     if key:
-                        existing_connections.setdefault(key, name)
+                        existing_connections.setdefault(key, (name, item))
 
         new: list[tuple[str, str, object]] = [
             (component.name, "prototype", component) for component in self.components.values()
@@ -644,17 +654,18 @@ class _Resolver:
                 existing_kind, existing_item = existing[name]
                 if existing_kind == kind and key and key == self._existing_connection(existing_kind, existing_item):
                     LOGGER.info("Reuse existing %s %s/%s", kind, self.composition_path, name)
-                    self.reused_connectors.add(name)
+                    self._reuse_connector(name, item, name, existing_item)
                     continue
                 LOGGER.error("%s: new %s %s conflicts with existing %s %s; SHORT-NAMEs must be unique",
                              self.composition_path, kind, name, existing_kind, name)
                 failures += 1
                 continue
             if key and key in existing_connections:
+                existing_name, existing_item = existing_connections[key]
                 LOGGER.warning(
                     "%s: %s %s connects the same ports as existing connector %s; it is not generated",
-                    self.composition_path, kind, name, existing_connections[key])
-                self.reused_connectors.add(name)
+                    self.composition_path, kind, name, existing_name)
+                self._reuse_connector(name, item, existing_name, existing_item)
 
         names = list(existing) + [name for name in claimed if name not in existing]
         first: dict[str, str] = {}
@@ -665,6 +676,28 @@ class _Resolver:
                     "%s: %s differs only in case from %s; AUTOSAR tools may treat them as the same SHORT-NAME",
                     self.composition_path, name, other)
         return failures
+
+    def _reuse_connector(self, name: str, connector: object, existing_name: str, existing: object) -> None:
+        """复用已有连接器；它没有引用本行需要的接口映射时只警告，不再写出该映射。"""
+
+        self.reused_connectors.add(name)
+        required = getattr(connector, "mapping_path", "")
+        if not required:
+            return
+        current = ref_value(getattr(existing, "getMappingRef", lambda: None)())
+        if current != required:
+            LOGGER.warning(
+                "%s: existing connector %s is reused but references interface mapping %s instead of %s; "
+                "add the mapping to the connector manually if it is required",
+                self.composition_path, existing_name, current or "(none)", required)
+
+    def used_interface_mappings(self) -> dict[str, _InterfaceMapping]:
+        """只写出仍被新连接器引用的生成映射，已有连接器复用时不留下孤立映射。"""
+
+        used = {connector.mapping_path for name, connector in self.assemblies.items()
+                if name not in self.reused_connectors}
+        return {name: mapping for name, mapping in self.generated_interface_mappings.items()
+                if mapping.path in used}
 
     def _existing_connection(self, kind: str, connector: object) -> tuple[str, ...]:
         try:
@@ -728,9 +761,10 @@ def _write_model(document: AUTOSARDoc, resolver: _Resolver, generate_system: boo
     for package_name in parts[1:-1]:
         package = package.createARPackage(package_name)
     composition = package.createCompositionSwComponentType(parts[-1])
-    if resolver.generated_interface_mappings:
+    interface_mappings = resolver.used_interface_mappings()
+    if interface_mappings:
         mapping_set = package.createPortInterfaceMappingSet(generated_name(f"{parts[-1]}_InterfaceMappings"))
-        for name, definition in sorted(resolver.generated_interface_mappings.items()):
+        for name, definition in sorted(interface_mappings.items()):
             interface_mapping = mapping_set.createVariableAndParameterInterfaceMapping(name)
             for first, second in definition.elements:
                 element_mapping = DataPrototypeMapping()
