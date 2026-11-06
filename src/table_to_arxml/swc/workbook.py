@@ -12,7 +12,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Iterable, Sequence, Union, cast
+from typing import Callable, Collection, Iterable, Sequence, Union, cast
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
@@ -79,6 +79,24 @@ def at(*records: Record) -> dict[str, tuple[Source, ...]]:
 
 def _source(row: Record) -> tuple[Source, ...]:
     return (row.source,)
+
+
+class SheetRows(list):
+    """``read_sheet_rows`` 返回的有效行；``rejected`` 为因错误跳过的行（尽量保留各列文本），
+    用于把依赖这些行的其他行标记为前置错误，而不是重复报错。"""
+
+    rejected: list[Record]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rejected = []
+
+    def reject(self, headers: Sequence[str], values: Sequence[object], source: Source) -> None:
+        record = Record(
+            (header, value.strip()) for header, value in zip(headers, values) if isinstance(value, str)
+        )
+        record.source = source
+        self.rejected.append(record)
 
 
 class _AutosarPath:
@@ -452,15 +470,17 @@ def read_sheet_rows(
         )
         return []
 
-    records: list[Record] = []
+    records = SheetRows()
     for row_number, values in sorted(rows.items()):
         if row_number == 1:
             continue
-        row_extra = located([("", title, row_number)])
+        source = ("", title, row_number)
+        row_extra = located([source])
         if any(value is not None and str(value).strip() for value in values[len(headers):]):
             LOGGER.error(
                 "Skipped %s row %d: data under a blank header", sheet_name, row_number, extra=row_extra,
             )
+            records.reject(headers, values, source)
             continue
         # openpyxl 对尾部空列可能返回更短的元组，补齐后再按列取值。
         padded = tuple(values) + (None,) * (len(headers) - len(values))
@@ -471,11 +491,12 @@ def read_sheet_rows(
             ]
         except ValueError as error:
             LOGGER.error("Skipped %s row %d: %s", sheet_name, row_number, clean_message(error), extra=row_extra)
+            records.reject(headers, padded, source)
             continue
         if not any(cells):
             continue
         record = Record(zip(headers, cells))
-        record.source = ("", title, row_number)
+        record.source = source
         rte_flag = record.get("Create RTE Artifact", "")
         rte_disabled = sheet_name in ("P-Ports", "R-Ports") and (
             not rte_flag or BOOLEAN_LABELS.get(rte_flag.casefold()) is False
@@ -489,6 +510,7 @@ def read_sheet_rows(
                 ", ".join(missing),
                 extra=row_extra,
             )
+            records.rejected.append(record)
             continue
         for name in optional:
             record.setdefault(name, "")
@@ -506,6 +528,7 @@ def read_sheet_rows(
                     c_identifier(value)
         except ValueError as error:
             LOGGER.error("Skipped %s row %d: %s", sheet_name, row_number, error, extra=row_extra)
+            records.rejected.append(record)
             continue
         records.append(record)
     return records
@@ -1030,6 +1053,10 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], PortRequest
         (R_PORTS_SHEET, DIRECTION_REQUIRED),
     ):
         rows = read_sheet_rows(sheets, sheet_name)
+        rejected.update(
+            (row.get("SW-C", ""), row.get("Port Name", "")) for row in getattr(rows, "rejected", ())
+            if row.get("SW-C") and row.get("Port Name")
+        )
         for row in each(rows, _source):
             port = _read_port(row, sheet_name, direction, components)
             if port is None:
@@ -1052,7 +1079,7 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], PortRequest
             seen_ports.add(key)
             ports.append(port)
 
-    ports, failed = _attach_element_com_specs(sheets, ports)
+    ports, failed = _attach_element_com_specs(sheets, ports, rejected)
     rejected |= failed
     if not components:
         LOGGER.info("No component records found in workbook")
@@ -1105,11 +1132,12 @@ def _read_element_com_spec(row: Record, port: PortSpec) -> ElementComSpec | None
 
 
 def _attach_element_com_specs(
-    sheets: Sheets, ports: list[PortSpec],
+    sheets: Sheets, ports: list[PortSpec], rejected: Collection[tuple[str, str]] = (),
 ) -> tuple[list[PortSpec], set[tuple[str, str]]]:
     """把 ``ComSpecs`` 页的行并入对应端口；返回端口列表和因明细错误被跳过的端口。
 
     明细行引用的端口必须在本工作簿的 P-Ports/R-Ports 页中；端口行已填写 ComSpec 列时不能再用明细行。
+    ``rejected`` 中的端口行已报过错，引用它们的明细行只标记为前置错误。
     """
 
     rows = read_sheet_rows(sheets, COM_SPEC_SHEET)
@@ -1121,6 +1149,10 @@ def _attach_element_com_specs(
     for row in each(rows, _source):
         key = (row["SW-C"], row["Port Name"])
         port = by_key.get(key)
+        if port is None and key in rejected:
+            record_rows([row.source], PRIOR, detail=f"端口 {row['Port Name']} 的端口行有错误")
+            LOGGER.info("Skipped ComSpec of port %s: the port row is invalid", row["Port Name"])
+            continue
         if port is None:
             LOGGER.error(
                 "Skipped ComSpec of port %s data element %s: SW-C %s has no such port in P-Ports or R-Ports",

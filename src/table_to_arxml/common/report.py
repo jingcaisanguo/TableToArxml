@@ -84,11 +84,15 @@ def located(sources: Iterable[Source]) -> dict[str, tuple[Source, ...]]:
 
 
 def sources_of(record: logging.LogRecord) -> tuple[Source, ...]:
-    """日志记录关联的表格行：显式 ``extra`` 优先；WARNING 及以上取正在处理的行。"""
+    """日志记录关联的表格行：显式 ``extra``（即使为空）优先；否则 WARNING 及以上取正在处理的行。
 
-    explicit = getattr(record, SOURCES, ())
-    if explicit or record.levelno < logging.WARNING:
-        return explicit
+    文件级消息（如 ARXML 解析诊断）以 ``extra=located(())`` 声明不属于任何行。
+    """
+
+    if hasattr(record, SOURCES):
+        return getattr(record, SOURCES)
+    if record.levelno < logging.WARNING:
+        return ()
     return _ROWS.get()
 
 
@@ -308,8 +312,13 @@ def append_result_columns(
 
     from openpyxl.styles import Alignment
 
-    header_width = max((cell.column for cell in sheet[1] if cell.value not in (None, "")), default=0)
-    start = max(header_width, 1) + 1 if header_width else sheet.max_column + 1
+    from .openpyxl_compat import loaded_cells
+
+    cells = loaded_cells(sheet)
+    header_width = max(
+        (column for (row, column), cell in cells.items() if row == 1 and cell.value not in (None, "")), default=0,
+    )
+    start = header_width + 1 if header_width else max((column for _row, column in cells), default=0) + 1
     for offset, header in enumerate(RESULT_HEADERS):
         cell = sheet.cell(1, start + offset, header)
         _style_header(cell)
@@ -381,11 +390,13 @@ def save_workbook(workbook, path: Path) -> Path | None:
 
 
 def data_rows(sheet) -> list[int]:
-    """工作表中表头以下有内容的行号。"""
+    """工作表中表头以下有内容的行号；只看已存储的单元格，远处的空格式单元格不会让扫描扩展到整页。"""
+
+    from .openpyxl_compat import loaded_cells
 
     return sorted({
-        cell.row for row in sheet.iter_rows(min_row=2) for cell in row
-        if cell.value is not None and str(cell.value).strip()
+        row for (row, _column), cell in loaded_cells(sheet).items()
+        if row >= 2 and cell.value is not None and str(cell.value).strip()
     })
 
 

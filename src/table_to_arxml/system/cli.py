@@ -27,7 +27,7 @@ from ..common import report
 from ..common.arxml_list import DEFAULT_EXCLUDE_PATTERNS, ArxmlExclusions, read_arxml_list
 from ..common.dependencies import check_dependencies
 from ..common.errors import ConfigError
-from ..common.logs import setup_logging
+from ..common.logs import log_always, setup_logging
 from ..common.messages import clean_message
 from ..common.output import write_files_atomically
 from ..common.paths import absolute_path, filesystem_path, path_key, validate_output_paths
@@ -196,7 +196,9 @@ class _Session:
         self.composition_files: dict[int, Path] = {}
 
     def destination(self, staged: Path) -> Path:
-        return staged if self.output_dir is None else self.output_dir / staged.name
+        """产物的最终路径；没有输出目录（dry-run）时只给文件名，不暴露临时目录。"""
+
+        return Path(staged.name) if self.output_dir is None else self.output_dir / staged.name
 
     def run(self, staging: Path) -> list[tuple[Path, Path]]:
         """完整流程，按配置顺序返回每个配置的 ``(白表路径, Composition ARXML 路径)``。
@@ -488,11 +490,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             # 失败前没有记录过 ERROR 时，这条失败消息本身就是唯一的错误。
             failed = failed or session.errors.count
         session.finish(failed)
-    if failed is None:
+    if failed is None and session.outcome == report.WRITTEN:
         for white_table, composition_arxml in results:
             LOGGER.info("Generated: %s, %s", white_table, composition_arxml)
     LOGGER.info("Finished in %.1fs", perf_counter() - started)
-    LOGGER.info("%s", session.result_line())
+    log_always(LOGGER, session.result_line())
     return 0 if failed is None else 1
 
 

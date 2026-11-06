@@ -14,6 +14,7 @@ from typing import Literal, Mapping, Sequence
 from ..common.output import write_files_atomically
 from ..common.messages import clean_message
 from ..common.paths import path_key, validate_output_paths
+from ..common.report import located
 from . import xml_patch
 from .arxml_model import ArxmlDocument, DocumentSummary, load_document, load_generation
 
@@ -286,7 +287,7 @@ class SourceStore:
             document, diagnostics = load_document(path)
             if first:
                 for diagnostic in diagnostics:
-                    LOGGER.warning("armodel: %s: %s", path, diagnostic)
+                    LOGGER.warning("armodel: %s: %s", path, diagnostic, extra=located(()))
         self._loaded_document_cache = (path, version, load_generation(), document)
         return document
 

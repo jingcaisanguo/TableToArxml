@@ -19,7 +19,7 @@ from typing import Sequence
 
 from ..common import report
 from ..common.dependencies import check_dependencies
-from ..common.logs import ErrorCollector, setup_logging
+from ..common.logs import ErrorCollector, log_always, setup_logging
 from ..common.messages import clean_message
 from .options import Options, parse_args
 
@@ -153,9 +153,7 @@ def _finish(options: Options, log_file: Path, errors: ErrorCollector, run_report
     if state.outcome == report.FAILED and errors.count:
         state.detail = "no ARXML files were written; see the log and the row results"
     error_count = errors.count if state.errors is None else state.errors
-    LOGGER.info(
-        "%s", report.result_line(TOOL_NAME, state.outcome, error_count, errors.warnings, state.detail)
-    )
+    log_always(LOGGER, report.result_line(TOOL_NAME, state.outcome, error_count, errors.warnings, state.detail))
 
 
 def _write_diff(path: Path, state: _Run) -> Path | None:

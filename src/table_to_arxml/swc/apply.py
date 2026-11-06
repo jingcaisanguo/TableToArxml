@@ -948,7 +948,7 @@ def _validate_cs_source(component_file: Path, source: bytes, store: SourceStore)
     LOGGER.info("Re-parsing ARXML for validation: %s", component_file)
     document, diagnostics = load_bytes(source)
     for diagnostic in diagnostics:
-        LOGGER.warning("armodel validation: %s", diagnostic)
+        LOGGER.warning("armodel validation: %s", diagnostic, extra=located(()))
     store.write(component_file, source, document)
 
 
@@ -1225,7 +1225,7 @@ def validate_document(
 
     check_document, diagnostics = load_bytes(document)
     for diagnostic in diagnostics:
-        LOGGER.warning("armodel validation: %s", diagnostic)
+        LOGGER.warning("armodel validation: %s", diagnostic, extra=located(()))
     for port in expected_ports:
         check_port(check_document.read_port(port.component_path, port.spec.name), port)
     for access in expected_accesses:

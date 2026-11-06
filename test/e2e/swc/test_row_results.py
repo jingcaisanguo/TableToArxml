@@ -244,3 +244,33 @@ def test_dry_run_does_not_write_output_arxml_list(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "RESULT: DRY-RUN" in result.stdout
     assert not listed.exists()
+
+
+def test_com_specs_rows_of_a_rejected_port_are_marked_as_dependent(tmp_path):
+    result = run_twins(tmp_path, {
+        "Components": [A],
+        "SR-Interfaces": TWO_ELEMENTS,
+        "R-Ports": [{"SW_C": "A", "Port_Name": "r_Two", "Port_Interface_Ref": "/Pkg/Two",
+                     "Create_RTE_Artifact": "maybe"}],
+        "ComSpecs": [{"SW_C": "A", "Port_Name": "r_Two", "Data_Element_Name": "e1", "Enable_Update": "Y"}],
+    })
+    assert result.returncode == 1
+    assert "has no such port" not in result.stderr
+    assert "RESULT: FAILED - table_to_swc_arxml: 1 error(s)" in result.stdout
+    assert result_rows(tmp_path, "ComSpecs")[2]["结果"] == "依赖的对象有错误，未处理"
+
+
+def test_result_line_is_printed_at_warning_log_level(tmp_path):
+    write_twins(tmp_path, {
+        "Components": [A],
+        "P-Ports": [{"SW_C": "A", "Port_Name": "p_Ok", "Port_Interface_Ref": "/Pkg/If"}],
+    })
+    result = run_tool(
+        SWC, "--project-root", tmp_path, "--arxml-file-list", tmp_path / "arxml.lst",
+        "--workbook", tmp_path / "ports.xlsx", "--log-dir", tmp_path / "log", "--dry-run", "--log-level", "WARNING",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines() == [
+        line for line in result.stdout.strip().splitlines() if "RESULT: DRY-RUN" in line
+    ]
+    assert "RESULT: DRY-RUN - table_to_swc_arxml: 0 error(s), 0 warning(s)" in result.stdout
