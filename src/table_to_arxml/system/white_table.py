@@ -43,10 +43,15 @@ class TableRow:
     sheet: str
     number: int
     values: dict[str, str]
+    book: str = ""
 
     @property
     def location(self) -> str:
         return f"{self.sheet} row {self.number}"
+
+    @property
+    def source(self) -> tuple[str, str, int]:
+        return (self.book, self.sheet, self.number)
 
 
 @dataclass(frozen=True)
@@ -101,13 +106,13 @@ def read_composition_input(path: Path) -> CompositionInput:
                     for header, index in indices.items()
                 }
                 if any(values.values()):
-                    tables[sheet_name].append(TableRow(sheet_name, number, values))
+                    tables[sheet_name].append(TableRow(sheet_name, number, values, str(path)))
 
         general: dict[str, str] = {}
         for row in tables[GENERAL_SHEET]:
             key, value = row.values["Key"], row.values["Value"]
             if key in general and general[key] != value:
-                raise ValueError(f"{row.location}: conflicting General key '{key}'")
+                raise ValueError(f"{path} {row.location}: conflicting General key '{key}'")
             general[key] = value
         missing = [key for key in GENERAL_KEYS if not general.get(key)]
         if missing:

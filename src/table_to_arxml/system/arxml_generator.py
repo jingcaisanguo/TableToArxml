@@ -30,10 +30,12 @@ from armodel.models.M2.AUTOSARTemplates.SystemTemplate.Fibex.FibexCore.CoreCommu
     SystemSignal, SystemSignalGroup,
 )
 
+from ..common import report
 from ..common.armodel_compat import (
     SystemArxmlWriter, get_inner_port_iref, set_communication_direction, set_inner_port_iref,
 )
 from ..common.names import NAME_HASH_LENGTH, autosar_path, generated_name, short_name
+from ..common.report import Source
 from .arxml_model import ArxmlModel
 from .values import class_destination, ref_value
 from .white_table import (
@@ -169,7 +171,7 @@ class _Resolver:
     def __init__(
         self, document: AUTOSAR, data: CompositionInput, interface_mismatch: str,
         interface_mappings: dict[tuple[str, str], dict[str, str]], system_mapping: str = "",
-        mergeable_interface_mapping_sets: frozenset[str] = frozenset(),
+        mergeable_interface_mapping_sets: frozenset[str] = frozenset(), report_file: str = "",
     ) -> None:
         self.document = document
         self.data = data
@@ -178,6 +180,9 @@ class _Resolver:
         self.mergeable_interface_mapping_sets = mergeable_interface_mapping_sets
         self.generated_interface_mappings: dict[str, _InterfaceMapping] = {}
         self.model = ArxmlModel(document, [], [])
+        # 结果表中显示的目标文件；对象名 -> 声明它的白表行，用于逐行结果和错误定位。
+        self.report_file = report_file
+        self.name_sources: dict[str, list[Source]] = {}
         self.composition_path = autosar_path(data.general["Composition"], "General.Composition", 2)
         system_name = data.general["System"]
         if system_name.startswith("/"):
@@ -280,6 +285,9 @@ class _Resolver:
             if alias in self.aliases and self.aliases[alias] != component:
                 raise ValueError(f"ambiguous component alias '{alias}'")
             self.aliases[alias] = component
+        self.name_sources.setdefault(name, []).append(row.source)
+        status = report.REFERENCED if action == "reference" else report.REUSED if existing is not None else report.CREATED
+        report.record([row.source], status, instance_path, self.report_file)
 
     def add_type_aliases(self) -> None:
         """类型路径和类型短名也可引用组件，但不覆盖实例名等主别名，多个组件共用时视为歧义。"""
@@ -447,13 +455,23 @@ class _Resolver:
                 provider, requester, allow_create=self.interface_mismatch == "map")
             if not mapping_path and self.interface_mismatch == "skip":
                 LOGGER.warning("Skip %s: %s", row.location, message)
+                report.record([row.source], report.SKIPPED, detail="接口不一致，按 interfaceMismatch=skip 跳过")
                 return
             if not mapping_path and self.interface_mismatch == "error":
                 raise ValueError(message)
         parts = (provider.component.name, values["PPort"], requester.component.name, values["RPort"])
         name, connector = self._claim_connector(
             ASSEMBLY_PREFIX, parts, lambda name: _Assembly(name, provider, requester, mapping_path))
+        self._declare(name, row)
         self.assemblies[name] = connector
+
+    def _declare(self, name: str, row: TableRow) -> None:
+        """记录声明连接器的白表行；同一连接器的后续行标记为已合并。"""
+
+        sources = self.name_sources.setdefault(name, [])
+        if name in self.assemblies or name in self.delegations:
+            report.record([row.source], report.MERGED, detail=f"与 {report.location(sources)} 是同一连接器 {name}")
+        sources.append(row.source)
 
     def _claim_connector(self, prefix: str, parts: tuple[str, ...], build):
         """返回本次连接器的名称和对象；``_`` 拼接产生的同名不同连接改用结构化哈希区分。"""
@@ -500,6 +518,8 @@ class _Resolver:
         parts = (outer, inner.component.name, values["Inner Port"])
         name, connector = self._claim_connector(
             DELEGATION_PREFIX, parts, lambda name: _Delegation(name, inner, outer))
+        self._declare(name, row)
+        self.name_sources.setdefault(outer, []).append(row.source)
         self.delegations[name] = connector
         self.outer_ports[outer] = inner
 
@@ -533,14 +553,17 @@ class _Resolver:
             raise ValueError(
                 f"'{signal_path}' is a {class_destination(signal)}, not a {expected_destination}")
         mapping = _SignalMapping(endpoint, data_path, signal.getFullName(), direction, group)
+        description = f"{data_path} -> {signal.getFullName()}"
         if mapping in self.signals:
             LOGGER.warning("%s: duplicate signal mapping %s -> %s skipped", row.location, data_path, signal_path)
+            report.record([row.source], report.MERGED, description, detail="重复的信号映射，已合并")
             return
         if group:
             LOGGER.warning(
                 "%s: SENDER-RECEIVER-TO-SIGNAL-GROUP-MAPPING requires a TYPE-MAPPING, which the tool does not "
                 "derive; complete it for %s during integration", row.location, data_path)
         self.signals.append(mapping)
+        report.record([row.source], report.CREATED, description, self.report_file)
 
     def resolve_system(self) -> None:
         """定位已加载的 System，校验 ECU、根组合原型与映射名称，并求根组合到目标 Composition 的实例链。
@@ -643,9 +666,10 @@ class _Resolver:
         failures = 0
         claimed: dict[str, str] = {}
         for name, kind, item in new:
+            extra = report.located(self.name_sources.get(name, ()))
             if name in claimed:
                 LOGGER.error("%s: new %s %s conflicts with new %s %s; SHORT-NAMEs must be unique",
-                             self.composition_path, kind, name, claimed[name], name)
+                             self.composition_path, kind, name, claimed[name], name, extra=extra)
                 failures += 1
                 continue
             claimed[name] = kind
@@ -657,14 +681,14 @@ class _Resolver:
                     self._reuse_connector(name, item, name, existing_item)
                     continue
                 LOGGER.error("%s: new %s %s conflicts with existing %s %s; SHORT-NAMEs must be unique",
-                             self.composition_path, kind, name, existing_kind, name)
+                             self.composition_path, kind, name, existing_kind, name, extra=extra)
                 failures += 1
                 continue
             if key and key in existing_connections:
                 existing_name, existing_item = existing_connections[key]
                 LOGGER.warning(
                     "%s: %s %s connects the same ports as existing connector %s; it is not generated",
-                    self.composition_path, kind, name, existing_name)
+                    self.composition_path, kind, name, existing_name, extra=extra)
                 self._reuse_connector(name, item, existing_name, existing_item)
 
         names = list(existing) + [name for name in claimed if name not in existing]
@@ -674,8 +698,45 @@ class _Resolver:
             if other != name and name in claimed:
                 LOGGER.warning(
                     "%s: %s differs only in case from %s; AUTOSAR tools may treat them as the same SHORT-NAME",
-                    self.composition_path, name, other)
+                    self.composition_path, name, other, extra=report.located(self.name_sources.get(name, ())))
         return failures
+
+    def check_multiple_providers(self) -> None:
+        """同一 R-port 连接多个提供方：CS 客户端只能连一个服务端，记 WARNING；SR 的 n:1 合法，只在结果表提示。"""
+
+        providers: dict[tuple[str, str], list[_Assembly]] = {}
+        for connector in self.assemblies.values():
+            key = (connector.requester.component.instance_path, connector.requester.port_path)
+            providers.setdefault(key, []).append(connector)
+        for (instance, port), connectors in providers.items():
+            if len({(item.provider.component.instance_path, item.provider.port_path) for item in connectors}) < 2:
+                continue
+            sources = [source for item in connectors for source in self.name_sources.get(item.name, ())]
+            names = ", ".join(f"{item.provider.component.name}.{item.provider.port_path.rsplit('/', 1)[-1]}"
+                              for item in connectors)
+            requester = f"{instance.rsplit('/', 1)[-1]}.{port.rsplit('/', 1)[-1]}"
+            if connectors[0].requester.interface_destination == "CLIENT-SERVER-INTERFACE":
+                LOGGER.warning(
+                    "Client port %s is connected to %d servers (%s); a client-server R-port can be "
+                    "connected to only one server", requester, len(connectors), names,
+                    extra=report.located(sources))
+            else:
+                report.note(sources, report.HINT,
+                            f"R-port {requester} 连接了 {len(connectors)} 个发送方（{names}）；"
+                            "SR n:1 是合法的，请确认是否符合设计")
+
+    def record_results(self) -> None:
+        """名称检查后才能确定连接器是新建还是复用已有对象，此时再记录各行结果。"""
+
+        for connectors in (self.assemblies, self.delegations):
+            for name in connectors:
+                status = report.REUSED if name in self.reused_connectors else report.CREATED
+                sources = self.name_sources.get(name, ())
+                report.record(sources[:1], status, f"{self.composition_path}/{name}", self.report_file)
+        for outer in self.outer_ports:
+            status = report.REUSED if outer in self.existing_outer_ports else report.CREATED
+            report.record(self.name_sources.get(outer, ()), status, f"{self.composition_path}/{outer}",
+                          self.report_file)
 
     def _reuse_connector(self, name: str, connector: object, existing_name: str, existing: object) -> None:
         """复用已有连接器；它没有引用本行需要的接口映射时只警告，不再写出该映射。"""
@@ -735,14 +796,18 @@ class _Resolver:
         failures = 0
         for sheet, handler in handlers.items():
             for row in self.data.tables[sheet]:
-                try:
-                    handler(row)
-                except ValueError as exc:
-                    LOGGER.error("%s: %s", row.location, exc)
-                    failures += 1
+                report.touch([row.source])
+                with report.rows([row.source]):
+                    try:
+                        handler(row)
+                    except ValueError as exc:
+                        LOGGER.error("%s: %s", row.location, exc)
+                        failures += 1
             if sheet == COMPONENTS_SHEET:
                 self.add_type_aliases()
         failures += self.check_composition_names()
+        self.check_multiple_providers()
+        self.record_results()
         if failures:
             raise ValueError(f"{failures} white table row(s) could not be resolved; see the messages above")
 
@@ -871,9 +936,13 @@ def generate_composition_arxml(
     generate_system: bool,
     additive: bool = False,
     mergeable_interface_mapping_sets: frozenset[str] = frozenset(),
+    report_file: Path | None = None,
 ) -> Path:
+    """``report_file`` 为结果表中显示的最终产物路径，缺省为 ``output_file``。"""
+
     resolver = _Resolver(
-        document, data, interface_mismatch, interface_mappings, system_mapping, mergeable_interface_mapping_sets)
+        document, data, interface_mismatch, interface_mappings, system_mapping, mergeable_interface_mapping_sets,
+        str(report_file or output_file))
     resolver.resolve()
     if generate_system:
         resolver.resolve_system()
@@ -884,5 +953,5 @@ def generate_composition_arxml(
     output_file.parent.mkdir(parents=True, exist_ok=True)
     SystemArxmlWriter().save(str(output_file), output)
     LOGGER.info("Composition ARXML done: %s assemblies, %s delegations, %s signal mappings -> %s",
-                len(resolver.assemblies), len(resolver.delegations), len(resolver.signals), output_file)
+                len(resolver.assemblies), len(resolver.delegations), len(resolver.signals), output_file.name)
     return output_file

@@ -141,6 +141,11 @@ def strip_handle_timeout_type(node: ET.Element) -> None:
                 parent.remove(child)
 
 
+class _InfoAsDebug(logging.LoggerAdapter):
+    def info(self, msg: object, *args: Any, **kwargs: Any) -> None:
+        self.debug(msg, *args, **kwargs)
+
+
 class SystemArxmlWriter(ARXMLWriter):
     """补齐不同 armodel 版本 writer 的差异，使 System ARXML 输出与版本无关。
 
@@ -149,8 +154,13 @@ class SystemArxmlWriter(ARXMLWriter):
     - ``SenderReceiverToSignalMapping`` 的 ``COMMUNICATION-DIRECTION``：1.9.8 起按 R23-11 删除了该属性，
       为保持工具输出不变，仍按旧版本的位置写出。
 
-    两处都只在原生 writer 缺失时补写，不重复。
+    两处都只在原生 writer 缺失时补写，不重复。writer 保存时以 INFO 记录的是临时目录中的路径，
+    容易被误认为产物位置，因此降为 DEBUG；最终发布路径由工具入口记录。
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.logger = _InfoAsDebug(self.logger, {})
 
     def setComponentInSystemInstanceRef(self, element, tag_name, ref):
         super().setComponentInSystemInstanceRef(element, tag_name, ref)

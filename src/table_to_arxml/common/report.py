@@ -159,14 +159,29 @@ class RunReport:
         self.rows: dict[Source, RowResult] = {}
         self.objects: list[ObjectResult] = []
         self.general: list[tuple[str, str]] = []
+        # 派生行 -> 来源行（如白表行 -> 产生它的绿表行）；结果和消息同时记到来源行上。
+        self.links: dict[Source, tuple[Source, ...]] = {}
 
     def row(self, source: Source) -> RowResult:
         return self.rows.setdefault(source, RowResult())
 
+    def link(self, source: Source, origins: Iterable[Source]) -> None:
+        self.links[source] = tuple(dict.fromkeys((*self.links.get(source, ()), *origins)))
+
+    def expand(self, sources: Iterable[Source]) -> tuple[Source, ...]:
+        sources = tuple(sources)
+        return tuple(dict.fromkeys((*sources, *(origin for source in sources for origin in self.links.get(source, ())))))
+
+    def touch(self, sources: Iterable[Source]) -> None:
+        """登记已读取的行；之后没有任何结果的行在结果表中显示为“未生成”。"""
+
+        for source in sources:
+            self.row(source)
+
     def record(
         self, sources: Iterable[Source], status: str, path: str = "", file: object = "", detail: str = "",
     ) -> None:
-        sources = tuple(sources)
+        sources = self.expand(sources)
         file_text = str(file) if file else ""
         for source in sources:
             row = self.row(source)
@@ -176,11 +191,11 @@ class RunReport:
                 row.objects.append(path)
             if file_text and file_text not in row.files:
                 row.files.append(file_text)
-        if path:
+        if path and status != MERGED:
             self.objects.append(ObjectResult(status, path, file_text, sources))
 
     def note(self, sources: Iterable[Source], level: str, message: str) -> None:
-        sources = tuple(sources)
+        sources = self.expand(sources)
         if not sources:
             self.general.append((level, message))
         for source in sources:
@@ -246,6 +261,22 @@ def note(sources: Iterable[Source], level: str, message: str) -> None:
 
 def has_errors(sources: Iterable[Source]) -> bool:
     return _current is not None and _current.has_errors(sources)
+
+
+def link(source: Source, origins: Iterable[Source]) -> None:
+    if _current is not None:
+        _current.link(source, origins)
+
+
+def touch(sources: Iterable[Source]) -> None:
+    if _current is not None:
+        _current.touch(sources)
+
+
+def expand(sources: Iterable[Source]) -> tuple[Source, ...]:
+    """加上派生行的来源行，用于日志定位。"""
+
+    return tuple(sources) if _current is None else _current.expand(sources)
 
 
 TITLES = {WRITTEN: "SUCCESS", DRY_RUN: "DRY-RUN", FAILED: "FAILED"}
@@ -356,6 +387,22 @@ def data_rows(sheet) -> list[int]:
         cell.row for row in sheet.iter_rows(min_row=2) for cell in row
         if cell.value is not None and str(cell.value).strip()
     })
+
+
+def copy_values(target, rows: Iterable[Sequence[object]]) -> None:
+    """把行值写入结果工作表；文本保持文本（不当作公式），去掉 Excel 不允许的控制字符。"""
+
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
+    for row_number, values in enumerate(rows, start=1):
+        for column, value in enumerate(values, start=1):
+            if value is None:
+                continue
+            if isinstance(value, str):
+                value = ILLEGAL_CHARACTERS_RE.sub("", value)
+            cell = target.cell(row_number, column, value)
+            if isinstance(value, str) and value.startswith("="):
+                cell.data_type = "s"
 
 
 # -- 变更差异 -----------------------------------------------------------------

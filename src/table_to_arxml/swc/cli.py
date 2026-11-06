@@ -6,7 +6,8 @@
 按 projectRoot 内的相对路径写到其他目录。任一 ERROR 都阻止写出全部 ARXML。
 
 退出码：0 成功；1 运行失败（输入错误、验证失败等）；2 命令行或配置错误（不创建日志）。
-运行日志写入 ``logDir`` 下的 ``table_to_swc_arxml_<时间>_<进程号>.log``，同时输出到控制台。
+运行日志写入 ``logDir`` 下的 ``table_to_swc_arxml_<时间>_<进程号>.log``，同时输出到控制台；同目录另写逐行结果工作簿
+``*_result.xlsx`` 和 ARXML 变更 ``*.diff``，最后输出 ``RESULT`` 结论行。
 """
 
 from __future__ import annotations

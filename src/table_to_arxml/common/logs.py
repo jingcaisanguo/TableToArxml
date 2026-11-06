@@ -52,11 +52,11 @@ class _LocationFormatter(logging.Formatter):
     """消息关联了表格行时，在末尾追加位置，如 ``[P-Ports!3]``。"""
 
     def formatMessage(self, record: logging.LogRecord) -> str:
-        from .report import location, sources_of
+        from .report import expand, location, sources_of
 
         message = super().formatMessage(record)
         sources = sources_of(record)
-        return f"{message} [{location(sources)}]" if sources else message
+        return f"{message} [{location(expand(sources))}]" if sources else message
 
 
 def _remove_owned_handlers(logger: logging.Logger) -> None:
