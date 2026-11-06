@@ -24,6 +24,7 @@
 | `dryRun` | `--dry-run` | 布尔 | `false` | 只校验，不写文件；与三者都不选等价，用于显式声明 |
 | `inPlace` | `--in-place` | 布尔 | `false` | 直接覆盖源 ARXML |
 | `outputDir` | `--output-dir` | 目录 | 可选 | 把修改后的 ARXML 按 `projectRoot` 内的相对路径写到该目录，不改源文件；相对路径按清单中的路径计算，符号链接或 junction 目录（即使指向工程外）保持清单中的布局 |
+| `outputArxmlList` | `--output-arxml-list` | 文件 | 可选 | 与 `inPlace`/`outputDir` 一起写出本次运行后的生效 ARXML 清单（写出的文件换成输出路径，含清单外的 `Target ARXML`），可直接交给 System 工具；只验证时不写。不属于三选一的输出方式 |
 
 - `inPlace`、`outputDir`、`dryRun` 三者最多选一个；都不选时与 `dryRun` 相同，只校验不写文件。
 - 命令行指定了其中任一项时，整体替换配置中的输出方式。例如配置写了 `outputDir`，命令行加 `--dry-run` 即只校验，不报互斥错误。
@@ -31,6 +32,7 @@
 - 必填项缺失、配置文件无法读取（含语法错误）或取值非法时，参数解析阶段即打印用法并退出（退出码 `2`），不会创建日志。
 - 依赖（armodel 版本等）在创建日志后检查，不满足时记录 `ERROR` 并返回 `1`；`--help` 不受依赖影响。
 - 日志文件名为 `table_to_swc_arxml_<时间含微秒>_<进程号>.log`，每次运行新建，启动时打印完整路径。
+  同目录还会生成同名的 `_result.xlsx`（逐行结果）和 `.diff`（ARXML 变更），见 [README.md](README.md#运行结果文件)。
 
 ## 路径规则
 
@@ -43,8 +45,8 @@
 
 | 位置 | 相对路径基准 | 支持 `${variant}` 和 `*` |
 | --- | --- | --- |
-| 配置文件中的路径（`projectRoot`、`arxmlFileList`、`workbook`、`logDir`、`outputDir`） | 配置文件所在目录 | 支持 |
-| 命令行路径（`--config`、`--project-root`、`--arxml-file-list`、`--workbook`、`--log-dir`、`--output-dir`） | 当前工作目录 | 不支持 |
+| 配置文件中的路径（`projectRoot`、`arxmlFileList`、`workbook`、`logDir`、`outputDir`、`outputArxmlList`） | 配置文件所在目录 | 支持 |
+| 命令行路径（`--config`、`--project-root`、`--arxml-file-list`、`--workbook`、`--log-dir`、`--output-dir`、`--output-arxml-list`） | 当前工作目录 | 不支持 |
 | ARXML 清单中的条目 | `projectRoot` | 不支持 `${variant}`；支持通配符 |
 | 工作簿中的 `Target ARXML` | `projectRoot`，必须是相对路径，允许 `..` | 不支持 |
 

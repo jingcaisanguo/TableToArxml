@@ -1,6 +1,7 @@
 # 绿表转换规则
 
 返回 [README.md](README.md)。以下规则对应当前实现，不是通用 Excel 或 AUTOSAR 模板规范。
+新建绿表可以从 [GreenTableTemplate.xlsx](GreenTableTemplate.xlsx) 开始：表头批注说明各列用途，深蓝表头为工具读取的列。
 
 ## 文件、模块与页签
 
@@ -43,6 +44,8 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 | I、J 只有一个为空，K 无上述关键字 | 报错退出，不发布任何本次产物 |
 | I、J 都有值，K 含预留关键字 | 正常继续处理；预留备注不是通用禁用开关 |
 | I、J 有值但 B 空 | 报错退出，提示原始工作簿、页签和行号 |
+
+跳过的行在结果工作簿中标为“未填写连接，跳过”或“预留行，跳过”，便于确认没有遗漏。
 
 ## 模块与 Components
 
@@ -118,6 +121,14 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 | Components | `(Prototype, SW-C, Type, Action)` 完全相同才去重；同 Prototype 不同定义报错 |
 | AssemblySwConnection | `(Provider SW-C, PPort, Requester SW-C, RPort)` |
 | SenderReceiverToSignal | `(Signal, Direction, SW-C, Port, DataElement)` |
+
+两个模块都有绿表时，它们之间的同一连接通常在提供方 `P-Port` 页和请求方 `R-Port` 页各写一次，去重后只生成一个连接器，两行在结果表中都显示该连接器。
+只有一侧声明时连接仍按该行生成，但两张表可能不同步：记录一条汇总 `WARNING`
+（`... declared in only one of the two green tables involved`），并在结果表对应行的“说明”中提示缺少声明的绿表和页签。
+对端没有绿表（只是 `Reference` 组件）的连接不检查。
+
+同一 R-port 连接了多个提供方时：ClientServer 接口记录 `WARNING`（客户端只能连接一个服务端）；
+SenderReceiver 的 n:1 连接合法，只在结果表中提示。
 
 白表每次重新创建 6 个页签：`General`、`Components`、`AssemblySwConnection`、`DelegationSwConnection`、`SenderReceiverToSignal`、`SenderReceiverToSignalGroup`。其中 `DelegationSwConnection` 和 `SenderReceiverToSignalGroup` 当前只创建表头，绿表转换不填充这两类记录。
 

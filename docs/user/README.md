@@ -1,7 +1,7 @@
 # 表格转 ARXML 工具使用说明
 
 本目录面向工具使用者。交付时同时提供同版本的 wheel 与
-`table_to_arxml-<版本>-user-guide.zip`；后者包含本目录的全部说明和 [SWC 空白模板](swc/SwcTemplate.xlsx)，解压后从本页开始阅读。
+`table_to_arxml-<版本>-user-guide.zip`；后者包含本目录的全部说明、[SWC 空白模板](swc/SwcTemplate.xlsx)和[绿表空白模板](system/GreenTableTemplate.xlsx)，解压后从本页开始阅读。
 文档和模板不在 wheel 内；从源码分发时可直接复制整个 `docs/user` 目录并保留结构。
 工具说明统一位于 `system`、`swc`，不再保留旧路径跳转页或重复模板。
 升级前请阅读 [迁移说明](migration.md)。两个命令行工具随同一个 wheel 安装：
@@ -58,7 +58,9 @@ python -m table_to_arxml.swc --config ./config/swc.toml
 - 两个工具的配置文件推荐使用 TOML 格式，旧版 JSON 仍兼容，见下文 [配置文件格式](#配置文件格式)。
 - 两个工具可在命令行覆盖的配置项使用统一命名（如 `outputDir` 对应 `--output-dir`），命令行优先，参数名须完整书写。并非所有配置项都有命令行参数；System 的接口映射等选项只在配置文件中设置，完整列表见各工具说明。
 - 配置文件中的相对路径以配置文件所在目录为基准；命令行相对路径以当前工作目录为基准，路径尚不存在时也是如此。命令行路径不支持通配符；Windows 长路径前缀 `\\?\`、`\\?\UNC\` 中的 `?` 不视为通配符。
-- 日志目录必须通过 `--log-dir` 或配置指定；`table-to-system-arxml` 的产物目录也必须显式指定。安装后的命令不会向 `site-packages` 写配置、产物或日志。
+- 日志目录必须通过 `--log-dir` 或配置指定；`table-to-system-arxml` 的产物目录也必须显式指定（`--dry-run` 时可省略）。安装后的命令不会向 `site-packages` 写配置、产物或日志。
+- 每次运行在日志目录写出与日志同名的逐行结果工作簿 `*_result.xlsx`（输入表各行右侧标出新建/已存在/错误等结果、生成的对象和原因）及 ARXML 差异 `*.diff`，
+  最后一行日志 `RESULT: SUCCESS|DRY-RUN|FAILED - ...` 给出结论；与表格行有关的消息末尾带位置，如 `[P-Ports!3]`。确认生成结果时先看这两个文件。
 - 日志同时写入日志文件和控制台：普通信息到 stdout，`WARNING`、`ERROR` 到 stderr，每行为 `<时间戳> <等级>: <消息>`。日志文件始终为 UTF-8；控制台编码无法表示的字符（如 CI、管道或 `Tee-Object` 使用 cp1252/cp936 时的中文路径）以 `\uXXXX` 转义输出，不会丢失整行。Git Bash/MINGW64 中如需正常显示中文，可在运行前设置 `export PYTHONUTF8=1`（或 `PYTHONIOENCODING=utf-8`）。
 - 产物先写入目标目录中的短名临时文件，再替换目标文件。覆盖已有文件时保留其权限位（Linux）以及隐藏、系统属性（Windows）；属主、ACL 等其他元数据不保留，替换后的文件使用目录的默认设置；新文件按当前 umask 创建。只读目标文件导致写出失败并回滚。输出所在的驱动器或网络共享不可用时直接报错。
 - 两个工具读取 ARXML 清单（`arxmlFileList`）的规则相同，见各工具的配置说明；`strictList` / `--strict-list` 使无效条目直接失败。
