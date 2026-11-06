@@ -30,3 +30,5 @@ def test_external_documentation_uses_only_canonical_paths():
     docs = ROOT / "docs" / "user"
     assert {path.name for path in docs.iterdir()} == {"README.md", "migration.md", "swc", "system"}
     assert list(docs.rglob("SwcTemplate.xlsx")) == [docs / "swc" / "SwcTemplate.xlsx"]
+    assert sorted(docs.rglob("*.xlsx")) == [
+        docs / "swc" / "SwcTemplate.xlsx", docs / "system" / "GreenTableTemplate.xlsx"]

@@ -10,7 +10,7 @@
 | [configuration.md](configuration.md) | TOML 配置、命令行参数、路径规则、ARXML 清单、命令示例 |
 | [workbook-format.md](workbook-format.md) | 工作簿各工作表、列定义、取值范围及生成的 XML 示例 |
 | [SwcTemplate.xlsx](SwcTemplate.xlsx) | 不含测试数据的空白模板，自带填写流程、字段批注、默认值和输入验证 |
-| 本文 | 处理流程、检查规则、生成规则、写出与退出码 |
+| 本文 | 处理流程、检查规则、生成规则、写出、运行结果与退出码 |
 
 ## 安装与运行
 
@@ -34,16 +34,21 @@ table-to-swc-arxml --config ./config/swc.toml
 4. 读取 ARXML 清单
 5. 新建数据类型    Enumerations → Arrays / Structures
 6. 新建接口        SR-Interfaces → CS-Interfaces
-7. 定位组件和端口接口，生成端口及 ComSpec
-8. 生成 CS 对象（runnable → operation 事件 → 服务器调用点），只处理上一步成功或已存在的端口
+7. 定位组件和端口接口，生成端口及 ComSpec（端口行或 ComSpecs 页）
+8. 生成 CS 对象（runnable → operation 事件 → 服务器调用点；端口行或 CS Operations 页），只处理上一步成功或已存在的端口
 9. 生成 SR 数据访问点（Create RTE Artifact 展开 + Data Accesses），可使用上一步新建的 runnable
-10. 输出汇总；无 ERROR 且指定了写出方式时写文件
+10. 输出汇总；无 ERROR 且指定了写出方式时写文件（及 outputArxmlList）
+11. 在 logDir 写出逐行结果工作簿和 ARXML 差异，最后输出 RESULT 结论行
 ```
 
 所有修改先在内存中进行，后面的步骤读取的是前面步骤修改后的内容。因此同一次运行中，
 端口可以引用本次新建的接口，接口可以引用本次新建的数据类型，访问点和服务器调用点可以位于本次新建的 CS runnable 中，
 `--dry-run` 也能完整校验整条链路。
-汇总中的“to create”仅表示内存中准备的新对象，不表示已经写盘；实际写出成功后另行报告文件数量。
+汇总中写出时为 `to create`，只验证或有 `ERROR` 时为 `would create`；实际写出成功后另行报告文件数量。
+
+接口查找范围是 ARXML 清单加上本工作簿 `SR-Interfaces`、`CS-Interfaces` 的 `Target ARXML`（不在清单中的目标文件追加在后面，
+记录 `INFO: Interface lookup also uses Target ARXML not in the list`），因此端口可以直接引用本次新建到清单外文件中的接口。
+组件仍只在清单中查找。
 
 ## 检查规则
 
@@ -55,7 +60,12 @@ ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置
 
 工具采用“收集全部错误”方式：单条记录出错时记录 `ERROR` 并跳过该记录，其余记录继续处理，
 以便一次报告所有问题。只要本次运行出现任一 `ERROR`，就不写任何 ARXML，退出码为 `1`。
-`WARNING` 不影响写出。
+`WARNING` 不影响写出。与表格行有关的消息末尾带位置，如 `[P-Ports!3]`。
+同一根因只报一次：多个端口引用同一个找不到的接口时合并为一条 `ERROR` 并列出这些端口；
+依赖对象已出错的行（如引用失败端口的访问点）不再重复报错，只在结果表中标为“依赖的对象有错误，未处理”。
+
+一个对象由多部分组成时整体生成或整体跳过：枚举的实现类型、计算方法、数据约束只要有一部分冲突就都不创建；
+同一包中一批新对象有一个校验失败时，其余对象重新校验后写入；CS 服务端的 runnable 和 operation 事件一起校验后再创建。
 
 ### 启动检查
 
@@ -125,7 +135,7 @@ ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置
 | 端口接口路径在清单中找到定义，且是支持的接口类型 | 找不到或类型不支持时记录 `ERROR`，跳过该端口；多个文件重复时采用第一个定义 |
 | 需要生成 ComSpec 时，接口至少有一个数据元素 | `ERROR`，跳过该端口 |
 | 显式填写的 ComSpec 列至少适用于一个数据元素：`Queue Length` 为正数时须有队列元素（`SW-IMPL-POLICY=QUEUED`），`Enable Update=Y` 时须有非队列元素 | `WARNING`，忽略不适用的列，端口和其他适用的 ComSpec 照常生成；混合接口中各列只作用于适用的元素 |
-| 组件中已有 `PORTS` 容器 | `ERROR`，跳过该端口 |
+| 组件中已有 `PORTS` 容器（可以是自闭合的 `<PORTS/>`） | `ERROR`，跳过该端口 |
 | 新建对象（类型、接口、端口、访问点、runnable、事件、调用点）与同一命名空间中的已有对象仅 SHORT-NAME 大小写不同 | `WARNING`，同时列出两者路径，按不同对象生成 |
 | 新建类型或接口的完整路径已存在 | 采用清单顺序中第一个定义，与工作簿定义比较；一致时复用，不一致时 `ERROR` |
 | 需要创建的新类型或接口所在的包已存在于 `Target ARXML` | 不存在时 `ERROR`，跳过该对象 |
@@ -150,7 +160,7 @@ ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置
 
 新增对象与同一父对象下已有对象 `SHORT-NAME` 相同时，统一按以下规则处理：
 
-- **定义相同**：记录 `WARNING` 并跳过，不修改已有内容。因此同一工作簿可以重复执行。
+- **定义相同**：记录 `INFO`（`already exists with the same definition`）并跳过，不修改已有内容，结果表显示“已存在且一致，未修改”。因此同一工作簿可以重复执行。
 - **定义不同或对象类型不同**：记录 `ERROR` 并跳过，提示为新对象换名，已有内容保持不变。
 
 新类型、接口、计算方法和约束还会检查清单及所有 `Target ARXML` 中的同路径对象。
@@ -167,7 +177,7 @@ ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置
 | 数组 / 结构体 | 类别、元素或成员的名称与顺序、类型引用、数组长度；长度语义仅在填写 `Array Size Semantics` 时比较 |
 | 枚举实现类型 | 类别、底层类型、计算方法和约束的引用路径 |
 | 计算方法 / 数据约束 | 取值区间与标签 / 上下限；上下限按数值比较（`1.0` 等于 `1`），`INF` 等非数值按原文比较 |
-| 数据访问点 | 端口引用和数据元素引用；同一 runnable 中已有同类别、引用相同端口和数据元素的访问点时，不论名称直接复用（`WARNING ... already exists as <名称>; skipped`） |
+| 数据访问点 | 端口引用和数据元素引用；同一 runnable 中已有同类别、引用相同端口和数据元素的访问点时，不论名称直接复用（`INFO ... already exists as <名称>; skipped`） |
 | 服务器调用点 | 端口引用、operation 引用、超时 |
 | runnable | `SYMBOL`、最小启动间隔、并发标志；已有 runnable 未写的属性按 AUTOSAR 缺省值比较（`SYMBOL` 同 runnable 名称、`0`、`false`） |
 | operation 事件 | 端口、operation、runnable 引用 |
@@ -180,7 +190,7 @@ ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置
 - 同一次运行中多个 CS P-Port 填写了同一 `Runnable Name` 时，第一次创建，后续定义相同则复用（`INFO`），不同则 `ERROR`。
   自动生成的名称只属于对应的端口和 operation，不同请求得到相同名称时报 `ERROR`，不共用。
 - 枚举的计算方法、实现类型、数据约束分别检查，已存在的部分跳过，缺失的部分仍会创建，可用于补齐。
-- 工作簿同时声明了被引用的接口或类型时，它们作为独立对象各自检查。例如端口一致得到 `WARNING`，
+- 工作簿同时声明了被引用的接口或类型时，它们作为独立对象各自检查。例如端口一致得到 `INFO`，
   而单独声明的接口定义冲突仍产生 `ERROR`。
 
 ### 生成后校验
@@ -224,7 +234,7 @@ ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置
 
 自动创建的容器按 AUTOSAR schema（R4.3.1 `AUTOSAR_00044.xsd`）规定的子元素顺序插入：例如包的 `ELEMENTS` 位于 `SHORT-NAME-PATTERN`、`REFERENCE-BASES` 之后、`AR-PACKAGES` 和 `VARIATION-POINT` 之前，`EVENTS` 位于 `EXCLUSIVE-AREAS` 之后、`HANDLE-TERMINATION-AND-RESTART` 之前，`RUNNABLES` 位于 `PORT-API-OPTIONS` 之后、`SERVICE-DEPENDENCYS` 和 `SUPPORTS-MULTIPLE-INSTANTIATION` 之前，访问点容器和 `SERVER-CALL-POINTS` 位于 `SYMBOL` 之前。
 
-容器写成自闭合形式（如 `<PORTS/>`）时无法追加内容，报 `ERROR`，需改写为 `<PORTS></PORTS>`。
+容器写成自闭合形式（如 `<PORTS/>`）时自动展开为成对标签（`<PORTS>…</PORTS>`）再追加内容，标签名和属性保持不变。
 
 ### 默认值和固定值
 
@@ -294,6 +304,9 @@ runnable 是其全部子对象（各类访问点、服务器调用点等）的�
 | `outputDir` | 按文件在 `projectRoot` 内的相对路径写到输出目录；相对路径先按清单条目或 `Target ARXML` 的写法计算（不解析链接，链接或 junction 目录中的文件保持原布局），文件不在 `projectRoot` 内时报错 |
 
 - 只要本次运行有 `ERROR`，三种方式都不写任何 ARXML。
+- 指定 `outputArxmlList`（`--output-arxml-list`）且写出 ARXML 时，同时原子写出生效 ARXML 清单：清单文件和 `Target ARXML`
+  按登记顺序列出绝对路径，本次写出的文件换成输出路径，从未创建的目标文件不列出，可直接作为 System 工具的 `arxmlFileList`。
+  该路径不能与任何输入（工作簿、清单、ARXML）重合；只验证时不写，记录 `INFO`。
 - 只写出内容确实变化的文件；汇总中的 `ARXML file(s) affected` 也只统计内容变化的文件，在上次输出上重复执行时为 `0`。
 - `inPlace`、`outputDir` 写出前再次读取要修改的源文件；若与开始时读取的内容不同（运行期间被其他程序修改），
   整次失败、不写任何文件，以免覆盖外部修改，需在当前文件上重新运行。
@@ -317,11 +330,39 @@ runnable 是其全部子对象（各类访问点、服务器调用点等）的�
 2026-01-01 10:00:00,000 INFO: CS interfaces: 0 to create, 0 skipped
 2026-01-01 10:00:00,000 INFO: CS artifacts: 0 to create, 0 skipped
 2026-01-01 10:00:00,000 INFO: Data accesses: 0 of 0 to create, 0 skipped
-2026-01-01 10:00:00,000 INFO: All counts describe in-memory changes, not files written
 2026-01-01 10:00:00,000 INFO: 2 ARXML file(s) affected
+2026-01-01 10:00:00,000 INFO: Successfully wrote 2 ARXML file(s)
+2026-01-01 10:00:00,000 INFO: Row results: log/table_to_swc_arxml_..._result.xlsx
+2026-01-01 10:00:00,000 INFO: ARXML changes: log/table_to_swc_arxml_....diff
+2026-01-01 10:00:00,000 INFO: RESULT: SUCCESS - table_to_swc_arxml: 0 error(s), 0 warning(s); 4 object(s) created, 2 ARXML file(s) written
 ```
 
+最后一行 `RESULT` 是本次结论：`SUCCESS`（已写出）、`DRY-RUN`（只验证，给出将新建的对象数）或 `FAILED`（未写出），
+并给出 `ERROR`、`WARNING` 数量（不含 armodel 解析诊断，也不重复计入最后的失败汇总行）。
+
 `Data accesses` 的请求数已扣除合并的重复请求；复用的已有访问点既不计入新建，也不计入跳过。
+
+### 运行结果文件
+
+每次运行（包括失败和只验证）都在 `logDir` 写出与日志同名的结果文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `<日志名>_result.xlsx` | 输入工作簿的副本，各数据页右侧追加“结果 / 对象 / 目标文件 / 说明”四列；首页“运行结果”为结论、写出的文件和各类统计，“ARXML 对象”页列出全部新建或已存在的对象及来源行 |
+| `<日志名>.diff` | 本次修改的 ARXML 相对源文件的统一 diff；没有修改时不生成 |
+
+“结果”列的取值：
+
+| 结果 | 含义 |
+| --- | --- |
+| `新建` / `将新建（预演，未写出）` / `可新建（本次有错误，未写出）` | 本行的对象已写出 / 只验证 / 因本次有 `ERROR` 未写出 |
+| `已存在且一致，未修改` | ARXML 中已有相同定义 |
+| `已定位` | `Components` 行找到了组件定义 |
+| `依赖的对象有错误，未处理` | 本行依赖的端口、接口或组件出错，本行未单独报错 |
+| `错误` | 本行有 `ERROR`，“说明”列给出原因 |
+| `未处理` | 有内容但未产生结果（例如所在工作表整页被跳过） |
+
+结果后带“（有警告）”时，“说明”列列出对应的 `WARNING`。结果文件只是报告，写入失败只记录 `WARNING`，不影响退出码和 ARXML 写出。
 
 | 退出码 | 含义 |
 | --- | --- |
@@ -332,7 +373,7 @@ runnable 是其全部子对象（各类访问点、服务器调用点等）的�
 ## 限制
 
 - 只新增元素，不修改或删除已有元素；已有对象定义不同时只报错。
-- 组件、`PORTS` 容器和数据访问点所在的 runnable 必须事先存在（或由本次 CS P-Port 新建）；访问点容器缺失时自动创建。
+- 组件、`PORTS` 容器和数据访问点所在的 runnable 必须事先存在（或由本次 CS P-Port 新建）；访问点容器缺失时自动创建，自闭合的空容器（如 `<PORTS/>`）自动展开。
 - 不支持 `PR-PORT-PROTOTYPE`：不创建 PR-Port，也不为其生成访问点。
 - 只做浅校验：不检查类型兼容、初值、时序、E2E 配置和 RTE 契约。
 - CS 接口不生成 `POSSIBLE-ERRORS`、`POSSIBLE-ERROR-REFS`、`ERROR-CODE`；服务器调用点超时固定为 `0.0`。

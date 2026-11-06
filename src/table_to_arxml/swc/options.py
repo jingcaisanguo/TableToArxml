@@ -34,8 +34,9 @@ CONFIG_KEYS = (
     "inPlace",
     "outputDir",
     "dryRun",
+    "outputArxmlList",
 )
-PATH_KEYS = ("projectRoot", "arxmlFileList", "workbook", "logDir", "outputDir")
+PATH_KEYS = ("projectRoot", "arxmlFileList", "workbook", "logDir", "outputDir", "outputArxmlList")
 DIRECTORY_KEYS = ("projectRoot", "logDir", "outputDir")
 REQUIRED_KEYS = ("projectRoot", "arxmlFileList", "workbook", "logDir")
 BOOLEAN_KEYS = ("strictList", "inPlace", "dryRun")
@@ -56,6 +57,8 @@ class Options:
     # 与不写 inPlace/outputDir 等价，只用于在配置中显式声明“仅验证”。
     dry_run: bool = False
     variant: str | None = None
+    # 写出 ARXML 时同时写出下游应加载的 ARXML 清单；只验证时不写。
+    output_arxml_list: Path | None = None
 
 
 def attribute(key: str) -> str:
@@ -153,6 +156,11 @@ def build_parser() -> argparse.ArgumentParser:
     output_group.add_argument(
         "--dry-run", action="store_true", default=None, help="Build and validate changes without writing files"
     )
+    parser.add_argument(
+        "--output-arxml-list",
+        help="With --in-place/--output-dir, also write the ARXML list to load after this run "
+             "(written ARXML replaced by their output paths)",
+    )
     return parser
 
 
@@ -228,6 +236,7 @@ def _options(values: dict[str, object]) -> Options:
         output_dir=values["outputDir"],
         dry_run=values["dryRun"],
         variant=values["defaultVariant"],
+        output_arxml_list=values["outputArxmlList"],
     )
 
 

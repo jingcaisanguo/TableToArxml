@@ -13,6 +13,8 @@ CS_INTERFACE_SHEET = "CS-Interfaces"
 ENUMERATION_SHEET = "Enumerations"
 ARRAY_SHEET = "Arrays"
 STRUCTURE_SHEET = "Structures"
+COM_SPEC_SHEET = "ComSpecs"
+CS_OPERATION_SHEET = "CS Operations"
 
 P_PORT_OPTIONAL_HEADERS = (
     "Create RTE Artifact",
@@ -84,6 +86,14 @@ SHEET_HEADERS = {
     ),
     P_PORTS_SHEET: (("SW-C", "Port Name", "Port Interface Ref"), P_PORT_OPTIONAL_HEADERS),
     R_PORTS_SHEET: (("SW-C", "Port Name", "Port Interface Ref"), R_PORT_OPTIONAL_HEADERS),
+    COM_SPEC_SHEET: (
+        ("SW-C", "Port Name", "Data Element Name"),
+        ("Enable Update", "Queue Length", "Transmission Acknowledge Timeout", "Uses End To End Protection"),
+    ),
+    CS_OPERATION_SHEET: (
+        ("SW-C", "Port Name", "Operation Name"),
+        ("Runnable Name", "Runnable Symbol", "Minimum Start Interval", "Can Be Invoked Concurrently"),
+    ),
     DATA_ACCESS_SHEET: (
         ("SW-C", "Runnable Name", "Port Name"),
         ("Data Element Name", "Access Kind", "Access Name"),

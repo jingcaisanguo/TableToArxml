@@ -3,6 +3,25 @@
 返回 [使用说明](README.md)。升级时安装新的 wheel，并使用同版本的文档和模板。
 不要假定任意版本升级都无需修改配置；先在隔离目录运行并检查日志和生成差异。
 
+## 运行结果与易用性
+
+两个工具的输入和生成结果不变，以下为可见的行为变化：
+
+- 每次运行（含失败和只验证）在日志目录写出与日志同名的 `_result.xlsx`（输入表各行右侧追加结果、对象、目标文件和说明）
+  和 `.diff`（ARXML 变更），最后一行输出 `RESULT: SUCCESS|DRY-RUN|FAILED - ...` 结论。依赖控制台输出的脚本可改为检查退出码或该行。
+- 与表格行有关的 `WARNING`/`ERROR` 末尾追加位置，如 `[P-Ports!3]`、`[LIT.xlsx R-Port!5]`；按完整行匹配日志的脚本需相应调整。
+- SWC：“已存在且定义相同”从 `WARNING` 改为 `INFO`，因此重复执行同一工作簿不再产生警告；汇总在只验证或有错误时用
+  `would create`，删除了 `All counts describe in-memory changes, not files written` 行。多个端口引用同一个缺失接口时合并为一条 `ERROR`，
+  依赖出错对象的行不再重复报错。
+- SWC 新增 `ComSpecs`、`CS Operations` 两个可选工作表（逐元素 ComSpec、逐 operation 的 runnable）；旧工作簿不受影响，
+  需要时从新模板复制这两页。新增 `outputArxmlList`/`--output-arxml-list`，写出 ARXML 时同时写出供 System 工具使用的生效清单。
+- SWC 端口可直接引用本工作簿新建到清单外 `Target ARXML` 中的接口；自闭合的空容器（如 `<PORTS/>`）自动展开，不再报错。
+- SWC 由多部分组成的对象整体生成：枚举三件套有任一部分冲突时都不创建；CS 服务端 runnable 与事件一起校验后再创建，失败时不留下部分对象。
+- System 新增 `dryRun`/`--dry-run`：完整生成和校验但不发布，产物目录可省略。发布后逐个记录 `Published: <路径>`，
+  armodel 写临时文件的 `Saving ...` 降为 `DEBUG`。
+- System 两个模块都有绿表、但连接只在一侧声明时，记录一条汇总 `WARNING` 并在结果表对应行提示；CS 客户端端口连接多个服务端时 `WARNING`。
+- 新增绿表空白模板 `system/GreenTableTemplate.xlsx`。
+
 ## 本次审核修复
 
 - openpyxl 最低版本提高到 **3.1.5**。3.1.2 读取数据验证时可能把 `allowBlank=true` 错误改为 false；

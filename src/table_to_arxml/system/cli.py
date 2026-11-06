@@ -3,7 +3,9 @@
 两个阶段在同一进程内共用一个 AUTOSAR 文档，避免重复解析 ARXML。
 
 工具本身与具体工程解耦：所有工程相关的路径、车型、命名都放在 TOML 配置文件中。产物和日志目录必须通过
-命令行或配置文件显式指定，不提供默认目录；需要分发到工程其他位置时由外部（例如 CMB 动作中的 cp 命令）复制。
+命令行或配置文件显式指定，不提供默认目录（``--dry-run`` 时可省略产物目录）；需要分发到工程其他位置时
+由外部（例如 CMB 动作中的 cp 命令）复制。每次运行在日志目录写出逐行结果工作簿 ``*_result.xlsx``，
+有 ARXML 产物时另写与上次产物的差异 ``*.diff``，最后输出 ``RESULT`` 结论行。
 
 退出码：0 成功；1 运行失败（输入错误、生成失败等），不发布任何产物；2 命令行或配置错误（不创建日志）。
 """
@@ -21,10 +23,11 @@ from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Iterator, Sequence
 
+from ..common import report
 from ..common.arxml_list import DEFAULT_EXCLUDE_PATTERNS, ArxmlExclusions, read_arxml_list
 from ..common.dependencies import check_dependencies
 from ..common.errors import ConfigError
-from ..common.logs import setup_logging
+from ..common.logs import log_always, setup_logging
 from ..common.messages import clean_message
 from ..common.output import write_files_atomically
 from ..common.paths import absolute_path, filesystem_path, path_key, validate_output_paths
@@ -37,7 +40,7 @@ from .tresos_list import (
 from .options import (
     DEFAULT_TRESOS_OUTPUT_BASE_DIR, MERGED_GREEN_TABLE_SUFFIX,
     SYSTEM_ARXML_SUFFIX, WHITE_TABLE_SUFFIX, Job, RunOptions, build_argument_parser,
-    prepare_jobs, resolve_log_level, resolve_run_directory,
+    prepare_jobs, resolve_dry_run, resolve_log_level, resolve_run_directory,
 )
 
 # 绕行：部分 Windows 环境下导入 openpyxl 时 mimetypes 会逐项探测注册表，耗时很长。
@@ -155,53 +158,79 @@ def _read_input_tables(jobs: list[Job]) -> None:
             continue
         # 配置里的相对路径以配置文件所在目录为基准。
         job.green_tables = collect_green_workbooks(job.green_table_entries, job.variant, job.config_dir)
+        LOGGER.info("Selected %s green table(s) for %s", len(job.green_tables), job.output_prefix)
         for app_name, green_excel in job.green_tables:
+            LOGGER.info("Green table %s: %s", app_name, green_excel)
             try:
                 job.green_infos.append(parse_green_workbook(green_excel, app_name))
             except ValueError as exc:
                 LOGGER.error("%s", exc)
                 invalid_tables += 1
-        LOGGER.info("Selected %s green tables", len(job.green_tables))
     if invalid_tables:
         raise ValueError(f"{invalid_tables} input table(s) are invalid; see the messages above")
 
 
-def run(options: RunOptions) -> list[tuple[Path, Path]]:
-    """完整流程，按配置顺序返回每个配置的 ``(白表路径, Composition ARXML 路径)``。
+class _Session:
+    """一次运行：配置在加载 ARXML 前解析；生成后发布（或预演），最后写结果工作簿、差异和结论行。"""
 
-    多个配置共用一次 ARXML 加载；前一个配置生成的 ARXML 会追加进模型，供后续配置引用，
-    因此被引用的配置要排在前面。config 中写 ``greenTables`` 走绿表模式，写 ``whiteTable``
-    走白表模式，二者必须且只能写一个；命令行 ``--white-table`` 强制白表模式，仅限单个配置。
-    """
+    def __init__(self, options: RunOptions) -> None:
+        self.options = options
+        self.jobs = prepare_jobs(options)
+        self.dry_run = resolve_dry_run(self.jobs)
+        log_level = resolve_log_level(self.jobs, options.log_level)
+        self.log_dir = resolve_run_directory(self.jobs, options.log_dir, "log_dir", "logDir", "--log-dir")
+        self.output_dir = resolve_run_directory(
+            self.jobs, options.output_dir, "output_dir", "outputDir", "--output-dir", optional=self.dry_run)
+        if self.log_dir == self.output_dir:
+            raise ConfigError("Log directory and output directory must be different")
+        self.log_file, self.errors = setup_logging(TOOL_NAME, self.log_dir, log_level)
+        self.report = report.start()
+        self.outcome = report.FAILED
+        self.detail = "no new artifacts published"
+        # 失败前已记录的 ERROR 数；最后那条失败汇总不重复计数。
+        self.error_count: int | None = None
+        self.published: list[Path] = []
+        self.artifacts: list[Path] = []
+        self.diff_inputs: list[tuple[str, str, bytes | None, bytes]] = []
+        self.white_tables: dict[int, Path] = {}
+        self.composition_files: dict[int, Path] = {}
 
-    jobs = prepare_jobs(options)
-    resolved_log_level = resolve_log_level(jobs, options.log_level)
-    resolved_log_dir = resolve_run_directory(jobs, options.log_dir, "log_dir", "logDir", "--log-dir")
-    resolved_output_dir = resolve_run_directory(jobs, options.output_dir, "output_dir", "outputDir", "--output-dir")
-    if resolved_log_dir == resolved_output_dir:
-        raise ConfigError("Log directory and output directory must be different")
+    def destination(self, staged: Path) -> Path:
+        """产物的最终路径；没有输出目录（dry-run）时只给文件名，不暴露临时目录。"""
 
-    _log_file, errors = setup_logging(TOOL_NAME, resolved_log_dir, resolved_log_level)
-    LOGGER.info("Python interpreter: %s", sys.executable)
-    check_dependencies()
-    # 依赖检查通过后才导入 armodel 相关模块，版本不符时给出明确错误而非导入异常。
-    from .arxml_generator import generate_composition_arxml
-    from .arxml_model import ArxmlModel
-    from .base_merge import merge_base_arxml, prepare_base_model
-    from .green_table import merge_green_workbooks
-    from .green_to_white import generate_white_table
-    from .white_table import read_composition_input
+        return Path(staged.name) if self.output_dir is None else self.output_dir / staged.name
 
-    LOGGER.info("Output directory: %s", resolved_output_dir)
-    _read_input_tables(jobs)
-    protected_inputs = [
-        path for job in jobs
-        for path in (job.config_path, *([job.white_table] if job.white_table is not None else []),
-                     *(path for _, path in job.green_tables))
-    ]
+    def run(self, staging: Path) -> list[tuple[Path, Path]]:
+        """完整流程，按配置顺序返回每个配置的 ``(白表路径, Composition ARXML 路径)``。
 
-    generated_names = [f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}" for job in jobs]
-    with _staging_directory() as staging:
+        多个配置共用一次 ARXML 加载；前一个配置生成的 ARXML 会追加进模型，供后续配置引用，
+        因此被引用的配置要排在前面。config 中写 ``greenTables`` 走绿表模式，写 ``whiteTable``
+        走白表模式，二者必须且只能写一个；命令行 ``--white-table`` 强制白表模式，仅限单个配置。
+        """
+
+        jobs, options, errors = self.jobs, self.options, self.errors
+        LOGGER.info("Python interpreter: %s", sys.executable)
+        check_dependencies()
+        # 依赖检查通过后才导入 armodel 相关模块，版本不符时给出明确错误而非导入异常。
+        from .arxml_generator import generate_composition_arxml
+        from .arxml_model import ArxmlModel
+        from .base_merge import merge_base_arxml, prepare_base_model
+        from .green_table import merge_green_workbooks
+        from .green_to_white import generate_white_table
+        from .white_table import read_composition_input
+
+        if self.output_dir is None:
+            LOGGER.info("Dry run without an output directory; artifacts are generated and validated only")
+        else:
+            LOGGER.info("Output directory: %s%s", self.output_dir, " (dry run, nothing is published)" * self.dry_run)
+        _read_input_tables(jobs)
+        protected_inputs = [
+            path for job in jobs
+            for path in (job.config_path, *([job.white_table] if job.white_table is not None else []),
+                         *(path for _, path in job.green_tables))
+        ]
+
+        generated_names = [f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}" for job in jobs]
         generated_lists: dict[tuple, Path] = {}
         arxml_paths: list[Path] = []
         bases: dict[int, Path] = {}
@@ -231,9 +260,10 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 if key not in seen:
                     seen.add(key)
                     arxml_paths.append(path)
-        validate_output_paths(
-            (resolved_output_dir / name for name in generated_names), protected=bases.values(),
-            overlap_hint=MERGE_BASE_OVERLAP_HINT)
+        if self.output_dir is not None:
+            validate_output_paths(
+                (self.output_dir / name for name in generated_names), protected=bases.values(),
+                overlap_hint=MERGE_BASE_OVERLAP_HINT)
         started = perf_counter()
         model = ArxmlModel.load(arxml_paths)
         LOGGER.info("Loaded %s ARXML files in %.1fs", len(model.paths), perf_counter() - started)
@@ -258,13 +288,16 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 merge_green_workbooks(
                     job.green_tables, staging / f"{job.output_prefix}{MERGED_GREEN_TABLE_SUFFIX}")
                 composition_input = read_composition_input(white_table_path)
+            self.white_tables[index] = white_table_path
+            composition_file = staging / f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}"
+            self.composition_files[index] = composition_file
             composition_arxml = generate_composition_arxml(
-                document=model.document, data=composition_input,
-                output_file=staging / f"{job.output_prefix}{SYSTEM_ARXML_SUFFIX}",
+                document=model.document, data=composition_input, output_file=composition_file,
                 system_mapping=job.system_mapping, ar_release=job.ar_release,
                 interface_mismatch=job.mismatch_policy, interface_mappings=job.interface_mappings,
                 generate_system=job.generate_system, additive=index in bases,
-                mergeable_interface_mapping_sets=mergeable_interface_mapping_sets)
+                mergeable_interface_mapping_sets=mergeable_interface_mapping_sets,
+                report_file=self.destination(composition_file))
             if index in bases:
                 # 不生成 System 时不查找它；空路径表示合并时没有 System 需要处理。
                 system_path = ""
@@ -281,15 +314,127 @@ def run(options: RunOptions) -> list[tuple[Path, Path]]:
                 # 同名旧文件已被排除，后续配置需要看到本次新生成的内容。
                 model.add(composition_arxml)
             results.append((
-                job.white_table or resolved_output_dir / white_table_path.name,
-                resolved_output_dir / composition_arxml.name))
+                job.white_table or self.destination(white_table_path), self.destination(composition_arxml)))
         if errors.count:
+            self.error_count = errors.count
             raise RuntimeError("; ".join(errors.messages))
-        artifacts = sorted(path for path in staging.iterdir() if path.is_file())
-        validate_output_paths(
-            (resolved_output_dir / path.name for path in artifacts), protected=protected_inputs)
-        write_files_atomically([(resolved_output_dir / path.name, path.read_bytes()) for path in artifacts])
-    return results
+        self.artifacts = sorted(path for path in staging.iterdir() if path.is_file())
+        self._collect_diff_inputs(bases)
+        if self.output_dir is not None:
+            validate_output_paths(
+                (self.output_dir / path.name for path in self.artifacts), protected=protected_inputs)
+        if self.dry_run:
+            names = ", ".join(path.name for path in self.artifacts)
+            where = f" to {self.output_dir}" if self.output_dir is not None else ""
+            LOGGER.info("Dry run successful; %d artifact(s) would be published%s: %s",
+                        len(self.artifacts), where, names)
+            self.outcome = report.DRY_RUN
+            self.detail = f"{len(self.artifacts)} artifact(s) generated and validated; nothing published"
+            return results
+        write_files_atomically([(self.output_dir / path.name, path.read_bytes()) for path in self.artifacts])
+        self.published = [self.output_dir / path.name for path in self.artifacts]
+        for path in self.published:
+            LOGGER.info("Published: %s", path)
+        self.outcome = report.WRITTEN
+        self.detail = f"{len(self.published)} artifact(s) published to {self.output_dir}"
+        return results
+
+    def _collect_diff_inputs(self, bases: dict[int, Path]) -> None:
+        """在发布覆盖旧产物前记录 ARXML 的差异输入：与输出目录中的上次产物比较，merge 模式没有上次产物时与 base 比较。"""
+
+        merge_bases = {self.composition_files[index].name: path for index, path in bases.items()}
+        for staged in self.artifacts:
+            if staged.suffix.casefold() != ".arxml":
+                continue
+            destination = self.destination(staged)
+            previous = None if self.output_dir is None else self.output_dir / staged.name
+            if previous is None or not previous.is_file():
+                previous = merge_bases.get(staged.name)
+            old = previous.read_bytes() if previous is not None and previous.is_file() else None
+            self.diff_inputs.append((str(previous or destination), str(destination), old, staged.read_bytes()))
+
+    def finish(self, failed_error_count: int | None) -> None:
+        """写结果工作簿和差异文件（须在临时目录清理前调用）。"""
+
+        if failed_error_count is not None:
+            self.outcome = report.FAILED
+            self.detail = "no new artifacts published; see the log and the row results"
+            if self.error_count is None:
+                self.error_count = failed_error_count
+        diff_file = None
+        if self.diff_inputs:
+            title = {
+                report.WRITTEN: "published", report.DRY_RUN: "dry run, not published",
+                report.FAILED: "not published because of errors",
+            }[self.outcome]
+            diff_file = report.write_diff(
+                self.log_file.with_name(self.log_file.stem + ".diff"), self.diff_inputs,
+                f"# table-to-system-arxml ARXML changes against the previous output ({title})\n")
+        result_file = self._write_result_workbook(self.log_file.with_name(self.log_file.stem + "_result.xlsx"), diff_file)
+        if result_file is not None:
+            LOGGER.info("Row results: %s", result_file)
+        if diff_file is not None:
+            LOGGER.info("ARXML changes: %s", diff_file)
+
+    def result_line(self) -> str:
+        count = self.errors.count if self.error_count is None else self.error_count
+        return report.result_line(TOOL_NAME, self.outcome, count, self.errors.warnings, self.detail)
+
+    def _write_result_workbook(self, path: Path, diff_file: Path | None) -> Path | None:
+        try:
+            workbook = self._result_workbook(diff_file)
+        except Exception as error:  # 报告失败不影响本次运行结果
+            LOGGER.warning("Could not build result workbook %s: %s", path, clean_message(error))
+            return None
+        return report.save_workbook(workbook, path)
+
+    def _result_workbook(self, diff_file: Path | None):
+        from openpyxl import Workbook
+
+        from .green_table import _green_sheet_names, _merged_sheet_name
+        from .white_table import GENERAL_SHEET, WHITE_TABLE_LAYOUT, data_rows, open_input_workbook
+
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+        used: set[str] = set()
+
+        def add_sheet(prefix: str, sheet_name: str, source, book: str, all_rows: bool) -> None:
+            sheet = workbook.create_sheet(_merged_sheet_name(prefix, sheet_name, used))
+            report.copy_values(sheet, data_rows(source))
+            rows = report.data_rows(sheet) if all_rows else ()
+            report.append_result_columns(sheet, self.report, book, sheet_name, self.outcome, rows)
+            sheet.freeze_panes = "A2"
+
+        for index, job in enumerate(self.jobs):
+            for app_name, green_path in job.green_tables:
+                source = open_input_workbook(green_path)
+                try:
+                    for sheet_name in _green_sheet_names(source.sheetnames, green_path):
+                        add_sheet(app_name, sheet_name, source[sheet_name], str(green_path), False)
+                finally:
+                    source.close()
+            white_table = self.white_tables.get(index, job.white_table)
+            if white_table is not None and white_table.is_file():
+                source = open_input_workbook(white_table)
+                try:
+                    for sheet_name in WHITE_TABLE_LAYOUT:
+                        if sheet_name != GENERAL_SHEET and sheet_name in source.sheetnames:
+                            add_sheet(f"{job.output_prefix}W", sheet_name, source[sheet_name], str(white_table), True)
+                finally:
+                    source.close()
+        lines = [
+            ("结论", report.TITLES[self.outcome]),
+            ("说明", self.detail),
+            ("配置", "\n".join(str(job.config_path) for job in self.jobs)),
+            ("输出目录", str(self.output_dir) if self.output_dir is not None else "无（预演）"),
+            ("发布的产物", "\n".join(str(path) for path in self.published) or "无"),
+            ("ARXML 差异", str(diff_file) if diff_file else "无"),
+            ("说明（页签）", "<app>_R-Port / <app>_P-Port 为绿表内容，<前缀>W_<页> 为白表内容；右侧为逐行结果。"
+                         "绿表行的结果来自它生成的白表行。"),
+        ]
+        report.add_summary_sheet(workbook, lines, self.report)
+        report.add_objects_sheet(workbook, self.report, self.outcome)
+        return workbook
 
 
 def _config_paths(values: Sequence[str]) -> tuple[Path, ...]:
@@ -300,7 +445,10 @@ def _config_paths(values: Sequence[str]) -> tuple[Path, ...]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """命令入口；配置错误以退出码 2 结束，运行失败记录错误并返回 1。"""
+    """命令入口；配置错误以退出码 2 结束，运行失败记录错误并返回 1。
+
+    建立日志后，无论成功与否都在日志目录写出逐行结果工作簿（和 ARXML 差异），最后输出 ``RESULT`` 结论行。
+    """
 
     parser = build_argument_parser()
     args = parser.parse_args(argv)
@@ -318,22 +466,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             exclude_arxml=None if args.exclude_arxml is None else tuple(args.exclude_arxml),
             strict_list=args.strict_list,
             output_mode=args.output_mode,
+            dry_run=args.dry_run,
         )
-        results = run(options)
+        session = _Session(options)
     except ConfigError as exc:
         parser.error(clean_message(exc))
     except (OSError, ValueError, RuntimeError) as exc:
         LOGGER.error("%s failed; no new artifacts published: %s", TOOL_NAME, clean_message(exc))
         return 1
-    except Exception:
-        # 非预期异常多为程序缺陷，保留堆栈便于定位。
-        LOGGER.exception("%s failed unexpectedly; no new artifacts published", TOOL_NAME)
-        return 1
 
-    for white_table, composition_arxml in results:
-        LOGGER.info("Generated: %s, %s", white_table, composition_arxml)
+    failed: int | None = None
+    results: list[tuple[Path, Path]] = []
+    with _staging_directory() as staging:
+        try:
+            results = session.run(staging)
+        except Exception as exc:
+            failed = session.errors.count
+            if isinstance(exc, (OSError, ValueError, RuntimeError)):
+                LOGGER.error("%s failed; no new artifacts published: %s", TOOL_NAME, clean_message(exc))
+            else:
+                # 非预期异常多为程序缺陷，保留堆栈便于定位。
+                LOGGER.exception("%s failed unexpectedly; no new artifacts published", TOOL_NAME)
+            # 失败前没有记录过 ERROR 时，这条失败消息本身就是唯一的错误。
+            failed = failed or session.errors.count
+        session.finish(failed)
+    if failed is None and session.outcome == report.WRITTEN:
+        for white_table, composition_arxml in results:
+            LOGGER.info("Generated: %s, %s", white_table, composition_arxml)
     LOGGER.info("Finished in %.1fs", perf_counter() - started)
-    return 0
+    log_always(LOGGER, session.result_line())
+    return 0 if failed is None else 1
 
 
 if __name__ == "__main__":

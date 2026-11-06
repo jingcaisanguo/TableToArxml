@@ -43,6 +43,10 @@ python -m pytest
 - ARXML 统一换行符后与 `expected/` 逐字节比对；Excel 按单元格值比对。有意改变输出时，用新产物替换对应基线并在提交说明中写明原因。
 - SWC 样例工作簿和空白模板由 [tools/generate_swc_workbooks.py](../tools/generate_swc_workbooks.py) 生成；
   [e2e/swc/test_workbooks.py](e2e/swc/test_workbooks.py) 检查两者的布局、样式和数据验证，并确认重新生成的结果与仓库文件一致。
+  System 绿表空白模板由 [tools/generate_green_table_template.py](../tools/generate_green_table_template.py) 生成，
+  [e2e/system/test_green_template.py](e2e/system/test_green_template.py) 检查它能被工具读取并可复现。
+- 逐行结果工作簿、差异文件和 `RESULT` 结论行由 [e2e/swc/test_row_results.py](e2e/swc/test_row_results.py)、
+  [e2e/system/test_row_results.py](e2e/system/test_row_results.py) 覆盖，包括绿表行通过白表行得到的结果、单侧声明提示和 dry-run。
 - 契约测试覆盖 CI 指定的 armodel 1.8.7、1.9.2、1.9.8，确认 `armodel_compat.py` 在新旧版本下得到相同的输出；依赖上限为 `1.9.8`。新版本须补充兼容测试、加入 CI 矩阵并通过全部测试后，才能提交更新依赖上限。
 - CI（[tests.yml](../.github/workflows/tests.yml)）在 Ubuntu/Windows、Python 3.9/3.13、armodel 1.8.7/1.9.2/1.9.8 的组合上运行 ruff 和全部测试。
   另在两个平台上以 Python 3.9、armodel 1.9.8 固定 openpyxl 3.1.5 验证最低支持版本；常规矩阵安装可用的最新兼容 openpyxl。

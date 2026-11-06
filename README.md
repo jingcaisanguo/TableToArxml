@@ -49,6 +49,7 @@ table-to-swc-arxml --config ./config/swc.toml
 | [完整使用说明](docs/user/README.md) | 安装、配置格式、调用方式和通用规则 |
 | [System 工具](docs/user/system/README.md) | System 转换流程、配置、输入和输出 |
 | [绿表格式与转换规则](docs/user/system/green-table-rules.md) | `R-Port` / `P-Port` 绿表页、列定义、连接方向和转换示例 |
+| [绿表空白模板](docs/user/system/GreenTableTemplate.xlsx) | 带列说明的绿表模板 |
 | [白表格式](docs/user/system/white-table-format.md) | 白表工作表、字段及生成语义 |
 | [SWC 工具](docs/user/swc/README.md) | SWC 转换流程、校验和输出规则 |
 | [SWC 工作簿格式](docs/user/swc/workbook-format.md) | SWC 工作簿各页和字段定义 |
