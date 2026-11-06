@@ -186,7 +186,8 @@ class SourceStore:
         source = self.read(path)
         try:
             xml_patch.element_tag(source, "")
-        except ValueError:
+        except (ValueError, LookupError):
+            # 编码未知（LookupError）或无法按字节定位的文件已在建立索引时报告，这里只是不再参与定位。
             return None
         return source
 
