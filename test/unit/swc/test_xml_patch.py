@@ -6,7 +6,9 @@ import re
 
 import pytest
 
-from table_to_arxml.swc.xml_patch import CHILD_ORDER, insert_or_create_child_container
+from table_to_arxml.swc.xml_patch import (
+    CHILD_ORDER, apply_insertions, container_insertion, insert_or_create_child_container,
+)
 
 DOCUMENT = """<AUTOSAR>
   <AR-PACKAGES>
@@ -86,6 +88,44 @@ def test_existing_container_is_reused():
     source = DOCUMENT.format(behavior=behavior, package="").encode()
     updated = insert_or_create_child_container(source, "/P/C/IB", "RUNNABLES", ["<X/>"]).decode()
     assert updated.count("<RUNNABLES>") == 1 and "<X/>" in updated
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_self_closing_container_is_expanded(newline):
+    behavior = '              <EVENTS T="1" />\n              <RUNNABLES/>'
+    source = DOCUMENT.format(behavior=behavior, package="").replace("\n", newline).encode()
+    updated = apply_insertions(source, [
+        container_insertion(source, "/P/C/IB", "RUNNABLES", ["<X/>"]),
+        container_insertion(source, "/P/C/IB", "RUNNABLES", ["<Y>\n  <Z/>\n</Y>"]),
+        container_insertion(source, "/P/C/IB", "EVENTS", ["<E/>"]),
+    ]).decode()
+    expected = newline.join([
+        '              <EVENTS T="1">',
+        "                <E/>",
+        "              </EVENTS>",
+        "              <RUNNABLES>",
+        "                <X/>",
+        "                <Y>",
+        "                  <Z/>",
+        "                </Y>",
+        "              </RUNNABLES>",
+        "            </SWC-INTERNAL-BEHAVIOR>",
+    ])
+    assert expected in updated
+    assert child_tags(updated.replace("\r\n", "\n").encode(), "SWC-INTERNAL-BEHAVIOR") == [
+        "SHORT-NAME", "EVENTS", "RUNNABLES"]
+
+
+def test_self_closing_container_expands_before_new_sibling_container():
+    # 新建的 EVENTS 插在自闭合 RUNNABLES 之前，两处插入偏移相同。
+    behavior = "              <RUNNABLES/>"
+    source = DOCUMENT.format(behavior=behavior, package="").encode()
+    updated = apply_insertions(source, [
+        container_insertion(source, "/P/C/IB", "EVENTS", ["<E/>"]),
+        container_insertion(source, "/P/C/IB", "RUNNABLES", ["<X/>"]),
+    ])
+    assert child_tags(updated, "SWC-INTERNAL-BEHAVIOR") == ["SHORT-NAME", "EVENTS", "RUNNABLES"]
+    assert b"<RUNNABLES>\n                <X/>\n              </RUNNABLES>" in updated
 
 
 def test_unknown_parent_or_container_is_rejected():

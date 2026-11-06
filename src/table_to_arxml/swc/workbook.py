@@ -10,7 +10,7 @@ import logging
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterable, Sequence, Union, cast
 from zipfile import BadZipFile
@@ -22,8 +22,11 @@ from ..common.messages import clean_message
 from ..common.names import autosar_path, c_identifier, generated_name, short_name
 from ..common.openpyxl_compat import loaded_cells
 from ..common.paths import absolute_path, filesystem_path, is_file
+from ..common.report import PRIOR, Source, each, located
+from ..common.report import record as record_rows
 from .constants import (
     ACCESS_DIRECTIONS,
+    DIRECTION_LABELS,
     DIRECTION_PROVIDED,
     DIRECTION_REQUIRED,
     PORT_ELEMENTS,
@@ -31,6 +34,8 @@ from .constants import (
 
 from .schema import (
     COMPONENTS_SHEET,
+    COM_SPEC_SHEET,
+    CS_OPERATION_SHEET,
     P_PORTS_SHEET,
     R_PORTS_SHEET,
     DATA_ACCESS_SHEET,
@@ -56,6 +61,24 @@ Sheets = dict[str, Union[Mapping[int, tuple[object, ...]], Sequence[tuple[object
 ENUM_COMPU_METHOD_PACKAGE = "CompuMethods"
 ENUM_DATA_CONSTR_PACKAGE = "DataConstrs"
 ENUM_DATA_CONSTR_PREFIX = "dc_"
+# Spec 的来源行只用于报告和定位，不参与相等比较。
+SOURCES_FIELD = field(default=(), compare=False)
+
+
+class Record(dict):
+    """工作表中的一行：``列名 -> 文本``；``source`` 为所在工作表和 Excel 行号。"""
+
+    source: Source = ("", "", 0)
+
+
+def at(*records: Record) -> dict[str, tuple[Source, ...]]:
+    """日志 ``extra`` 参数：把消息关联到这些行。"""
+
+    return located(record.source for record in records)
+
+
+def _source(row: Record) -> tuple[Source, ...]:
+    return (row.source,)
 
 
 class _AutosarPath:
@@ -82,6 +105,7 @@ class EnumerationSpec(_AutosarPath):
     compu_method_path: str
     data_constr_path: str
     values: tuple[tuple[str, str], ...]
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
     @property
     def limits(self) -> tuple[str, str]:
@@ -99,6 +123,7 @@ class ArraySpec(_AutosarPath):
     element_type_ref: str
     array_size: int
     array_size_semantics: str = ""
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
     @property
     def effective_semantics(self) -> str:
@@ -112,6 +137,7 @@ class StructureSpec(_AutosarPath):
     path: str
     target_file: Path
     members: tuple[tuple[str, str], ...]
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
 
 @dataclass(frozen=True)
@@ -122,6 +148,7 @@ class InterfaceSpec(_AutosarPath):
     target_file: Path
     data_elements: tuple[tuple[str, str, bool], ...]
     is_service: bool = False
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
 
 @dataclass(frozen=True)
@@ -132,6 +159,7 @@ class ClientServerInterfaceSpec(_AutosarPath):
     target_file: Path
     operations: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...]
     is_service: bool = False
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
 
 @dataclass(frozen=True)
@@ -140,6 +168,19 @@ class ComponentSpec:
 
     key: str
     path: str
+    sources: tuple[Source, ...] = SOURCES_FIELD
+
+
+@dataclass(frozen=True)
+class ElementComSpec:
+    """``ComSpecs`` 页中一个数据元素的 ComSpec；``None`` 表示该列未填写。"""
+
+    data_element: str
+    enable_update: bool | None = None
+    queue_length: int | None = None
+    ack_timeout: float | None = None
+    uses_protection: bool | None = None
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
 
 @dataclass(frozen=True)
@@ -150,7 +191,8 @@ class PortSpec:
     R-Port（且互斥），``ack_timeout`` 和 ``uses_protection`` 只存在于 P-Port。
     ``runnable_name`` 在 P-Ports 中表示 SR 接口的已有 runnable 或 CS 接口的新建 runnable 名称；
     在 R-Ports 中表示已有 runnable 的简称。``provided_fields`` 记录用户显式填写的可选列，
-    供后续在某些设置不适用时给出警告。
+    供后续在某些设置不适用时给出警告。``element_com_specs`` 来自 ``ComSpecs`` 页，
+    与端口行的 ComSpec 列互斥，按数据元素分别生成 ComSpec。
     """
 
     component_key: str
@@ -168,6 +210,8 @@ class PortSpec:
     minimum_start_interval: float = 0.0
     can_be_invoked_concurrently: bool = False
     provided_fields: frozenset[str] = frozenset()
+    element_com_specs: tuple[ElementComSpec, ...] = ()
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
     @property
     def element_name(self) -> str:
@@ -175,7 +219,7 @@ class PortSpec:
 
     @property
     def needs_com_specs(self) -> bool:
-        return (
+        return bool(self.element_com_specs) or (
             self.enable_update
             or self.queue_length > 0
             or self.ack_timeout is not None
@@ -193,6 +237,25 @@ class AccessSpec:
     data_element: str
     kind: str
     name: str
+    sources: tuple[Source, ...] = SOURCES_FIELD
+
+
+@dataclass(frozen=True)
+class OperationSpec:
+    """``CS Operations`` 页的一行：为端口的一个 operation 指定 runnable。
+
+    P-Port 为该 operation 新建 runnable 和 OPERATION-INVOKED-EVENT（``runnable_name`` 留空时自动命名）；
+    R-Port 在 ``runnable_name`` 中创建同步服务器调用点。``None`` 表示列未填写。
+    """
+
+    component_key: str
+    port_name: str
+    operation: str
+    runnable_name: str = ""
+    runnable_symbol: str = ""
+    minimum_start_interval: float | None = None
+    can_be_invoked_concurrently: bool | None = None
+    sources: tuple[Source, ...] = SOURCES_FIELD
 
 
 class FormulaCell:
@@ -282,7 +345,7 @@ def load_workbook_sheets(workbook_path: Path) -> Sheets:
             if sheet.title.casefold() not in supported:
                 LOGGER.error(
                     "Unknown worksheet %s; supported: %s, README",
-                    sheet.title, ", ".join(SHEET_HEADERS),
+                    sheet.title, ", ".join(SHEET_HEADERS), extra=located([("", sheet.title, 0)]),
                 )
                 continue
             sheets[sheet.title] = sheet_values(sheet)
@@ -328,8 +391,8 @@ def parse_non_negative(
 def read_sheet_rows(
     sheets: Sheets,
     sheet_name: str,
-) -> list[dict[str, str]]:
-    """校验一张工作表的表头并返回非空数据行。
+) -> list[Record]:
+    """校验一张工作表的表头并返回非空数据行；每行的 ``source`` 为实际工作表名和 Excel 行号。
 
     未使用的工作表可省略；只有表头而无数据行时也返回空列表。
     schema 中的可选列允许为空，且允许整列缺失。列顺序任意；未知列、
@@ -340,15 +403,18 @@ def read_sheet_rows(
         LOGGER.debug("Optional worksheet not present: %s", sheet_name)
         return []
     if len(matches) > 1:
-        LOGGER.error("Multiple worksheets match %s: %s", sheet_name, ", ".join(matches))
+        LOGGER.error("Multiple worksheets match %s: %s", sheet_name, ", ".join(matches),
+                     extra=located(("", match, 0) for match in matches))
         return []
-    sheet_rows = sheets[matches[0]]
+    title = matches[0]
+    sheet_extra = located([("", title, 0)])
+    sheet_rows = sheets[title]
     rows = sheet_rows if isinstance(sheet_rows, Mapping) else dict(enumerate(sheet_rows, start=1))
     header_row = rows.get(1, ())
 
     if not any(value is not None for value in header_row):
         if any(any(value is not None for value in row) for number, row in rows.items() if number > 1):
-            LOGGER.error("Skipped worksheet %s: missing header row", sheet_name)
+            LOGGER.error("Skipped worksheet %s: missing header row", sheet_name, extra=sheet_extra)
         return []
 
     required_headers, optional_headers = SHEET_HEADERS[sheet_name]
@@ -363,7 +429,7 @@ def read_sheet_rows(
             for value in header_values
         ]
     except ValueError as error:
-        LOGGER.error("%s", clean_message(error))
+        LOGGER.error("%s", clean_message(error), extra=sheet_extra)
         return []
 
     canonical = {name.casefold(): name for name in required + optional}
@@ -382,16 +448,18 @@ def read_sheet_rows(
             unknown,
             duplicates,
             raw_headers,
+            extra=sheet_extra,
         )
         return []
 
-    records: list[dict[str, str]] = []
+    records: list[Record] = []
     for row_number, values in sorted(rows.items()):
         if row_number == 1:
             continue
+        row_extra = located([("", title, row_number)])
         if any(value is not None and str(value).strip() for value in values[len(headers):]):
             LOGGER.error(
-                "Skipped %s row %d: data under a blank header", sheet_name, row_number
+                "Skipped %s row %d: data under a blank header", sheet_name, row_number, extra=row_extra,
             )
             continue
         # openpyxl 对尾部空列可能返回更短的元组，补齐后再按列取值。
@@ -402,11 +470,12 @@ def read_sheet_rows(
                 for index, header in enumerate(headers)
             ]
         except ValueError as error:
-            LOGGER.error("Skipped %s row %d: %s", sheet_name, row_number, clean_message(error))
+            LOGGER.error("Skipped %s row %d: %s", sheet_name, row_number, clean_message(error), extra=row_extra)
             continue
         if not any(cells):
             continue
-        record = dict(zip(headers, cells))
+        record = Record(zip(headers, cells))
+        record.source = ("", title, row_number)
         rte_flag = record.get("Create RTE Artifact", "")
         rte_disabled = sheet_name in ("P-Ports", "R-Ports") and (
             not rte_flag or BOOLEAN_LABELS.get(rte_flag.casefold()) is False
@@ -418,6 +487,7 @@ def read_sheet_rows(
                 sheet_name,
                 row_number,
                 ", ".join(missing),
+                extra=row_extra,
             )
             continue
         for name in optional:
@@ -435,7 +505,7 @@ def read_sheet_rows(
                 elif name == "Runnable Symbol":
                     c_identifier(value)
         except ValueError as error:
-            LOGGER.error("Skipped %s row %d: %s", sheet_name, row_number, error)
+            LOGGER.error("Skipped %s row %d: %s", sheet_name, row_number, error, extra=row_extra)
             continue
         records.append(record)
     return records
@@ -534,7 +604,8 @@ def read_enumerations(sheets: Sheets, project_root: Path) -> list[EnumerationSpe
     """
     rows = read_sheet_rows(sheets, ENUMERATION_SHEET)
     groups: dict[str, tuple[dict[str, object], list[tuple[str, str]]]] = {}
-    for row in rows:
+    sources: dict[str, list[Source]] = {}
+    for row in each(rows, _source):
         path = row["Type Path"]
         context = f"enumeration {path}"
         base_type = row["Implementation Data Type Ref"]
@@ -570,6 +641,7 @@ def read_enumerations(sheets: Sheets, project_root: Path) -> list[EnumerationSpe
                 path, row["Label"],
             )
         values.append((value, row["Label"]))
+        sources.setdefault(path, []).append(row.source)
 
     return [
         EnumerationSpec(
@@ -579,6 +651,7 @@ def read_enumerations(sheets: Sheets, project_root: Path) -> list[EnumerationSpe
             compu_method_path=cast(str, common["Compu Method Ref"]),
             data_constr_path=cast(str, common["Data Constr Ref"]),
             values=tuple(values),
+            sources=tuple(sources[path]),
         )
         for path, (common, values) in groups.items()
         if values
@@ -591,7 +664,7 @@ def read_arrays(sheets: Sheets, project_root: Path) -> list[ArraySpec]:
     rows = read_sheet_rows(sheets, ARRAY_SHEET)
     specs: list[ArraySpec] = []
     seen: set[str] = set()
-    for row in rows:
+    for row in each(rows, _source):
         path = row["Type Path"]
         context = f"array {path}"
         if not _check_type_path(path, "array"):
@@ -622,9 +695,10 @@ def read_arrays(sheets: Sheets, project_root: Path) -> list[ArraySpec]:
         if target is None:
             continue
         seen.add(path)
-        specs.append(
-            ArraySpec(path, target, row["Element Name"], row["Element Type Ref"], array_size, semantics)
-        )
+        specs.append(ArraySpec(
+            path, target, row["Element Name"], row["Element Type Ref"], array_size, semantics,
+            sources=(row.source,),
+        ))
     return specs
 
 
@@ -633,7 +707,8 @@ def read_structures(sheets: Sheets, project_root: Path) -> list[StructureSpec]:
 
     rows = read_sheet_rows(sheets, STRUCTURE_SHEET)
     groups: dict[str, tuple[dict[str, object], list[tuple[str, str]]]] = {}
-    for row in rows:
+    sources: dict[str, list[Source]] = {}
+    for row in each(rows, _source):
         path = row["Type Path"]
         context = f"structure {path}"
         if not _check_type_path(path, "structure") or not _check_reference(
@@ -647,8 +722,9 @@ def read_structures(sheets: Sheets, project_root: Path) -> list[StructureSpec]:
         if members is None or _is_duplicate(members, row["Member Name"], "member", context):
             continue
         members.append((row["Member Name"], row["Member Type Ref"]))
+        sources.setdefault(path, []).append(row.source)
     return [
-        StructureSpec(path, cast(Path, common["Target ARXML"]), tuple(members))
+        StructureSpec(path, cast(Path, common["Target ARXML"]), tuple(members), sources=tuple(sources[path]))
         for path, (common, members) in groups.items()
         if members
     ]
@@ -661,7 +737,8 @@ def read_sr_interfaces(sheets: Sheets, project_root: Path) -> list[InterfaceSpec
     """
     rows = read_sheet_rows(sheets, SR_INTERFACE_SHEET)
     groups: dict[str, tuple[dict[str, object], list[tuple[str, str, bool]]]] = {}
-    for row in rows:
+    sources: dict[str, list[Source]] = {}
+    for row in each(rows, _source):
         path = row["Interface Path"]
         context = f"SR interface {path}"
         if not _check_type_path(path, "SR interface") or not _check_reference(
@@ -682,8 +759,12 @@ def read_sr_interfaces(sheets: Sheets, project_root: Path) -> list[InterfaceSpec
         if elements is None or _is_duplicate(elements, row["Data Element Name"], "data element", context):
             continue
         elements.append((row["Data Element Name"], row["Data Type Ref"], is_queued))
+        sources.setdefault(path, []).append(row.source)
     return [
-        InterfaceSpec(path, cast(Path, common["Target ARXML"]), tuple(elements), cast(bool, common["Is Service"]))
+        InterfaceSpec(
+            path, cast(Path, common["Target ARXML"]), tuple(elements), cast(bool, common["Is Service"]),
+            sources=tuple(sources[path]),
+        )
         for path, (common, elements) in groups.items()
         if elements
     ]
@@ -694,7 +775,8 @@ def read_cs_interfaces(sheets: Sheets, project_root: Path) -> list[ClientServerI
 
     rows = read_sheet_rows(sheets, CS_INTERFACE_SHEET)
     groups: dict[str, tuple[dict[str, object], dict[str, list[tuple[str, str, str]]]]] = {}
-    for row in rows:
+    sources: dict[str, list[Source]] = {}
+    for row in each(rows, _source):
         path = row["Interface Path"]
         context = f"CS interface {path}"
         if not _check_type_path(path, "CS interface"):
@@ -743,16 +825,19 @@ def read_cs_interfaces(sheets: Sheets, project_root: Path) -> list[ClientServerI
             continue
         arguments = operations.setdefault(operation, [])
         if not has_argument:
+            sources.setdefault(path, []).append(row.source)
             continue
         if _is_duplicate(arguments, row["Argument Name"], "argument", f"CS operation {path}/{row['Operation Name']}"):
             continue
         arguments.append((row["Argument Name"], row["Data Type Ref"], direction))
+        sources.setdefault(path, []).append(row.source)
     return [
         ClientServerInterfaceSpec(
             path,
             cast(Path, common["Target ARXML"]),
             tuple((operation, tuple(arguments)) for operation, arguments in operations.items()),
             cast(bool, common["Is Service"]),
+            sources=tuple(sources.get(path, ())),
         )
         for path, (common, operations) in groups.items()
         if operations
@@ -904,18 +989,25 @@ def _read_port(
             )
             if row.get(name, "")
         ),
+        sources=(row.source,) if isinstance(row, Record) else (),
     )
 
 
-def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSpec]]:
-    """读取组件和端口两页，并校验两者之间的一致性。
+class PortRequests(list):
+    """``read_workbook`` 返回的端口请求；``rejected`` 为工作簿中填写但因错误被跳过的 ``(SW-C, 端口名)``。"""
+
+    rejected: frozenset[tuple[str, str]] = frozenset()
+
+
+def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], PortRequests]:
+    """读取组件、端口和 ComSpec 明细页，并校验它们之间的一致性。
 
     组件简称和路径均不允许重复；同一组件下的端口名在 P/R 两张表中合并去重，
     因为它们最终位于同一个 ``PORTS`` 容器。
     """
     components: dict[str, ComponentSpec] = {}
     paths: set[str] = set()
-    for row in read_sheet_rows(sheets, COMPONENTS_SHEET):
+    for row in each(read_sheet_rows(sheets, COMPONENTS_SHEET), _source):
         key = row["SW-C"]
         path = row["Component Path"]
         if not path.startswith("/"):
@@ -927,19 +1019,21 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
         if path in paths:
             LOGGER.error("Skipped duplicate component path in workbook: %s", path)
             continue
-        components[key] = ComponentSpec(key, path)
+        components[key] = ComponentSpec(key, path, sources=(row.source,))
         paths.add(path)
 
     ports: list[PortSpec] = []
+    rejected: set[tuple[str, str]] = set()
     seen_ports: set[tuple[str, str]] = set()
     for sheet_name, direction in (
         (P_PORTS_SHEET, DIRECTION_PROVIDED),
         (R_PORTS_SHEET, DIRECTION_REQUIRED),
     ):
         rows = read_sheet_rows(sheets, sheet_name)
-        for row in rows:
+        for row in each(rows, _source):
             port = _read_port(row, sheet_name, direction, components)
             if port is None:
+                rejected.add((row["SW-C"], row["Port Name"]))
                 continue
             key = (port.component_key, port.name)
             if key in seen_ports:
@@ -958,11 +1052,159 @@ def read_workbook(sheets: Sheets) -> tuple[dict[str, ComponentSpec], list[PortSp
             seen_ports.add(key)
             ports.append(port)
 
+    ports, failed = _attach_element_com_specs(sheets, ports)
+    rejected |= failed
     if not components:
         LOGGER.info("No component records found in workbook")
     if not ports:
         LOGGER.info("No P-Port or R-Port records found in workbook")
-    return components, ports
+    result = PortRequests(ports)
+    result.rejected = frozenset(rejected - {(port.component_key, port.name) for port in ports})
+    return components, result
+
+
+_COM_SPEC_COLUMNS = {
+    DIRECTION_PROVIDED: ("Transmission Acknowledge Timeout", "Uses End To End Protection"),
+    DIRECTION_REQUIRED: ("Enable Update", "Queue Length"),
+}
+
+
+def _read_element_com_spec(row: Record, port: PortSpec) -> ElementComSpec | None:
+    """解析 ``ComSpecs`` 页的一行；列与端口方向不符或取值非法时记录 error 并返回 ``None``。"""
+
+    context = f"ComSpec of port {port.name} data element {row['Data Element Name']}"
+    other = DIRECTION_REQUIRED if port.direction == DIRECTION_PROVIDED else DIRECTION_PROVIDED
+    wrong = [name for name in _COM_SPEC_COLUMNS[other] if row.get(name, "")]
+    if wrong:
+        LOGGER.error(
+            "Skipped %s: column(s) %s do not apply to %s %s",
+            context, ", ".join(wrong), DIRECTION_LABELS[port.direction], port.name,
+        )
+        return None
+    values: dict[str, object] = {}
+    for name, key, parse in (
+        ("Enable Update", "enable_update", lambda text: parse_flag(text, "Enable Update", context)),
+        ("Queue Length", "queue_length",
+         lambda text: parse_non_negative(text, "Queue Length", context, integer=True)),
+        ("Transmission Acknowledge Timeout", "ack_timeout",
+         lambda text: parse_non_negative(text, "Transmission Acknowledge Timeout", context)),
+        ("Uses End To End Protection", "uses_protection",
+         lambda text: parse_flag(text, "Uses End To End Protection", context)),
+    ):
+        text = row.get(name, "")
+        if not text:
+            continue
+        value = parse(text)
+        if value is None:
+            return None
+        values[key] = int(value) if key == "queue_length" else value
+    if not values:
+        LOGGER.error("Skipped %s: fill at least one ComSpec column", context)
+        return None
+    return ElementComSpec(row["Data Element Name"], **values, sources=(row.source,))
+
+
+def _attach_element_com_specs(
+    sheets: Sheets, ports: list[PortSpec],
+) -> tuple[list[PortSpec], set[tuple[str, str]]]:
+    """把 ``ComSpecs`` 页的行并入对应端口；返回端口列表和因明细错误被跳过的端口。
+
+    明细行引用的端口必须在本工作簿的 P-Ports/R-Ports 页中；端口行已填写 ComSpec 列时不能再用明细行。
+    """
+
+    rows = read_sheet_rows(sheets, COM_SPEC_SHEET)
+    if not rows:
+        return ports, set()
+    by_key = {(port.component_key, port.name): port for port in ports}
+    details: dict[tuple[str, str], list[ElementComSpec]] = {}
+    failed: set[tuple[str, str]] = set()
+    for row in each(rows, _source):
+        key = (row["SW-C"], row["Port Name"])
+        port = by_key.get(key)
+        if port is None:
+            LOGGER.error(
+                "Skipped ComSpec of port %s data element %s: SW-C %s has no such port in P-Ports or R-Ports",
+                row["Port Name"], row["Data Element Name"], row["SW-C"],
+            )
+            continue
+        spec = _read_element_com_spec(row, port)
+        if spec is None:
+            failed.add(key)
+            continue
+        entries = details.setdefault(key, [])
+        if any(entry.data_element == spec.data_element for entry in entries):
+            LOGGER.error(
+                "Skipped duplicate ComSpec row for port %s data element %s", port.name, spec.data_element,
+            )
+            failed.add(key)
+            continue
+        entries.append(spec)
+
+    result: list[PortSpec] = []
+    for port in ports:
+        key = (port.component_key, port.name)
+        entries = details.get(key, [])
+        sources = [*port.sources, *(source for entry in entries for source in entry.sources)]
+        if key in failed:
+            record_rows(sources, PRIOR, detail="ComSpecs 明细行有错误，端口未处理")
+            LOGGER.info("Skipped port %s: its ComSpecs rows are invalid", port.name)
+            continue
+        if entries:
+            on_row = sorted(port.provided_fields & {*_COM_SPEC_COLUMNS[port.direction]})
+            if on_row:
+                LOGGER.error(
+                    "Skipped port %s: ComSpec column(s) %s are filled on the port row and in the ComSpecs "
+                    "sheet; configure the port's ComSpecs in only one place",
+                    port.name, ", ".join(on_row), extra=located(sources),
+                )
+                failed.add(key)
+                continue
+            port = replace(port, element_com_specs=tuple(entries), sources=tuple(sources))
+        result.append(port)
+    return result, failed
+
+
+def read_operations(sheets: Sheets, components: dict[str, ComponentSpec]) -> list[OperationSpec]:
+    """读取 ``CS Operations`` 页：每行把端口的一个 operation 绑定到一个 runnable。
+
+    只做与 ARXML 无关的检查；端口方向、接口和 operation 在定位端口后检查。
+    """
+
+    specs: list[OperationSpec] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for row in each(read_sheet_rows(sheets, CS_OPERATION_SHEET), _source):
+        context = f"CS operation {row['Operation Name']} of port {row['Port Name']}"
+        if row["SW-C"] not in components:
+            LOGGER.error(
+                "Skipped %s: SW-C %s is not defined in the Components sheet", context, row["SW-C"],
+            )
+            continue
+        interval = None
+        if row.get("Minimum Start Interval", ""):
+            interval = parse_non_negative(row["Minimum Start Interval"], "Minimum Start Interval", context)
+            if interval is None:
+                continue
+        concurrent = None
+        if row.get("Can Be Invoked Concurrently", ""):
+            concurrent = parse_flag(row["Can Be Invoked Concurrently"], "Can Be Invoked Concurrently", context)
+            if concurrent is None:
+                continue
+        key = (row["SW-C"], row["Port Name"], row["Operation Name"], row.get("Runnable Name", ""))
+        if key in seen:
+            LOGGER.error("Skipped duplicate %s in runnable %s", context, key[3] or "(automatic)")
+            continue
+        seen.add(key)
+        specs.append(OperationSpec(
+            component_key=row["SW-C"],
+            port_name=row["Port Name"],
+            operation=row["Operation Name"],
+            runnable_name=row.get("Runnable Name", ""),
+            runnable_symbol=row.get("Runnable Symbol", ""),
+            minimum_start_interval=interval,
+            can_be_invoked_concurrently=concurrent,
+            sources=(row.source,),
+        ))
+    return specs
 
 
 def warn_case_variant_paths(paths: Iterable[tuple[str, str]]) -> None:
@@ -995,7 +1237,7 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
 
     specs: list[AccessSpec] = []
     seen: set[tuple[str, str, str, str, str]] = set()
-    for row in rows:
+    for row in each(rows, _source):
         component_key = row["SW-C"]
         if component_key not in components:
             LOGGER.error(
@@ -1040,6 +1282,7 @@ def read_data_accesses(sheets: Sheets, components: dict[str, ComponentSpec]) -> 
                 data_element=row.get("Data Element Name", ""),
                 kind=kind,
                 name=row.get("Access Name", ""),
+                sources=(row.source,),
             )
         )
     return specs

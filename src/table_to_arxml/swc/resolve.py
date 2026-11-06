@@ -6,9 +6,11 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Collection, Mapping, Sequence
 
 from ..common.messages import clean_message
+from ..common.report import LOCATED, PRIOR, Source, each, located, location
+from ..common.report import record as record_rows
 from . import xml_patch
 from ..common.names import generated_name
 from .arxml_model import AccessInfo, InterfaceSummary, PortInfo
@@ -27,7 +29,7 @@ from .constants import (
     SENDER_RECEIVER_INTERFACE,
 )
 from .store import DefinitionKind, SourceStore
-from .workbook import AccessSpec, ComponentSpec, PortSpec
+from .workbook import AccessSpec, ComponentSpec, OperationSpec, PortSpec
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +78,8 @@ class ResolvedAccess:
     port_path: str
     data_path: str
     reused: bool = False
+    # 合并后的全部请求行（端口页自动展开和 Data Accesses 行）。
+    sources: tuple[Source, ...] = ()
 
     @property
     def container(self) -> str:
@@ -119,16 +123,19 @@ def find_definition(
     autosar_path: str,
     definition_kind: DefinitionKind,
     store: SourceStore,
+    report_missing: bool = True,
 ) -> tuple[Path, str] | None:
     """在清单范围内定位 AUTOSAR 路径，结果在文件未修改前复用。
 
     ``definition_kind`` 为 ``component`` 或 ``interface``；接口返回其 ``DEST``，组件返回空串。
     存在多个定义时使用清单中的第一个，并记录 warning。
-    单个候选文件的解析失败不中断流程，但会在错误信息中一并报告。
+    单个候选文件的解析失败不中断流程，但会在错误信息中一并报告。已报告的问题记入
+    ``store.definition_problems``；``report_missing`` 为假时完全找不到定义不记录 ERROR，由调用方按受影响的行汇总报告。
     """
     memo_key = (tuple(arxml_files), definition_kind, autosar_path)
     if memo_key not in store.definitions:
-        store.definitions[memo_key] = _find_definition(arxml_files, autosar_path, definition_kind, store)
+        store.definitions[memo_key] = _find_definition(
+            arxml_files, autosar_path, definition_kind, store, report_missing)
     return store.definitions[memo_key]
 
 
@@ -137,6 +144,7 @@ def _find_definition(
     autosar_path: str,
     definition_kind: DefinitionKind,
     store: SourceStore,
+    report_missing: bool,
 ) -> tuple[Path, str] | None:
     short_name = autosar_path.rsplit("/", maxsplit=1)[-1]
     matches: list[tuple[Path, str]] = []
@@ -157,16 +165,15 @@ def _find_definition(
             continue
         if not interface.dest:
             if not matches:
-                LOGGER.error(
-                    "Unsupported port interface type at %s: %s",
-                    autosar_path,
-                    interface.type_name,
-                )
+                problem = f"unsupported port interface type {interface.type_name}"
+                store.definition_problems[autosar_path] = problem
+                LOGGER.error("Unsupported port interface type at %s: %s", autosar_path, interface.type_name)
                 return None
             continue
         matches.append((candidate, interface.dest))
 
     if failures:
+        store.definition_problems[autosar_path] = "candidate ARXML cannot be parsed"
         LOGGER.error(
             "Cannot determine the first %s at %s; parser failures: %s",
             definition_kind, autosar_path, "; ".join(failures),
@@ -184,10 +191,9 @@ def _find_definition(
             matches[0][0],
         )
         return matches[0]
-    if not matches:
-        detail = f"; parser failures: {'; '.join(failures)}" if failures else ""
-        LOGGER.error("No %s found at %s in listed ARXML%s", definition_kind, autosar_path, detail)
-        return None
+    if report_missing:
+        store.definition_problems[autosar_path] = f"no {definition_kind} found in listed ARXML"
+        LOGGER.error("No %s found at %s in listed ARXML", definition_kind, autosar_path)
     return None
 
 
@@ -223,11 +229,19 @@ def resolve_components(
     """定位每个组件的首个定义文件；无法确定首个定义的组件不出现在结果中。"""
 
     component_files: dict[str, Path] = {}
-    for component in components.values():
+    for component in each(components.values(), lambda item: item.sources):
         found = find_definition(arxml_files, component.path, "component", store)
         if found is not None:
             component_files[component.key] = found[0]
+            record_rows(component.sources, LOCATED, file=found[0])
     return component_files
+
+
+def _blocked(sources: Sequence[Source], reason: str) -> None:
+    """依赖的组件、端口或接口已报告 ERROR：该行只标记为前置错误，不再重复计入 ERROR。"""
+
+    record_rows(sources, PRIOR, detail=reason)
+    LOGGER.info("Skipped %s: %s", location(sources) or "request", reason)
 
 
 def _com_spec_paths(
@@ -334,18 +348,19 @@ def resolve_ports(
 
     interface_dests: dict[str, str] = {}
     for interface_path in sorted({port.interface_path for port in ports}):
-        found = find_definition(arxml_files, interface_path, "interface", store)
+        found = find_definition(arxml_files, interface_path, "interface", store, report_missing=False)
         if found is not None:
             interface_dests[interface_path] = found[1]
 
     resolved: list[ResolvedPort] = []
-    for port in ports:
+    missing: dict[str, list[PortSpec]] = defaultdict(list)
+    for port in each(ports, lambda item: item.sources):
         component_path = components[port.component_key].path
         if port.component_key not in component_files:
-            LOGGER.error("Skipped port %s: component %s is unresolved", port.name, component_path)
+            _blocked(port.sources, f"组件 {component_path} 未能定位")
             continue
         if port.interface_path not in interface_dests:
-            LOGGER.error("Skipped port %s: interface %s is unresolved", port.name, port.interface_path)
+            missing[port.interface_path].append(port)
             continue
         interface_dest = interface_dests[port.interface_path]
         _warn_ignored_port_fields(port, interface_dest)
@@ -362,46 +377,16 @@ def resolve_ports(
             )
             continue
 
-        update_elements: tuple[str, ...] = ()
-        queued_elements: tuple[tuple[str, int], ...] = ()
-        sender_elements: tuple[tuple[str, float | None, bool], ...] = ()
-        queued_senders: tuple[str, ...] = ()
-        if port.needs_com_specs:
-            existing = existing_ports.get((port.component_key, port.name))
-            elements = interface_elements(arxml_files, port.interface_path, store)
-            data_paths = _com_spec_paths(port, component_path, existing, elements)
-            if data_paths is None:
-                continue
-            summary = interface_summary(arxml_files, port.interface_path, store)
-            queued_names = set(() if summary is None else summary.queued_data_elements)
-            queued_paths = tuple(path for path in data_paths if path.rpartition("/")[2] in queued_names)
-            plain_paths = tuple(path for path in data_paths if path not in queued_paths)
-            if port.direction == DIRECTION_PROVIDED:
-                sender_elements = tuple(
-                    (data_path, port.ack_timeout, port.uses_protection) for data_path in data_paths
-                )
-                queued_senders = queued_paths
-            else:
-                # 列对所选数据元素都不适用时只提示并忽略该列，端口照常生成，由 EB 做完整校验。
-                if port.enable_update and not plain_paths:
-                    LOGGER.warning(
-                        "Port %s: Enable Update applies only to non-queued data elements, "
-                        "but all ComSpec data elements of %s are queued (SW-IMPL-POLICY=QUEUED); "
-                        "column ignored",
-                        port.name, port.interface_path,
-                    )
-                if port.queue_length > 0 and not queued_paths:
-                    LOGGER.warning(
-                        "Port %s: Queue Length applies only to queued data elements "
-                        "(SW-IMPL-POLICY=QUEUED), but no ComSpec data element of %s is queued; "
-                        "column ignored",
-                        port.name, port.interface_path,
-                    )
-                if port.enable_update:
-                    update_elements = plain_paths
-                if port.queue_length > 0:
-                    queued_elements = tuple((data_path, port.queue_length) for data_path in queued_paths)
-
+        com_specs: tuple | None = ((), (), (), ())
+        if port.element_com_specs:
+            com_specs = _element_com_specs(port, arxml_files, store)
+        elif port.needs_com_specs:
+            com_specs = _row_com_specs(
+                port, component_path, existing_ports.get((port.component_key, port.name)), arxml_files, store,
+            )
+        if com_specs is None:
+            continue
+        update_elements, queued_elements, sender_elements, queued_senders = com_specs
         resolved.append(
             ResolvedPort(
                 spec=port,
@@ -414,7 +399,179 @@ def resolve_ports(
                 queued_sender_elements=queued_senders,
             )
         )
+    _report_missing_interfaces(missing, store)
     return resolved
+
+
+def _report_missing_interfaces(missing: Mapping[str, Sequence[PortSpec]], store: SourceStore) -> None:
+    """同一接口无法定位时只报告一次 ERROR，并列出受影响的全部端口行。"""
+
+    for interface_path, affected in missing.items():
+        sources = [source for port in affected for source in port.sources]
+        problem = store.definition_problems.get(interface_path)
+        if problem is not None:
+            _blocked(sources, f"接口 {interface_path} 无法使用：{problem}")
+            continue
+        store.definition_problems[interface_path] = "no interface found in listed ARXML"
+        LOGGER.error(
+            "No interface found at %s in listed ARXML; skipped port(s) %s",
+            interface_path, ", ".join(port.name for port in affected), extra=located(sources),
+        )
+
+
+def _row_com_specs(
+    port: PortSpec,
+    component_path: str,
+    existing: PortInfo | None,
+    arxml_files: Sequence[Path],
+    store: SourceStore,
+) -> tuple | None:
+    """端口行的 ComSpec 列：作用于接口全部适用数据元素（已有端口沿用其 ComSpec 引用的元素）。"""
+
+    elements = interface_elements(arxml_files, port.interface_path, store)
+    data_paths = _com_spec_paths(port, component_path, existing, elements)
+    if data_paths is None:
+        return None
+    summary = interface_summary(arxml_files, port.interface_path, store)
+    queued_names = set(() if summary is None else summary.queued_data_elements)
+    queued_paths = tuple(path for path in data_paths if path.rpartition("/")[2] in queued_names)
+    plain_paths = tuple(path for path in data_paths if path not in queued_paths)
+    if port.direction == DIRECTION_PROVIDED:
+        senders = tuple((data_path, port.ack_timeout, port.uses_protection) for data_path in data_paths)
+        return (), (), senders, queued_paths
+    # 列对所选数据元素都不适用时只提示并忽略该列，端口照常生成，由 EB 做完整校验。
+    if port.enable_update and not plain_paths:
+        LOGGER.warning(
+            "Port %s: Enable Update applies only to non-queued data elements, "
+            "but all ComSpec data elements of %s are queued (SW-IMPL-POLICY=QUEUED); "
+            "column ignored",
+            port.name, port.interface_path,
+        )
+    if port.queue_length > 0 and not queued_paths:
+        LOGGER.warning(
+            "Port %s: Queue Length applies only to queued data elements "
+            "(SW-IMPL-POLICY=QUEUED), but no ComSpec data element of %s is queued; "
+            "column ignored",
+            port.name, port.interface_path,
+        )
+    updates = plain_paths if port.enable_update else ()
+    queued = tuple((data_path, port.queue_length) for data_path in queued_paths) if port.queue_length > 0 else ()
+    return updates, queued, (), ()
+
+
+def _element_com_specs(port: PortSpec, arxml_files: Sequence[Path], store: SourceStore) -> tuple | None:
+    """``ComSpecs`` 页的明细：只为列出的数据元素生成 ComSpec，各元素取自己的值。"""
+
+    summary = interface_summary(arxml_files, port.interface_path, store)
+    elements = () if summary is None else summary.data_elements
+    queued_names = set(() if summary is None else summary.queued_data_elements)
+    unknown = [entry for entry in port.element_com_specs if entry.data_element not in elements]
+    if unknown:
+        LOGGER.error(
+            "Skipped port %s: ComSpecs data element(s) %s not found in interface %s, available: %s",
+            port.name, ", ".join(entry.data_element for entry in unknown), port.interface_path, list(elements),
+            extra=located(source for entry in unknown for source in entry.sources),
+        )
+        return None
+    updates: list[str] = []
+    queued: list[tuple[str, int]] = []
+    senders: list[tuple[str, float | None, bool]] = []
+    queued_senders: list[str] = []
+    for entry in each(port.element_com_specs, lambda item: item.sources):
+        data_path = f"{port.interface_path}/{entry.data_element}"
+        is_queued = entry.data_element in queued_names
+        if port.direction == DIRECTION_PROVIDED:
+            if entry.ack_timeout is not None or entry.uses_protection:
+                senders.append((data_path, entry.ack_timeout, bool(entry.uses_protection)))
+                if is_queued:
+                    queued_senders.append(data_path)
+            continue
+        if entry.enable_update and is_queued:
+            LOGGER.warning(
+                "Port %s data element %s: Enable Update applies only to non-queued data elements; ignored",
+                port.name, entry.data_element,
+            )
+        elif entry.enable_update:
+            updates.append(data_path)
+        if entry.queue_length and not is_queued:
+            LOGGER.warning(
+                "Port %s data element %s: Queue Length applies only to queued data elements "
+                "(SW-IMPL-POLICY=QUEUED); ignored",
+                port.name, entry.data_element,
+            )
+        elif entry.queue_length:
+            queued.append((data_path, entry.queue_length))
+    return tuple(updates), tuple(queued), tuple(senders), tuple(queued_senders)
+
+
+def resolve_operation_ports(
+    components: dict[str, ComponentSpec],
+    specs: Sequence[OperationSpec],
+    resolved_ports: Sequence[ResolvedPort],
+    component_files: dict[str, Path],
+    arxml_files: Sequence[Path],
+    store: SourceStore,
+    blocked_ports: Collection[tuple[str, str]] = (),
+) -> list[tuple[OperationSpec, ResolvedPort]]:
+    """为 ``CS Operations`` 页的行确定端口：本次准备的端口优先，其次是 ARXML 中已有的 P/R 端口。
+
+    端口必须引用 ClientServerInterface；operation 是否存在在生成 CS 对象时检查。
+    """
+
+    planned = {(port.spec.component_key, port.spec.name): port for port in resolved_ports}
+    results: list[tuple[OperationSpec, ResolvedPort]] = []
+    for spec in each(specs, lambda item: item.sources):
+        key = (spec.component_key, spec.port_name)
+        component_path = components[spec.component_key].path
+        if key in blocked_ports:
+            _blocked(spec.sources, f"端口 {spec.port_name} 的请求有错误")
+            continue
+        if spec.component_key not in component_files:
+            _blocked(spec.sources, f"组件 {component_path} 未能定位")
+            continue
+        port = planned.get(key)
+        if port is None:
+            port = _existing_port(component_path, spec, component_files[spec.component_key], arxml_files, store)
+            if port is None:
+                continue
+        if port.interface_dest != CLIENT_SERVER_INTERFACE:
+            LOGGER.error(
+                "Skipped CS operation %s of %s: the port uses %s, not a ClientServerInterface",
+                spec.operation, port.port_path, port.interface_dest or port.spec.interface_path,
+            )
+            continue
+        results.append((spec, port))
+    return results
+
+
+def _existing_port(
+    component_path: str, spec: OperationSpec, component_file: Path, arxml_files: Sequence[Path], store: SourceStore,
+) -> ResolvedPort | None:
+    existing = store.load(component_file).read_port(component_path, spec.port_name)
+    port_path = f"{component_path}/{spec.port_name}"
+    if existing is None or existing.direction not in DEFAULT_ACCESS_KINDS:
+        LOGGER.error(
+            "Skipped CS operation %s: port %s is neither planned in this run nor an existing P-Port or R-Port",
+            spec.operation, port_path,
+        )
+        return None
+    found = find_definition(arxml_files, existing.interface_path, "interface", store)
+    if found is None:
+        problem = store.definition_problems.get(existing.interface_path)
+        if problem is None:
+            LOGGER.error(
+                "Skipped CS operation %s: interface %s of port %s cannot be resolved",
+                spec.operation, existing.interface_path, port_path,
+            )
+        else:
+            _blocked(spec.sources, f"接口 {existing.interface_path} 无法使用：{problem}")
+        return None
+    return ResolvedPort(
+        spec=PortSpec(spec.component_key, spec.port_name, existing.interface_path, existing.direction),
+        component_path=component_path,
+        component_file=component_file,
+        interface_dest=found[1],
+    )
 
 
 def expand_port_accesses(
@@ -428,7 +585,7 @@ def expand_port_accesses(
     """
 
     specs: list[AccessSpec] = []
-    for port in ports:
+    for port in each(ports, lambda item: item.spec.sources):
         if not port.spec.create_rte_artifact or port.interface_dest != SENDER_RECEIVER_INTERFACE:
             continue
         runnable = port.spec.runnable_name
@@ -450,6 +607,7 @@ def expand_port_accesses(
                 data_element=element,
                 kind=kind,
                 name="",
+                sources=port.spec.sources,
             )
             for element in elements
         )
@@ -484,26 +642,24 @@ def locate_accesses(
     resolved_ports: Sequence[ResolvedPort],
     component_files: dict[str, Path],
     store: SourceStore,
+    blocked_ports: Collection[tuple[str, str]] = (),
 ) -> tuple[list[LocatedAccess], dict[str, RunnableNamespace]]:
     """按组件文件分组解析 runnable、端口方向和已有访问点。
 
     每个组件文件只加载一次；同时返回相关 runnable 的命名空间（全部直接子对象名称和各类已有访问点），
-    供后续复用已有访问点和自动命名避让。
+    供后续复用已有访问点和自动命名避让。``blocked_ports`` 为本工作簿请求但已因错误跳过的端口，
+    引用它们的访问点只标记为前置错误。
     """
     # 本次处理成功的端口，按“组件简称 + 端口名”索引。
     planned = {(port.spec.component_key, port.spec.name): port for port in resolved_ports}
     specs_by_key: dict[str, list[AccessSpec]] = defaultdict(list)
-    for spec in specs:
+    for spec in each(specs, lambda item: item.sources):
         if spec.component_key not in component_files:
-            LOGGER.error(
-                "Skipped data access for port %s: component %s is unresolved",
-                spec.port_name,
-                components[spec.component_key].path,
-            )
+            _blocked(spec.sources, f"组件 {components[spec.component_key].path} 未能定位")
             continue
         specs_by_key[spec.component_key].append(spec)
 
-    located: list[LocatedAccess] = []
+    results: list[LocatedAccess] = []
     namespaces: dict[str, RunnableNamespace] = {}
     for component_key, component_specs in specs_by_key.items():
         component_path = components[component_key].path
@@ -511,7 +667,10 @@ def locate_accesses(
         document = store.load(component_file)
         source = store.read(component_file)
 
-        for spec in component_specs:
+        for spec in each(component_specs, lambda item: item.sources):
+            if (component_key, spec.port_name) in blocked_ports:
+                _blocked(spec.sources, f"端口 {spec.port_name} 的请求有错误")
+                continue
             runnable_path = document.find_runnable(component_path, spec.runnable_name)
             if runnable_path is None:
                 LOGGER.error(
@@ -552,7 +711,7 @@ def locate_accesses(
                         for access_kind in ACCESS_CONTAINERS
                     },
                 )
-            located.append(
+            results.append(
                 LocatedAccess(
                     spec=spec,
                     component_path=component_path,
@@ -563,7 +722,7 @@ def locate_accesses(
                     update_elements=update_elements,
                 )
             )
-    return located, namespaces
+    return results, namespaces
 
 
 def generate_access_name(
@@ -642,6 +801,7 @@ def resolve_accesses(
     component_files: dict[str, Path],
     arxml_files: Sequence[Path],
     store: SourceStore,
+    blocked_ports: Collection[tuple[str, str]] = (),
 ) -> tuple[list[ResolvedAccess], int]:
     """把每条访问点请求补全为可直接生成 VARIABLE-ACCESS 的完整描述，返回结果和被合并的重复请求数。
 
@@ -651,12 +811,12 @@ def resolve_accesses(
     端口和数据元素时直接复用（不论名称）。访问类别与队列策略、ENABLE-UPDATE 的 AUTOSAR 组合规则只警告；
     其他条件不满足时记录 error 并跳过该条请求。
     """
-    located, namespaces = locate_accesses(
-        components, specs, resolved_ports, component_files, store
+    located_items, namespaces = locate_accesses(
+        components, specs, resolved_ports, component_files, store, blocked_ports
     )
 
     groups: dict[tuple[str, str, str, str], list[tuple[LocatedAccess, str]]] = {}
-    for item in located:
+    for item in each(located_items, lambda entry: entry.spec.sources):
         summary = interface_summary(arxml_files, item.interface_path, store)
         elements = () if summary is None else summary.data_elements
         data_element = resolve_data_element(item.spec, item.interface_path, elements)
@@ -679,8 +839,9 @@ def resolve_accesses(
     resolved: list[ResolvedAccess] = []
     merged = 0
     used: dict[str, set[str]] = defaultdict(set)
-    for requests in groups.values():
+    for requests in each(groups.values(), _group_sources):
         item, data_path = requests[0]
+        sources = _group_sources(requests)
         names = list(dict.fromkeys(request.spec.name for request, _ in requests if request.spec.name))
         context = f"{item.runnable_path} ({item.spec.port_name} -> {data_path.rpartition('/')[2]})"
         if len(names) > 1:
@@ -705,7 +866,7 @@ def resolve_accesses(
             None,
         )
         if existing is not None:
-            LOGGER.warning("Data access %s already exists as %s; skipped", context, existing.name)
+            LOGGER.info("Data access %s already exists as %s; skipped", context, existing.name)
             name = existing.name
         elif names:
             name = names[0]
@@ -762,6 +923,11 @@ def resolve_accesses(
                 port_path=item.port_path,
                 data_path=data_path,
                 reused=existing is not None,
+                sources=sources,
             )
         )
     return resolved, merged
+
+
+def _group_sources(requests: Sequence[tuple[LocatedAccess, str]]) -> tuple[Source, ...]:
+    return tuple(dict.fromkeys(source for request, _ in requests for source in request.spec.sources))

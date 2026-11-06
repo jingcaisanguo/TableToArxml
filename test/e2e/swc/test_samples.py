@@ -15,7 +15,8 @@ def test_swc_sample(tmp_path):
     try:
         assert workbook.sheetnames == [
             "README", "Components", "Enumerations", "Arrays", "Structures",
-            "SR-Interfaces", "CS-Interfaces", "P-Ports", "R-Ports", "Data Accesses",
+            "SR-Interfaces", "CS-Interfaces", "P-Ports", "R-Ports", "Data Accesses", "ComSpecs",
+            "CS Operations",
         ]
         assert workbook["R-Ports"]["E1"].value == "Runnable Name"
         assert workbook["Data Accesses"]["B1"].value == "Runnable Name"

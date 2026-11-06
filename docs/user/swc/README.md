@@ -224,7 +224,7 @@ ARXML 无效、有歧义或引用错误时为 `ERROR`；允许但可疑的配置
 
 自动创建的容器按 AUTOSAR schema（R4.3.1 `AUTOSAR_00044.xsd`）规定的子元素顺序插入：例如包的 `ELEMENTS` 位于 `SHORT-NAME-PATTERN`、`REFERENCE-BASES` 之后、`AR-PACKAGES` 和 `VARIATION-POINT` 之前，`EVENTS` 位于 `EXCLUSIVE-AREAS` 之后、`HANDLE-TERMINATION-AND-RESTART` 之前，`RUNNABLES` 位于 `PORT-API-OPTIONS` 之后、`SERVICE-DEPENDENCYS` 和 `SUPPORTS-MULTIPLE-INSTANTIATION` 之前，访问点容器和 `SERVER-CALL-POINTS` 位于 `SYMBOL` 之前。
 
-容器写成自闭合形式（如 `<PORTS/>`）时无法追加内容，报 `ERROR`，需改写为 `<PORTS></PORTS>`。
+容器写成自闭合形式（如 `<PORTS/>`）时自动展开为成对标签（`<PORTS>…</PORTS>`）再追加内容，标签名和属性保持不变。
 
 ### 默认值和固定值
 

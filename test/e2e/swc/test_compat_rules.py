@@ -215,7 +215,7 @@ def test_existing_runnable_without_optional_elements_is_reused(tmp_path):
     )
     result = run_prepared_twins(tmp_path)
     assert result.returncode == 0, result.stderr
-    assert "Runnable /Pkg/B/IB/RE_p_Srv_Op already exists with the same definition; skipped" in result.stderr
+    assert "Runnable /Pkg/B/IB/RE_p_Srv_Op already exists with the same definition; skipped" in result.stdout
     assert "CS artifacts: 1 to create, 0 skipped" in result.stdout
 
 

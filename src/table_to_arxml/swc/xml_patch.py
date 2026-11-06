@@ -285,12 +285,9 @@ def child_spans(source: bytes, parent: ElementSpan) -> list[ElementSpan]:
 
 
 def child_container(source: bytes, parent: ElementSpan, tag: str) -> ElementSpan | None:
-    """返回指定标签的直接子容器；自闭合的空容器无法追加内容，视为错误。"""
+    """返回指定标签的直接子容器；自闭合的空容器（``self_closing``）由插入时展开为成对标签。"""
 
-    container = next((child for child in child_spans(source, parent) if child.tag == tag), None)
-    if container is not None and container.self_closing:
-        raise ValueError(f"Self-closing <{tag}/> is not supported; write it as <{tag}></{tag}>")
-    return container
+    return next((child for child in child_spans(source, parent) if child.tag == tag), None)
 
 
 def insert_at_offset(
@@ -359,12 +356,39 @@ class Insertion:
     """一处待插入的片段；``offset`` 和 ``child_indent`` 的含义同 :func:`insert_at_offset`。
 
     ``rank`` 为新建容器在 schema 子元素顺序中的位置，同一偏移处的多个插入按它排序。
+    ``replace_end`` 不为 ``None`` 时 ``offset`` 是自闭合容器的起点，``[offset, replace_end)`` 展开为成对标签，
+    片段写在其中。
     """
 
     offset: int
     fragments: tuple[str, ...]
     child_indent: bool = True
     rank: int = -1
+    replace_end: int | None = None
+
+
+def expand_self_closing(source: bytes, start: int, end: int, fragments: Sequence[str]) -> bytes:
+    """把 ``source[start:end]`` 处的自闭合元素（如 ``<PORTS/>``）展开为包含片段的成对标签。
+
+    保留原标签名（含前缀）和属性，片段比该元素多缩进两格，结束标签与元素所在行缩进一致。
+    """
+
+    match = _TOKEN.match(source, start)
+    if match is None or match.end() != end or not match.group(4):
+        raise ValueError(f"No self-closing element at offset {start}")
+    tag = match.group(2)
+    opening = re.sub(rb"\s*/>$", b">", source[start:end])
+    line_start = source.rfind(b"\n", 0, start) + 1
+    prefix = source[line_start:start]
+    indentation = prefix[: len(prefix) - len(prefix.lstrip(b" \t"))]
+    newline = b"\r\n" if b"\r\n" in source else b"\n"
+    encoding = source_encoding(source)
+    body = [
+        indentation + b"  " + line.encode(encoding, "xmlcharrefreplace")
+        for fragment in fragments for line in _fragment_lines(fragment)
+    ]
+    expanded = newline.join([opening, *body, indentation + b"</" + tag + b">"])
+    return source[:start] + expanded + source[end:]
 
 
 def container_insertion(
@@ -377,6 +401,8 @@ def container_insertion(
 
     element = element_span(source, element_path)
     container = child_container(source, element, container_tag)
+    if container is not None and container.self_closing:
+        return Insertion(container.start, tuple(fragments), replace_end=container.end)
     if container is not None:
         return Insertion(container.end_tag_start, tuple(fragments))
 
@@ -402,16 +428,23 @@ def apply_insertions(source: bytes, insertions: Sequence[Insertion]) -> bytes:
     """一次应用多处插入，结果与逐个插入并重新定位相同。
 
     偏移都取自同一份 ``source``，从后往前插入可保持前面的偏移有效；同一偏移处的插入
-    （如同一元素中新建的多个容器）按 ``rank`` 合并为一次插入。
+    （如同一元素中新建的多个容器）按 ``rank`` 合并为一次插入。展开自闭合容器只改动偏移之后的字节，
+    因此同一偏移处先展开、再在其前面插入兄弟元素。
     """
 
-    grouped: dict[tuple[int, bool], list[Insertion]] = {}
+    grouped: dict[tuple[int, bool, int | None], list[Insertion]] = {}
     for insertion in insertions:
         if insertion.fragments:
-            grouped.setdefault((insertion.offset, insertion.child_indent), []).append(insertion)
-    for (offset, child_indent), items in sorted(grouped.items(), key=lambda item: item[0][0], reverse=True):
+            key = (insertion.offset, insertion.child_indent, insertion.replace_end)
+            grouped.setdefault(key, []).append(insertion)
+    for (offset, child_indent, replace_end), items in sorted(
+        grouped.items(), key=lambda item: (-item[0][0], item[0][2] is None),
+    ):
         fragments = [fragment for item in sorted(items, key=lambda item: item.rank) for fragment in item.fragments]
-        source = insert_at_offset(source, offset, fragments, child_indent)
+        if replace_end is not None:
+            source = expand_self_closing(source, offset, replace_end, fragments)
+        else:
+            source = insert_at_offset(source, offset, fragments, child_indent)
     return source
 
 

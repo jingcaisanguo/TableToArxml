@@ -22,24 +22,41 @@ _OWNED = "_table_to_arxml_handler"
 
 
 class ErrorCollector(logging.Handler):
-    """收集本次运行中本工具记录的 ERROR，供退出码和写入保护使用。"""
+    """收集本次运行中本工具记录的 ERROR，并统计 WARNING 和 armodel 诊断，供退出码和结论行使用。"""
 
     def __init__(self) -> None:
-        super().__init__(level=logging.ERROR)
+        super().__init__(level=logging.WARNING)
         self.messages: list[str] = []
+        self.warnings = 0
+        self.diagnostics = 0
 
     @property
     def count(self) -> int:
         return len(self.messages)
 
     def emit(self, record: logging.LogRecord) -> None:
-        if not getattr(record, ARMODEL_DIAGNOSTIC, False):
+        if getattr(record, ARMODEL_DIAGNOSTIC, False):
+            self.diagnostics += 1
+        elif record.levelno >= logging.ERROR:
             self.messages.append(record.getMessage())
+        else:
+            self.warnings += 1
 
 
 def _owned(handler: logging.Handler) -> logging.Handler:
     setattr(handler, _OWNED, True)
     return handler
+
+
+class _LocationFormatter(logging.Formatter):
+    """消息关联了表格行时，在末尾追加位置，如 ``[P-Ports!3]``。"""
+
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        from .report import location, sources_of
+
+        message = super().formatMessage(record)
+        sources = sources_of(record)
+        return f"{message} [{location(sources)}]" if sources else message
 
 
 def _remove_owned_handlers(logger: logging.Logger) -> None:
@@ -74,7 +91,7 @@ def setup_logging(tool_name: str, log_dir: Path, level_name: str) -> tuple[Path,
     level = getattr(logging, level_name)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{tool_name}_{datetime.now():%Y%m%d_%H%M%S_%f}_{os.getpid()}.log"
-    formatter = logging.Formatter(LOG_FORMAT)
+    formatter = _LocationFormatter(LOG_FORMAT)
 
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
     stdout_handler = _ConsoleHandler(sys.stdout)
