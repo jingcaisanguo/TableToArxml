@@ -100,7 +100,7 @@ def test_existing_interface_target_is_reused_despite_duplicate_in_another_file(t
     result = run_prepared_twins(tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert "already exists with the same definition" in result.stderr
+    assert "already exists with the same definition" in result.stdout
 
 
 def test_new_type_cannot_collide_with_an_interface_in_another_file(tmp_path):
@@ -192,7 +192,7 @@ def test_existing_type_in_first_arxml_is_reused_instead_of_duplicated(
     result = run_prepared_twins(tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert "already exists with the same definition" in result.stderr
+    assert "already exists with the same definition" in result.stdout
     assert not (tmp_path / "out" / "target.arxml").exists()
 
 
@@ -262,4 +262,4 @@ def test_long_generated_cs_names_are_bounded_and_idempotent(tmp_path):
     (tmp_path / "twins.arxml").write_bytes(produced.read_bytes())
     repeated = run_prepared_twins(tmp_path)
     assert repeated.returncode == 0, repeated.stderr
-    assert "already exists with the same definition" in repeated.stderr
+    assert "already exists with the same definition" in repeated.stdout

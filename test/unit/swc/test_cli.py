@@ -56,8 +56,11 @@ def test_json_config_is_still_supported(tmp_path):
     result = run_tool(SWC, "--config", config)
     assert result.returncode == 0, result.stderr
     assert "Dry run successful" in result.stdout
-    assert "All counts describe in-memory changes, not files written" in result.stdout
+    assert "would create" in result.stdout
+    assert "RESULT: DRY-RUN - table_to_swc_arxml: 0 error(s), 0 warning(s)" in result.stdout
     assert "Successfully wrote" not in result.stdout
+    assert len(list((tmp_path / "log").glob("*_result.xlsx"))) == 1
+    assert len(list((tmp_path / "log").glob("*.diff"))) == 1
 
 
 @pytest.mark.parametrize("content, message", [

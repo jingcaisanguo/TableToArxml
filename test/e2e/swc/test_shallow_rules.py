@@ -72,7 +72,7 @@ def test_receiver_com_spec_kind_follows_data_element_policy(tmp_path):
 
     repeated = rerun_on_output(tmp_path)
     assert repeated.returncode == 0, repeated.stderr
-    assert "already exists with the same definition" in repeated.stderr
+    assert "already exists with the same definition" in repeated.stdout
 
 
 def test_sender_com_spec_kind_follows_data_element_policy(tmp_path):
@@ -201,7 +201,7 @@ def test_existing_access_with_other_name_is_reused(tmp_path):
     rows["Data Accesses"][0].pop("Access_Name")
     result = run_twins_keep_model(tmp_path, rows)
     assert result.returncode == 0, result.stderr
-    assert "already exists as custom; skipped" in result.stderr
+    assert "already exists as custom; skipped" in result.stdout
     assert "Data accesses: 0 of 1 to create, 0 skipped" in result.stdout
 
 
@@ -336,7 +336,7 @@ def test_failed_port_does_not_create_cs_artifacts(tmp_path):
     }, minimal=True)
     assert result.returncode == 1
     assert "/Pkg/B/IB" in result.stderr
-    assert "CS artifacts: 0 to create, 0 skipped" in result.stdout
+    assert "CS artifacts: 0 would create, 0 skipped" in result.stdout
     assert "Validated 0 of 1 requested ports" in result.stdout
 
 

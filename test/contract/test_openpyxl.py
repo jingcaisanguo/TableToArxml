@@ -73,3 +73,17 @@ def test_copy_formulas_escape_sheet_names_and_warn_for_uncopied_sheets(caplog):
     assert "worksheet not copied into the merged workbook: Other" in caplog.text
     source.close()
     target.close()
+
+
+def test_copy_formulas_handle_ref_errors_and_unparsable_formulas(caplog):
+    source = Workbook()
+    target = Workbook()
+    source.active.title = "P-Port"
+    source.active["A1"] = "='P-Port'!#REF!+'P-Port'!B1"
+    source.active["A2"] = "=\"unterminated"
+    copy_worksheet(target.active, source.active, sheet_names={"P-Port": "LIT_P-Port"})
+    assert target.active["A1"].value == "='LIT_P-Port'!#REF!+'LIT_P-Port'!B1"
+    assert target.active["A2"].value == "=\"unterminated"
+    assert "formula kept unchanged" in caplog.text
+    source.close()
+    target.close()

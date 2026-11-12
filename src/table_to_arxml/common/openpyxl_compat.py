@@ -12,6 +12,25 @@ from openpyxl.utils.cell import quote_sheetname
 LOGGER = logging.getLogger(__name__)
 
 
+def _split_sheet_reference(value: str) -> tuple[str, str] | None:
+    """把 ``Sheet!A1``、``'My ''Sheet'''!A1`` 拆成页名和引用；引用部分本身可以含 ``!``（如 ``#REF!``）。"""
+
+    if not value.startswith("'"):
+        sheet, separator, reference = value.partition("!")
+        return (sheet, reference) if separator else None
+    index = 1
+    while True:
+        close = value.find("'", index)
+        if close == -1:
+            return None
+        if value[close + 1:close + 2] == "'":
+            index = close + 2
+            continue
+        if value[close + 1:close + 2] != "!":
+            return None
+        return value[1:close].replace("''", "'"), value[close + 2:]
+
+
 def _rewrite_sheet_references(formula: str, sheet_names: Mapping[str, str], context: str) -> str:
     names = {name.casefold(): target for name, target in sheet_names.items()}
     try:
@@ -21,14 +40,15 @@ def _rewrite_sheet_references(formula: str, sheet_names: Mapping[str, str], cont
     for token in tokens.items:
         if token.type != "OPERAND" or token.subtype != "RANGE" or "!" not in token.value:
             continue
-        sheet, _, reference = token.value.rpartition("!")
-        if sheet.startswith("'") and sheet.endswith("'"):
-            sheet = sheet[1:-1].replace("''", "'")
+        parts = _split_sheet_reference(token.value)
+        if parts is None:
+            continue
+        sheet, reference = parts
         if "[" in sheet:
             continue  # External workbook references are not renamed.
-        parts = sheet.split(":")
-        if all(part.casefold() in names for part in parts):
-            target = ":".join(names[part.casefold()] for part in parts)
+        sheets = sheet.split(":")
+        if all(part.casefold() in names for part in sheets):
+            target = ":".join(names[part.casefold()] for part in sheets)
             token.value = f"{quote_sheetname(target)}!{reference}"
         else:
             LOGGER.warning(
@@ -56,13 +76,19 @@ def copy_worksheet(target_sheet, source_sheet, *, sheet_names: Mapping[str, str]
         value = source_cell._value
         if sheet_names is not None and source_cell.data_type == "f":
             context = f"{source_sheet.title}!{source_cell.coordinate}"
-            if isinstance(value, str):
-                value = _rewrite_sheet_references(value, sheet_names, context)
-            elif hasattr(value, "text") and isinstance(value.text, str):
-                value = copy(value)
-                value.text = _rewrite_sheet_references(value.text, sheet_names, context)
-            else:
-                raise ValueError(f"Cannot rewrite unsupported formula in {context}")
+            try:
+                if isinstance(value, str):
+                    value = _rewrite_sheet_references(value, sheet_names, context)
+                elif hasattr(value, "text") and isinstance(value.text, str):
+                    rewritten = copy(value)
+                    rewritten.text = _rewrite_sheet_references(value.text, sheet_names, context)
+                    value = rewritten
+                else:
+                    value = copy(value)
+                    raise ValueError(f"Cannot rewrite unsupported formula in {context}")
+            except ValueError as error:
+                # 合并绿表只是便于检索的副本：无法改写的公式原样保留，不中断整次转换。
+                LOGGER.warning("%s; formula kept unchanged, verify it in Excel", error)
         target_cell._value = value
         target_cell.data_type = source_cell.data_type
         target_cell.font = copy(source_cell.font)

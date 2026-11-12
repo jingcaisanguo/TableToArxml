@@ -38,7 +38,8 @@ def test_guide_shape_and_reproducibility(tmp_path):
         names = set(archive.namelist())
         assert {"README.md", "migration.md", "swc/SwcTemplate.xlsx", "system/README.md"} <= names
         assert {name.split("/")[0] for name in names} == {"README.md", "migration.md", "swc", "system"}
-        assert [name for name in names if name.endswith(".xlsx")] == ["swc/SwcTemplate.xlsx"]
+        assert sorted(name for name in names if name.endswith(".xlsx")) == [
+            "swc/SwcTemplate.xlsx", "system/GreenTableTemplate.xlsx"]
     assert package(tmp_path).read_bytes() == before
 
 

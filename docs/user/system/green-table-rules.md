@@ -1,6 +1,7 @@
 # 绿表转换规则
 
 返回 [README.md](README.md)。以下规则对应当前实现，不是通用 Excel 或 AUTOSAR 模板规范。
+新建绿表可以从 [GreenTableTemplate.xlsx](GreenTableTemplate.xlsx) 开始：表头批注说明各列用途，深蓝表头为工具读取的列。
 
 ## 文件、模块与页签
 
@@ -43,6 +44,8 @@ C 列先转大写，因此 `can`、`CAN` 等价；通道、组件、端口、信
 | I、J 只有一个为空，K 无上述关键字 | 报错退出，不发布任何本次产物 |
 | I、J 都有值，K 含预留关键字 | 正常继续处理；预留备注不是通用禁用开关 |
 | I、J 有值但 B 空 | 报错退出，提示原始工作簿、页签和行号 |
+
+跳过的行在结果工作簿中标为“未填写连接，跳过”或“预留行，跳过”，便于确认没有遗漏。
 
 ## 模块与 Components
 
@@ -119,6 +122,14 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 | AssemblySwConnection | `(Provider SW-C, PPort, Requester SW-C, RPort)` |
 | SenderReceiverToSignal | `(Signal, Direction, SW-C, Port, DataElement)` |
 
+两个模块都有绿表时，它们之间的同一连接通常在提供方 `P-Port` 页和请求方 `R-Port` 页各写一次，去重后只生成一个连接器，两行在结果表中都显示该连接器。
+只有一侧声明时连接仍按该行生成，但两张表可能不同步：记录一条汇总 `WARNING`
+（`... declared in only one of the two green tables involved`），并在结果表对应行的“说明”中提示缺少声明的绿表和页签。
+对端没有绿表（只是 `Reference` 组件）的连接不检查。
+
+同一 R-port 连接了多个提供方时：ClientServer 接口记录 `WARNING`（客户端只能连接一个服务端）；
+SenderReceiver 的 n:1 连接合法，只在结果表中提示。
+
 白表每次重新创建 6 个页签：`General`、`Components`、`AssemblySwConnection`、`DelegationSwConnection`、`SenderReceiverToSignal`、`SenderReceiverToSignalGroup`。其中 `DelegationSwConnection` 和 `SenderReceiverToSignalGroup` 当前只创建表头，绿表转换不填充这两类记录。
 
 读取白表时按表头识别列，支持列重排、忽略空数据行；必需列缺失或重复、General 同一键配置不同值时明确报错。生成 ARXML 时也支持委托连接及信号组页中的有效记录：委托按内端口接口生成外端口，连接名为 `dlc_<外端口>_<内prototype>_<内端口>`；信号组输出组引用，不检查 DataElement 的数据类型，不自动展开字段级映射，也不生成 AUTOSAR 要求的 `TYPE-MAPPING`（每行记录 WARNING，需在集成时补齐）。绿表模式每次都重新生成白表；手工修改后的白表可用白表模式（配置 `whiteTable` 或命令行 `--white-table`）直接生成 ARXML。
@@ -127,6 +138,7 @@ I 精确等于配置的 `e2eWrapperComponent` 时，即使 C 为 `CAN`/`LIN`，�
 
 单元格公式中对本工作簿两个端口页的直接引用按最终页名同步改写（包括截断、重名后缀和旧页名）。
 公式中的字符串常量、外部工作簿引用不改写；指向未复制工作表的直接引用记录 `WARNING` 并保留原文。
+无法解析或不支持改写的公式（如数据表公式）原样保留并记录 `WARNING`，不中断本次转换。
 不计算公式或保留公式缓存；合并文件需在 Excel 中重新计算。`INDIRECT` 等通过文本构造的引用、
 工作簿级名称及其他未复制对象的依赖不自动迁移，需在 Excel 中检查，或在源表中粘贴为值后运行。
 

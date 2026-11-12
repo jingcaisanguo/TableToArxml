@@ -27,7 +27,7 @@ src/table_to_arxml/             唯一的 Python 包，打进 wheel
     swc/                        table-to-swc-arxml
 tools/                          模板生成、wheel 实测和用户文档打包，不打进 wheel
 third_party/                    移植时按需选用的第三方脚本，不归本工程维护，见 third_party/README.md
-docs/user/                      对外的使用说明（含 SWC 空白模板）
+docs/user/                      对外的使用说明（含 SWC 空白模板和绿表空白模板）
 docs/dev/                       本工程说明（本目录）
 test/                           测试代码、测试数据和基线产物，见 test/README.md
 .github/workflows/              CI：tests.yml、wheel.yml、release.yml
@@ -63,7 +63,8 @@ table-to-swc-arxml --help
 | [config_file.py](../../src/table_to_arxml/common/config_file.py) | 读取 TOML 配置文件（其他扩展名兼容旧版本按 JSON 读取），返回顶层表；字段校验由各工具负责 |
 | [messages.py](../../src/table_to_arxml/common/messages.py) | 去除 ANSI 控制码、合并为单行的消息文本 |
 | [dependencies.py](../../src/table_to_arxml/common/dependencies.py) | 依赖可导入性与 armodel 版本检查 |
-| [logs.py](../../src/table_to_arxml/common/logs.py) | 日志文件与控制台输出、ERROR 收集 |
+| [logs.py](../../src/table_to_arxml/common/logs.py) | 日志文件与控制台输出、ERROR/WARNING 计数；消息关联表格行时追加 `[sheet!row]` 位置 |
+| [report.py](../../src/table_to_arxml/common/report.py) | 逐行结果：表格行来源 `Source`、`rows()`/`each()` 日志上下文、`record()` 记录行结果、派生行到来源行的 `link()`；结果工作簿、差异文件和 `RESULT` 结论行 |
 | [arxml_list.py](../../src/table_to_arxml/common/arxml_list.py) | ARXML 清单读取和 `excludeArxml`/正则排除，两个工具同一套规则 |
 | [output.py](../../src/table_to_arxml/common/output.py) | 单文件原子替换（短临时名、保留原文件权限位及 Windows 隐藏/系统属性，不保留 ACL/属主）；盘符或共享根不存在时立即报错；批量失败时尽力回滚并汇总恢复失败路径 |
 | [paths.py](../../src/table_to_arxml/common/paths.py) | 字面路径优先的 glob 展开、文件身份与输出冲突检查；`absolute_path`/`path_key` 取代对用户路径的 `Path.resolve()`，`path_exists`/`is_file`/`is_dir` 不因权限错误抛异常 |

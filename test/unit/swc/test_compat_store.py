@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from table_to_arxml.common.paths import validate_output_paths
@@ -98,6 +100,7 @@ def test_output_overlap_error_names_the_swc_option(tmp_path, target, monkeypatch
 
 
 def test_shared_compu_method_planned_in_the_same_step_is_compared(target, caplog):
+    caplog.set_level(logging.INFO)
     store = SourceStore([target])
     values = (("0", "Off"), ("1", "On"))
     result = apply_enumerations([

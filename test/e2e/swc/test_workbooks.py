@@ -13,7 +13,7 @@ SAMPLE = ROOT / "test" / "samples" / "swc" / "SwcTestPorts.xlsx"
 TEMPLATE = ROOT / "docs" / "user" / "swc" / "SwcTemplate.xlsx"
 SHEETS = [
     "README", "Components", "Enumerations", "Arrays", "Structures",
-    "SR-Interfaces", "CS-Interfaces", "P-Ports", "R-Ports", "Data Accesses",
+    "SR-Interfaces", "CS-Interfaces", "P-Ports", "R-Ports", "Data Accesses", "ComSpecs", "CS Operations",
 ]
 COMMON_PORT_HEADERS = [
     "SW-C", "Port Name", "Port Interface Ref", "Create RTE Artifact", "Runnable Name", "Access Kind",
@@ -44,7 +44,7 @@ def test_workbook_layout_and_validation(path):
             assert sheet.sheet_view.showGridLines is False
             assert sheet.sheet_view.topLeftCell == "A1"
             assert all(selection.activeCell == "A2" for selection in sheet.sheet_view.selection)
-            assert sheet.freeze_panes == ("C2" if name in ("P-Ports", "R-Ports", "Data Accesses") else "A2")
+            assert sheet.freeze_panes == ("A2" if name in SHEETS[1:7] else "C2")
             assert sheet["A1"].hyperlink.location == f"'README'!A{sections[name]}"
             assert sheet.sheet_properties.tabColor is not None
             assert sheet.auto_filter.ref is None

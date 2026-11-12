@@ -33,7 +33,7 @@ CONFIG_KEYS = frozenset({
     "outputPrefix", "greenTables", "whiteTable", "tresosPreferenceFiles", "arxmlFileList", "strictList",
     "tresosOutputBaseDir", "excludeArxmlPatterns", "excludeArxml", "general", "componentAliases",
     "prototypePrefix", "e2eWrapperComponent", "signalPathTemplate", "arRelease", "interfaceMismatch",
-    "interfaceMappings", "generateSystem", "outputMode",
+    "interfaceMappings", "generateSystem", "outputMode", "dryRun",
 })
 GENERAL_CONFIG_KEYS = frozenset({"Composition", "System", "EcuInstance", "RootSwCompositionPrototype", "systemMapping"})
 INTERFACE_MAPPING_KEYS = {"providerInterface", "requesterInterface", "dataElements"}
@@ -58,6 +58,7 @@ class RunOptions:
     exclude_arxml: tuple[str, ...] | None = None
     strict_list: bool | None = None
     output_mode: str | None = None
+    dry_run: bool | None = None
 
 
 def _load_config(config_path: Path) -> dict:
@@ -225,6 +226,8 @@ class Job:
     tresos_output_dir: Path | None
     strict_list: bool
     output_mode: str
+    # 只生成并校验，不发布产物；此时 outputDir 可省略。
+    dry_run: bool = False
     green_tables: list[tuple[str, Path]] = field(default_factory=list)
     # 加载 ARXML 前预校验时解析的输入表，生成阶段直接复用，不再重复读取 Excel。
     green_infos: list[GreenWorkbookInfo] = field(default_factory=list)
@@ -254,6 +257,7 @@ def _prepare_job(
         "excludeArxml": None if options.exclude_arxml is None else list(options.exclude_arxml),
         "strictList": options.strict_list,
         "outputMode": options.output_mode,
+        "dryRun": options.dry_run,
     }
     for key, value in overrides.items():
         if value is None:
@@ -373,12 +377,25 @@ def _prepare_job(
         tresos_output_dir=tresos_output_dir,
         strict_list=_boolean_option(config, "strictList", False),
         output_mode=output_mode,
+        dry_run=_boolean_option(config, "dryRun", False),
     )
+
+
+def resolve_dry_run(jobs: list[Job]) -> bool:
+    """命令行 ``--dry-run`` 已写入各配置；否则各配置的 dryRun 必须一致。"""
+
+    values = {job.dry_run for job in jobs}
+    if len(values) > 1:
+        raise ConfigError("config.dryRun differs across configs; use --dry-run to override")
+    return values.pop()
 
 
 def resolve_run_directory(
     jobs: list[Job], cli_value: str | None, attribute: str, config_key: str, cli_option: str,
-) -> Path:
+    *, optional: bool = False,
+) -> Path | None:
+    """命令行优先，否则各配置必须给出同一目录；``optional`` 时所有配置都未给出则返回 ``None``。"""
+
     if cli_value is not None:
         if not isinstance(cli_value, str) or not cli_value.strip():
             raise ConfigError(f"{cli_option} must specify a nonempty directory")
@@ -387,6 +404,8 @@ def resolve_run_directory(
         except ValueError as error:
             raise ConfigError(f"{cli_option}: {clean_message(error)}") from error
 
+    if optional and all(getattr(job, attribute) is None for job in jobs):
+        return None
     directories: list[Path] = []
     for job in jobs:
         directory = getattr(job, attribute)
@@ -513,5 +532,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--white-table",
         help="Use this white table as input (white mode) regardless of config 'greenTables'/'whiteTable'",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=None,
+        help="Generate and validate everything but publish nothing; --output-dir becomes optional. "
+             "Overrides config.dryRun",
     )
     return parser

@@ -51,6 +51,8 @@
 | `P-Ports` | 新建提供端口 | 一个端口 |
 | `R-Ports` | 新建请求端口 | 一个端口 |
 | `Data Accesses` | 逐元素新建数据访问点（高级用法） | 一个访问点 |
+| `ComSpecs` | 为本次新建端口逐个数据元素配置 ComSpec（高级用法） | 一个端口的一个数据元素 |
+| `CS Operations` | 为 CS 端口逐个 operation 指定 runnable 及属性（高级用法） | 一个端口的一个 operation（R 端口：一个调用方 runnable） |
 
 工作表和列名只接受本文规定的名称，不识别别名。请从当前模板开始填写。
 
@@ -301,6 +303,7 @@ LIT | /BcmSystem/SwComponentTypes/LIT
 `SW-IMPL-POLICY` 决定（constr_1129–1132）：`QUEUED` 为队列元素，其他取值或未设置为非队列元素。
 仅填 `N` 或 `Queue Length=0` 不会触发；超时明确填写 `0` 则会触发。
 全部留空不生成 `PROVIDED-COM-SPECS` / `REQUIRED-COM-SPECS`。
+端口行的 ComSpec 列作用于接口的全部适用元素；需要各元素取不同值，或只为部分元素生成时，改用 [ComSpecs](#comspecs) 页。
 
 | 端口 | 条件 | 适用元素 | 生成的 ComSpec |
 | --- | --- | --- | --- |
@@ -353,6 +356,7 @@ CS 生成对象的名称：
 同一 runnable 中的调用点同理），此时记录 `ERROR` 并列出两个请求，需填写 `Runnable Name` 或修改端口、operation 名称。
 复用已有 runnable 时，其未写的 `SYMBOL`、`MINIMUM-START-INTERVAL`、`CAN-BE-INVOKED-CONCURRENTLY` 按 AUTOSAR 缺省值
 （runnable 名称、`0`、`false`）与工作簿比较。
+需要为不同 operation 指定不同 runnable、`SYMBOL` 或属性时，改用 [CS Operations](#cs-operations) 页。
 
 ## Data Accesses
 
@@ -371,7 +375,7 @@ CS 生成对象的名称：
 `SW-C` + `Runnable Name` + `Port Name` + `Data Element Name` + `Access Kind` 组合（名称区分大小写）不能重复，同一元素可用不同类别访问。
 解析出数据元素后，runnable、类别、端口和数据元素相同的请求（包括端口页 `Create RTE Artifact=Y` 展开的请求）合并为一个，
 `INFO` 记录；它们填写了不同的 `Access Name` 时记录 `ERROR`。runnable 中已有同类别、引用相同端口和数据元素的访问点时，
-不论名称直接复用，记录 `WARNING ... already exists as <名称>; skipped`。
+不论名称直接复用，记录 `INFO ... already exists as <名称>; skipped`。
 
 | Access Kind（不区分大小写） | 容器 | 端口方向 | 自动名称前缀 |
 | --- | --- | --- | --- |
@@ -398,3 +402,42 @@ runnable 必须已存在；缺少访问点容器时，工具会按 AUTOSAR schem
 ```
 
 自动命名规则见 [README.md](README.md#命名规则)。
+
+## ComSpecs
+
+为 `P-Ports` / `R-Ports` 页中本次新建的端口逐个数据元素配置 ComSpec，一行一个数据元素，只为列出的元素生成，各元素取本行的值。
+
+| 列 | 必填 | 适用端口 | 说明 |
+| --- | --- | --- | --- |
+| `SW-C` | 是 | — | 必须是 `Components` 中的简称 |
+| `Port Name` | 是 | — | 本工作簿 `P-Ports` / `R-Ports` 页中的端口；不支持 ARXML 中的已有端口 |
+| `Data Element Name` | 是 | — | 端口接口中的数据元素；同一端口每个元素最多一行 |
+| `Enable Update` | 否 | R | `Y` 时为该非队列元素生成 `NONQUEUED-RECEIVER-COM-SPEC`（`ENABLE-UPDATE=true`）；队列元素 `WARNING` 并忽略 |
+| `Queue Length` | 否 | R | 正整数时为该队列元素生成 `QUEUED-RECEIVER-COM-SPEC`；非队列元素 `WARNING` 并忽略；`0` 或留空不生成 |
+| `Transmission Acknowledge Timeout` | 否 | P | 非负秒数；非空（含 `0`）时为该元素生成发送 ComSpec 并写出超时 |
+| `Uses End To End Protection` | 否 | P | `Y` 时为该元素生成发送 ComSpec 并设置 E2E 标志 |
+
+- 每行至少填写一个 ComSpec 列；填写了与端口方向不符的列（如 R 端口填 `Uses End To End Protection`）时 `ERROR`。
+- 同一端口不能同时在端口行和本页配置 ComSpec：端口行已填写 ComSpec 列时 `ERROR` 并跳过该端口。
+- 本页某行出错时，对应端口整体不生成（结果表标为“依赖的对象有错误，未处理”），避免只生成部分 ComSpec。
+- 数据元素不在接口中时 `ERROR` 并跳过该端口。端口已存在时，按本页列出的元素与已有 ComSpec 比较。
+
+## CS Operations
+
+为 CS 端口逐个 operation 指定 runnable 及属性，端口可以是本次新建的，也可以是 ARXML 中已有的 P/R 端口。
+使用本页时，该端口行的 `Create RTE Artifact` 一般留空或 `N`；两处都填写时，同一 P 端口 operation 解析出的 runnable 或属性必须相同，否则 `ERROR`。
+
+| 列 | 必填 | 说明 |
+| --- | --- | --- |
+| `SW-C` | 是 | 必须是 `Components` 中的简称 |
+| `Port Name` | 是 | 本次新建或已有的 CS 端口；端口必须引用 ClientServerInterface |
+| `Operation Name` | 是 | 接口中的 operation；不存在时 `ERROR` |
+| `Runnable Name` | R 端口必填 | P 端口：为该 operation 新建的 runnable 名（不追加后缀），留空为 `RE_<端口>_<operation>`；R 端口：调用该 operation 的已有或本次新建 runnable，可用多行列出多个 runnable |
+| `Runnable Symbol` | 否 | 仅 P 端口；新建 runnable 的 `SYMBOL`，留空与 runnable 名相同 |
+| `Minimum Start Interval` | 否 | 仅 P 端口；非负秒数，留空为 `0.0` |
+| `Can Be Invoked Concurrently` | 否 | 仅 P 端口；留空为 `N` |
+
+- P 端口每个 operation 生成一个 `RUNNABLE-ENTITY` 和一个 `OPERATION-INVOKED-EVENT`；R 端口每行生成一个 `SYNCHRONOUS-SERVER-CALL-POINT`（`TIMEOUT` 固定为 `0.0`）。
+- R 端口行填写了仅适用于 P 端口的列时 `WARNING` 并忽略这些列。
+- `SW-C` + `Port Name` + `Operation Name` + `Runnable Name` 组合不能重复。
+- 端口本身出错时，本页对应行不再单独报错，结果表标为“依赖的对象有错误，未处理”。

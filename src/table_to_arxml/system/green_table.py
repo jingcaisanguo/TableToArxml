@@ -7,16 +7,18 @@ J 为对端端口（总线行为信号），K 为备注。R-Port、P-Port 两页
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
+from ..common import report
 from ..common.names import short_name
 from ..common.openpyxl_compat import copy_worksheet
 from ..common.paths import absolute_path, expand_path, filesystem_path, is_file, path_key
+from ..common.report import Source
 from .values import norm
 from .white_table import data_rows, open_input_workbook
 
@@ -41,7 +43,7 @@ class GreenRow:
     """绿表 R-Port/P-Port 页的一行有效数据。
 
     ``app_port`` 在 R-Port 页是 app 的 R-port，在 P-Port 页是 P-port；``peer``、``peer_port``
-    是对端组件和端口，对端模块为 CAN/LIN 时分别是通道名和信号名。
+    是对端组件和端口，对端模块为 CAN/LIN 时分别是通道名和信号名。``book``、``sheet`` 为来源绿表和实际页签名。
     """
 
     app_port: str
@@ -51,6 +53,13 @@ class GreenRow:
     data_element: str
     remark: str
     excel_row: int
+    # 来源信息不参与比较：同一内容来自不同文件或旧页名时仍视为相同的行。
+    book: str = field(default="", compare=False)
+    sheet: str = field(default="", compare=False)
+
+    @property
+    def source(self) -> Source:
+        return (self.book, self.sheet, self.excel_row)
 
 
 @dataclass(frozen=True)
@@ -96,24 +105,29 @@ def _check_green_header(ws, green_path: Path, sheet: str) -> None:
             "B=port, C=module, I=*Component, J=*port")
 
 
-def _read_green_rows(ws, location: str, errors: list[str]) -> list[GreenRow]:
+def _read_green_rows(ws, location: str, errors: list[tuple[str, Source]], book: str = "") -> list[GreenRow]:
     rows: list[GreenRow] = []
     for excel_row, row in enumerate(data_rows(ws, min_row=2), start=2):
         app_port, module, data_element, peer, peer_port, remark = (
             norm(row[index]) if index < len(row) else "" for index in (1, 2, 7, 8, 9, 10))
         if not any([app_port, module, peer, peer_port]):
             continue
+        source = (book, ws.title, excel_row)
         # I/J 同时为空时静默跳过；仅一列为空且备注未说明预留用途时报错。
         if not peer and not peer_port:
+            report.record([source], report.RESERVED if _is_reserved_remark(remark) else report.EMPTY)
             continue
         if not peer or not peer_port:
-            if not _is_reserved_remark(remark):
-                errors.append(f"{location} row {excel_row}: column I or J is empty")
+            if _is_reserved_remark(remark):
+                report.record([source], report.RESERVED)
+            else:
+                errors.append((f"{location} row {excel_row}: column I or J is empty", source))
             continue
         if not app_port:
-            errors.append(f"{location} row {excel_row}: column B is empty")
+            errors.append((f"{location} row {excel_row}: column B is empty", source))
             continue
-        rows.append(GreenRow(app_port, module, peer, peer_port, data_element, remark, excel_row))
+        report.touch([source])
+        rows.append(GreenRow(app_port, module, peer, peer_port, data_element, remark, excel_row, book, ws.title))
     return rows
 
 
@@ -126,15 +140,15 @@ def parse_green_workbook(green_path: Path, app_name: str) -> GreenWorkbookInfo:
     workbook = open_input_workbook(green_path)
     try:
         receive_sheet, send_sheet = _green_sheet_names(workbook.sheetnames, green_path)
-        errors: list[str] = []
+        errors: list[tuple[str, Source]] = []
         rows: dict[str, list[GreenRow]] = {}
         for sheet in (receive_sheet, send_sheet):
             _check_green_header(workbook[sheet], green_path, sheet)
-            rows[sheet] = _read_green_rows(workbook[sheet], f"{green_path} {sheet}", errors)
+            rows[sheet] = _read_green_rows(workbook[sheet], f"{green_path} {sheet}", errors, str(green_path))
     finally:
         workbook.close()
-    for message in errors:
-        LOGGER.error("%s", message)
+    for message, source in errors:
+        LOGGER.error("%s", message, extra=report.located([source]))
     if errors:
         raise ValueError(f"{green_path}: {len(errors)} invalid row(s)")
     return GreenWorkbookInfo(app_name, rows[receive_sheet], rows[send_sheet])

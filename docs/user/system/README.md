@@ -9,6 +9,7 @@
 | --- | --- |
 | [configuration.md](configuration.md) | TOML 配置参数、路径基准、优先级、General 与 AUTOSAR 引用 |
 | [green-table-rules.md](green-table-rules.md) | 绿表命名、列定义、连接方向、CAN/LIN、去重、转换示例 |
+| [GreenTableTemplate.xlsx](GreenTableTemplate.xlsx) | 绿表空白模板，带列说明批注；另存为 `<模块名>.xlsx` 后填写 |
 | [white-table-format.md](white-table-format.md) | 白表页签、列定义、取值规则及生成语义 |
 | [arxml-and-errors.md](arxml-and-errors.md) | EB 清单生成、lst 读取、排除规则、日志、退出码及排错 |
 
@@ -41,9 +42,9 @@
 
 ## 运行方式
 
-必须用 `--config` 指定至少一个配置文件，不读取任何默认配置；产物和日志目录也必须显式指定：在配置中提供 `outputDir`、`logDir`，或传入 `--output-dir`、`--log-dir`。缺少任一项就打印用法并以退出码 `2` 结束，不创建默认目录。
+必须用 `--config` 指定至少一个配置文件，不读取任何默认配置；产物和日志目录也必须显式指定：在配置中提供 `outputDir`、`logDir`，或传入 `--output-dir`、`--log-dir`。缺少任一项就打印用法并以退出码 `2` 结束，不创建默认目录。`--dry-run`（或配置 `dryRun = true`）时产物目录可省略。
 
-退出码：`0` 成功并已发布；`1` 运行失败（输入表、ARXML、转换或写出错误），不发布本次产物；`2` 命令行或配置错误（含未指定 `--config`、配置文件缺失、语法错误、未知键、必填项缺失），打印用法，不创建日志。
+退出码：`0` 成功并已发布（`--dry-run` 时为生成和校验通过）；`1` 运行失败（输入表、ARXML、转换或写出错误），不发布本次产物；`2` 命令行或配置错误（含未指定 `--config`、配置文件缺失、语法错误、未知键、必填项缺失），打印用法，不创建日志。
 
 ```powershell
 # 指定配置文件。
@@ -60,6 +61,9 @@ table-to-system-arxml --config ./config/system.toml --arxml-file-list ./cfg/vari
 
 # 直接由白表生成 ARXML。
 table-to-system-arxml --config ./config/system.toml --white-table ./tables/BcmWhiteTable.xlsx
+
+# 只生成和校验，不发布；先看结果表和差异再正式运行。
+table-to-system-arxml --config ./config/system.toml --dry-run
 
 # 查看参数或输出更详细的诊断。
 table-to-system-arxml --help
@@ -88,6 +92,7 @@ config 写了 `arxmlFileList` 就只读该清单，`tresosPreferenceFiles` 可�
 | `--log-level` | 覆盖 `logLevel`，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`，不区分大小写 |
 | `--white-table` | 强制白表模式并使用该白表，忽略 config 的 `greenTables`/`whiteTable`；未传时按 config 中写了哪个字段自动选择模式；只能配合单个 `--config` |
 | `--output-mode` | 覆盖 `outputMode`，`replace` 为默认完整生成；`merge` 以 lst 中唯一同名 base 的完整内容为输出起点，仅追加表格请求的缺失对象及必要依赖 |
+| `--dry-run` | 覆盖 `dryRun`：完整生成并校验全部产物，但不发布；`--output-dir`/`outputDir` 可省略，给出时只用于发布前路径检查和差异比较 |
 
 ### 输出模式
 
@@ -136,6 +141,7 @@ table-to-system-arxml --config ./config/system.toml --output-mode merge
 - 按 `--config` 顺序依次生成；前一个配置新生成的 ARXML 会追加到模型中，因此被引用的配置要排在前面（例如 B 配置引用 A 配置新增的实例时，A 须在前）。
 - 各配置的 `outputPrefix` 不能重复或仅大小写不同，开始生成前会检查最终输出路径；未传 `--log-level` 时，各配置写了的 `logLevel` 必须一致，否则报错。
 - 未传 `--output-dir` 或 `--log-dir` 时，每份配置必须提供对应的 `outputDir` 或 `logDir`，且各自解析后的目录必须一致。
+- 未传 `--dry-run` 时，各配置的 `dryRun` 必须一致。
 - 任一配置失败则全部不发布。
 
 输入表格在加载 ARXML 前校验：绿表须有 R-Port/P-Port 页（仅兼容旧 INPUT/OUTPUT 工作簿；RECEIVE/SEND 不兼容），表头 B、C 非空，I 含 `Component`、J 含 `port`；白表须有 General/Components 页且各页表头与工具布局一致、General 四项齐全。R-Port/P-Port 分别对应当前模块的接收端口和发送端口。全部输入表检查完后再报错退出，一次列出所有问题；后续的绿表转换和白表引用解析同样逐行记录错误，处理完再失败。armodel 加载 ARXML 时的报错按 ERROR 打印，但不影响退出码。
@@ -153,6 +159,8 @@ table-to-system-arxml --config ./config/system.toml --output-mode merge
 | `BcmSystem.arxml` | 本次生成的 Composition、System 及映射，不是全工程模型的完整导出 |
 | `variantA.lst` | 仅 EB 模式在产物目录生成；复用已有 lst 时不会复制或重新生成此文件 |
 | `table_to_system_arxml_<时间含微秒>_<进程号>.log` | 在显式指定的 `--log-dir` 或 `logDir` 下记录本次运行日志 |
+| `<日志名>_result.xlsx` | 日志目录下的逐行结果工作簿，见下文“运行结果” |
+| `<日志名>.diff` | 日志目录下本次 ARXML 产物与输出目录中上次产物（merge 模式无上次产物时为 base）的统一 diff；首次生成只记录新文件行数 |
 
 只有整次转换成功才覆盖同名产物，不会自动清理其他旧文件。工具自身的 ERROR 或运行异常阻止本次发布；armodel 解析器诊断不单独影响退出码，但仍需检查是否影响工程所需内容。失败时清理临时文件，发布失败尝试回滚，日志保留。不同变体使用相同 `outputPrefix` 时仍需分次运行并用 `--output-dir` 分目录；不要并发发布到同一个产物目录。
 
@@ -160,6 +168,31 @@ table-to-system-arxml --config ./config/system.toml --output-mode merge
 （包括符号链接、junction 和硬链接）。重合时记录 `ERROR`、不发布任何产物；请改用独立输出目录。
 
 工具本身不把产物复制回工程；需要分发时由调用方的构建流程复制，并仅在退出码为 0 时复制。
+发布成功后日志逐个记录 `Published: <最终路径>`；中间过程中的临时目录路径只在 `DEBUG` 级别出现。
+
+### 运行结果
+
+每次运行（包括失败和 `--dry-run`）都在日志目录写出 `<日志名>_result.xlsx`，最后一行日志为结论，例如：
+
+```text
+INFO: RESULT: SUCCESS - table_to_system_arxml: 0 error(s), 1 warning(s); 3 artifact(s) published to D:\out
+```
+
+结论为 `SUCCESS`（已发布）、`DRY-RUN`（只生成和校验）或 `FAILED`（未发布），并给出 `ERROR`、`WARNING` 数量（不重复计入最后的失败汇总行）。
+结果工作簿包含：
+
+| 页签 | 内容 |
+| --- | --- |
+| `运行结果` | 结论、配置、输出目录、发布的产物、差异文件，以及未关联到表格行的消息 |
+| `<模块>_R-Port`、`<模块>_P-Port` | 每张绿表的内容（只含值），右侧追加“结果 / 对象 / 目标文件 / 说明”；绿表行的结果来自它生成的白表行，例如生成的连接器路径 |
+| `<outputPrefix>W_<页>` | 白表各页（绿表模式为本次生成的白表）及逐行结果 |
+| `ARXML 对象` | 本次新建、复用或引用的对象路径及来源行（白表行和对应的绿表行） |
+
+“结果”列的取值包括 `新建`（`--dry-run` 时为“将新建（预演，未写出）”，失败时为“可新建（本次有错误，未写出）”）、
+`复用已有对象`、`引用已有实例`、`重复声明，已合并`、`按配置跳过`、`未填写连接，跳过`、`预留行，跳过`、`错误`；
+带“（有警告）”时“说明”列列出对应的 `WARNING`，“提示”是不影响结论的信息（如单侧声明、同一 R-port 有多个发送方）。
+与表格行有关的日志末尾带位置，如 `[BcmWhiteTable.xlsx AssemblySwConnection!3, LIT.xlsx R-Port!5]`。
+结果文件只是报告，写入失败只记录 `WARNING`，不影响退出码和发布。
 
 转换错误由工具自身阻断，不需要另写脚本扫描 ERROR。退出码 0 表示转换和发布成功，但不替代工程集成及完整 AUTOSAR XSD/语义验证。具体边界见 [arxml-and-errors.md](arxml-and-errors.md)。
 
